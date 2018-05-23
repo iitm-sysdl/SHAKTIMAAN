@@ -26,8 +26,12 @@ Author: Vinod G
 Email id: g.vinod1993@gmail.com
 Details: Runtime Configurable 16-bit Multiplier
 
-Verification Status: Unverified
-FPGA/ASIC Synthesis Status: Not Synthesized Yet
+Verification Status: Partially Verified (16-bit complete verification and random tests remaining)
+FPGA/ASIC Synthesis Status: 
+Initial FPGA results
+LUT : 451
+FF  : 66
+Worst Negative Slack: 0.266ns (10ns Clock)
 
 //TODO
 Add Specific logic to flush out Accumulator when the value in Systolic is taken out
@@ -45,6 +49,7 @@ package intMul;
     method ActionValue#(Bit#(32)) acc_output;
   endinterface
 
+  (*synthesize*)
   module mkintMul(Ifc_intMul);
     Reg#(Bit#(32))          rg_acc       <- mkReg(0);
     Reg#(Maybe#(Bit#(16)))  rg_north     <- mkReg(tagged Invalid);
@@ -66,10 +71,31 @@ package intMul;
       Int#(16) partial_output_vector1=0;
       Int#(16) partial_output_vector2=0;
       Int#(32) output_vector = 0;
+      Bit#(8) north_upper = 0;
+      Bit#(8) north_lower = 0;
+      Bit#(8) west_upper  = 0;
+      Bit#(8) west_lower  = 0;
+      Bit#(16) north_full = north;
+      Bit#(16) west_full = west;
+      bit pp1_sign = north[7]^west[7];
+      bit pp2_sign = north[15]^west[15];
       $display("\t North : %b \n \t West: %b \n",north,west);
+      if(rg_bitWidth == 2'b01) begin
+         north_upper = north[15]==1? ~north[15:8]+1 : north[15:8];
+         north_lower = north[7]==1? ~north[7:0]+1 : north[7:0];
+         west_upper  = west[15]==1? ~west[15:8]+1 : west[15:8];
+         west_lower  = west[7]==1? ~west[7:0]+1 : west[7:0];
+         north_full = {north_upper,north_lower};
+         west_full  = {west_upper, west_lower};
+      end
+      else if (rg_bitWidth == 2'b10) begin
+        north_full = north[15]==1? ~north+1 : north;
+        west_full  = west[15]==1? ~west+1 : west;
+      end
+      $display("\t north: %b west: %b north_full: %b west_full:%b",north,west,north_full,west_full);
       for(Integer i = 0; i < 16; i=i+4) begin
-        vec_north[i/4] = unpack(north[i+3:i]);
-        vec_west[i/4]  = unpack(west[i+3:i]);
+        vec_north[i/4] = unpack(north_full[i+3:i]);
+        vec_west[i/4]  = unpack(west_full[i+3:i]);
         vec_acc[i/4]   = unpack(rg_acc[i+3:i]);
       end
      
@@ -79,24 +105,25 @@ package intMul;
         for(Integer j = 0; j < 4 ; j = j+1) begin
           vec_partial[i][j] = extend(vec_west[i])*extend(vec_north[j]);  //4-bit partial products
           //Will this extend infer an 8-bit mul?
-          //$display(" vec_west[%d]: %b vec_north[%d]: %b Product %b",i,vec_west[i],j,vec_north[j],vec_partial[i][j]);
+          $display(" vec_west[%d]: %b vec_north[%d]: %b Product %b",i,vec_west[i],j,vec_north[j],
+          vec_partial[i][j]);
         end
       end
       //8-bit Shifts!
       //Is this optimal? I don't think so!!!
-      Integer k = 0;  
       for(Integer i=0; i<2; i=i+1)begin
         for(Integer j=0; j<2;j=j+1) begin
-          partial_output_vector1 = partial_output_vector1 + extend(vec_partial[i][j] <<
-          4*k);
-          partial_output_vector2 = partial_output_vector2 + extend(vec_partial[i+2][j+2] <<
-          4*k);
-          k=k+1;
-          $display("\t p1: %b, p2: %b, k: %d",partial_output_vector1,partial_output_vector2,k);
+          partial_output_vector1 = partial_output_vector1 + (zeroExtend(vec_partial[i][j]) <<
+          4*i+4*j);
+          partial_output_vector2 = partial_output_vector2 + (zeroExtend(vec_partial[i+2][j+2]) <<
+          4*i+4*j);
+          $display("\t p1: %b, p2: %b",partial_output_vector1,partial_output_vector2);
+          $display("\t vec_partial[%d][%d] : %b vec_partial[%d][%d] : %b",i,j,vec_partial[i][j],i,j
+          ,vec_partial[i+2][j+2]);
         end
       end
 
-      //16-bit shifts
+      //16-bit shifts --- Bug to be fixed for 16-bit
       for(Integer i=0; i<4; i=i+1)begin
         for(Integer j=0; j<4; j=j+1)begin
           output_vector = output_vector + extend(vec_partial[i][j] << (16*i+4*j));
@@ -111,7 +138,9 @@ package intMul;
                         });
       end
       else if(rg_bitWidth == 2'b01) begin  //2 8-bit numbers
-        output_vector = unpack({pack(partial_output_vector1),pack(partial_output_vector2)});
+        output_vector =
+        unpack({pp2_sign==1?pack(~partial_output_vector2+1):pack(partial_output_vector2),
+                pp1_sign==1?pack(~partial_output_vector1+1):pack(partial_output_vector1)});
       end
       rg_acc <= pack(output_vector);
       rg_north <= tagged Invalid;
@@ -148,9 +177,12 @@ package intMul;
     Reg#(int) cnt <- mkReg(0);
 
     rule start(cnt == 0);
-      intMul.from_north(16'b0101010101010101, 2'b10);
-      intMul.from_west(16'b1010101010101010);
-      $display($time," \t Sending Inputs to Multiplier Unit");
+      Int#(8) a = 8'b01100001;
+      Int#(8) b = 8'b01010001;
+      Int#(16) c = extend(a)*extend(b);
+      intMul.from_north(16'b0110000101100001, 2'b00);
+      intMul.from_west(16'b0101000101010001);
+      $display($time," \t Sending Inputs to Multiplier Unit, expected output: %b",c);
       cnt <= cnt+1;
     endrule
 
@@ -164,8 +196,5 @@ package intMul;
         $finish(0);
     endrule
 
-
   endmodule
-
-
 endpackage
