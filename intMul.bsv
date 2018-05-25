@@ -39,8 +39,8 @@ LUT : 600
 FF  : Same
 WNS : 0 (10ns Clock)
 
-
 Optimization Status: Design Unoptimized
+Parameterization Status: Not Parameterized Yet
 
 //TODO
 Add Specific logic to flush out Accumulator when the value in Systolic is taken out
@@ -50,13 +50,17 @@ Add Specific logic to flush out Accumulator when the value in Systolic is taken 
 package intMul;
   import Vector::*;
   import LFSR::*; 
+  import GetPut::*;
   interface Ifc_intMul;
-    method Action from_north(Bit#(16) col, Bit#(2) bitWidth); 
+    interface Put#(Bit#(16)) from_north;
+    interface Put#(Bit#(2)) bitWidth;
     //bitWidth: 00 - 4-bit, 01 - 8-bit, 10 - 16-bit MAC
-    method Action from_west(Bit#(16) row);
-    method Maybe#(Bit#(16)) to_south;
-    method Maybe#(Bit#(16)) to_east;
-    method ActionValue#(Bit#(32)) acc_output;
+    interface Put#(Bit#(16)) from_west;
+    interface Get#(Maybe#(Bit#(16))) to_south;
+    interface Get#(Maybe#(Bit#(16))) to_east;
+    interface Get#(Bit#(2)) bitSouth;
+
+    method ActionValue#(Bit#(32)) acc_output;  //This needs to be addressed sometime soon
   endinterface
 
   (*synthesize*)
@@ -167,31 +171,51 @@ package intMul;
       $display($time,"\t The output is : %b",pack(output_vector));
     endrule
 
-    method Action from_north(Bit#(16) col, Bit#(2) bitWidth);
-      rg_north <= tagged Valid col;
-      rg_bitWidth <= bitWidth;
-    endmethod
+    interface Put from_north;
+      method Action put(Bit#(16) col);
+        rg_north <= tagged Valid col;
+      endmethod
+    endinterface
+
+    interface Put bitWidth;
+      method Action put(Bit#(2) bitWidth);
+        rg_bitWidth <= bitWidth;
+      endmethod
+    endinterface
     
-    method Action from_west(Bit#(16) row);
-      rg_west <= tagged Valid row;
-    endmethod
+    interface Put from_west;
+      method Action put(Bit#(16) row);
+        rg_west <= tagged Valid row;
+      endmethod
+    endinterface
+    
+    interface Get to_east;
+      method ActionValue#(Maybe#(Bit#(16))) get;
+        return rg_west;
+      endmethod
+    endinterface
 
-    method Maybe#(Bit#(16)) to_east;
-      return rg_west;
-    endmethod
+    interface Get to_south;
+      method ActionValue#(Maybe#(Bit#(16))) get;
+        return rg_north;
+      endmethod
+    endinterface
 
-    method Maybe#(Bit#(16)) to_south;
-      return rg_north;
-    endmethod
+    interface Get bitSouth;
+      method ActionValue#(Bit#(2)) get;
+        return rg_bitWidth;
+      endmethod
+    endinterface
 
     //This is still a fanout Signal right??!!!!
     method ActionValue#(Bit#(32)) acc_output;
       rg_acc <= 0;
       return rg_acc;
     endmethod
+
   endmodule
 
-  module mkTb(Empty);
+  /*module mkTb(Empty);
     Ifc_intMul intMul <- mkintMul();
     Reg#(int) cnt <- mkReg(0);
     Reg#(int) count <- mkReg(0);
@@ -231,7 +255,7 @@ package intMul;
 			inter[0] = extend(unpack(pack(a)[3:0]))*extend(unpack(pack(b)[3:0]));
       rg_output <= unpack({pack(inter[3]),pack(inter[2]),pack(inter[1]),pack(inter[0])});*/
 			
-      $display($time," \t Sending Inputs to Multiplier Unit, a: %b b: %b",a,b);
+     /* $display($time," \t Sending Inputs to Multiplier Unit, a: %b b: %b",a,b);
       cnt <= cnt+1;
     endrule
 
@@ -255,5 +279,5 @@ package intMul;
       if(count=='d9999)
         $finish(0);
     endrule
-  endmodule
+  endmodule*/
 endpackage
