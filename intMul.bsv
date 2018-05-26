@@ -52,10 +52,10 @@ package intMul;
   import LFSR::*; 
   import GetPut::*;
   interface Ifc_intMul;
-    interface Put#(Bit#(16)) from_north;
-    interface Put#(Bit#(2)) bitWidth;
-    //bitWidth: 00 - 4-bit, 01 - 8-bit, 10 - 16-bit MAC
-    interface Put#(Bit#(16)) from_west;
+    interface Put#(Maybe#(Bit#(16))) from_north;
+    interface Put#(Bit#(2)) bitNorth;
+    //bitNorth: 00 - 4-bit, 01 - 8-bit, 10 - 16-bit MAC
+    interface Put#(Maybe#(Bit#(16))) from_west;
     interface Get#(Maybe#(Bit#(16))) to_south;
     interface Get#(Maybe#(Bit#(16))) to_east;
     interface Get#(Bit#(2)) bitSouth;
@@ -172,20 +172,20 @@ package intMul;
     endrule
 
     interface Put from_north;
-      method Action put(Bit#(16) col);
-        rg_north <= tagged Valid col;
+      method Action put(Maybe#(Bit#(16)) col);
+        rg_north <= col;
       endmethod
     endinterface
 
-    interface Put bitWidth;
+    interface Put bitNorth;
       method Action put(Bit#(2) bitWidth);
         rg_bitWidth <= bitWidth;
       endmethod
     endinterface
     
     interface Put from_west;
-      method Action put(Bit#(16) row);
-        rg_west <= tagged Valid row;
+      method Action put(Maybe#(Bit#(16)) row);
+        rg_west <= row;
       endmethod
     endinterface
     
