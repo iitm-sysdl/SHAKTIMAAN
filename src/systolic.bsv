@@ -67,39 +67,35 @@ package systolic;
       let vnRow = valueOf(nRow);
       let vnCol = valueOf(nCol);
       let vnFEntries = valueOf(nFEntries);
-      AXI4_Slave_Xactor_IFC #(addr, data, 0)   s_xactor  <- mkAXI4_Slave_Xactor;
-      Vector#(nRow, FIFOF#(Bit#(16)))    rowBuf          <- replicateM(mkSizedFIFOF(vnFEntries));
-      Vector#(nCol, FIFOF#(Bit#(18)))   colBuf           <- replicateM(mkSizedFIFOF(vnFEntries));
-      Vector#(nRow, Vector#(nCol,Ifc_intMul))  intArray  <- replicateM(replicateM(mkintMul)); 
+      AXI4_Slave_Xactor_IFC #(addr, data, 0)           s_xactor  <- mkAXI4_Slave_Xactor;
+      Vector#(nRow, FIFOF#(Bit#(16)))                  rowBuf    <- replicateM(mkSizedFIFOF(vnFEntries));
+      Vector#(nCol, FIFOF#(Tuple2#(Bit#(16),Bit#(2)))) colBuf    <- replicateM(mkSizedFIFOF(vnFEntries));
+      
+      Ifc_intMul intArray[vnRow][vnCol];
+      for(Integer i = 0; i < vnRow; i=i+1) begin
+        for(Integer j = 0; j < vnCol; j=j+1) begin
+          intArray[i][j] <- mkintMul(fromInteger(i),fromInteger(j));
+        end
+      end
 
       /* Definition of Configuration Registers for Testing with C-Class */
       /* ============================================================== */
 
       /* ==================== Systolic Array Connections ======================*/
-      //Connections in the End Points alone
-      for(Integer i = 0; i < vnCol-1; i=i+1) begin
-        mkConnection(intArray[0][i].to_east, intArray[0][i+1].from_west);
-        mkConnection(intArray[vnCol-1][i].to_east, intArray[vnCol-1][i+1].from_west);
-      end
-
-      for(Integer i = 0; i < vnRow-1; i=i+1) begin
-        mkConnection(intArray[i][0].to_south, intArray[i+1][0].from_north);
-        mkConnection(intArray[i][0].bitSouth, intArray[i+1][0].bitNorth);
-        mkConnection(intArray[i][vnCol-1].to_south, intArray[i+1][vnCol-1].from_north);
-      end
-
-      //Connections to PE which are not covered in the End-Points
-      for(Integer i = 1; i < vnRow-1; i=i+1) begin
-        for(Integer j = 1; j < vnCol-1; j=j+1) begin
-          mkConnection(intArray[i][0].to_east,intArray[i][1].from_west);
-          mkConnection(intArray[0][j].to_south,intArray[1][j].from_north);
-          mkConnection(intArray[0][j].bitSouth,intArray[1][j].bitNorth);
-          mkConnection(intArray[i][j].to_east,intArray[i][j+1].from_west);
-          mkConnection(intArray[i][j].to_south,intArray[i+1][j].from_north);
-          mkConnection(intArray[i][j].bitSouth,intArray[i][j].bitNorth);
+      //West->East Connections
+      for(Integer i = 0; i < vnRow; i=i+1) begin
+        for(Integer j = 0; j < (vnCol-1); j=j+1) begin
+          mkConnection(intArray[i][j].to_east, intArray[i][j+1].from_west);
         end
       end
-     /* ============================================================================= */
+      
+      //North->South Connections
+      for(Integer i = 0; i < (vnRow-1); i=i+1) begin
+        for(Integer j = 0; j < vnCol; j=j+1) begin
+          mkConnection(intArray[i][j].to_south, intArray[i+1][j].from_north);
+        end
+      end
+      /* ============================================================================= */
 
      /* =================== Rules to Connect Row Buffers to Arrays ================== */
       for(Integer i = 0; i < vnRow; i=i+1) begin
@@ -114,12 +110,9 @@ package systolic;
     /* ==================== Rules to Connect Col Buffers to Arrays  ================= */
       for(Integer i = 0; i < vnCol; i=i+1) begin
         rule send_col_buf_value;
-          let val = colBuf[i].first;
+          let val = tagged Valid colBuf[i].first;
           colBuf[i].deq;
-          Maybe#(Bit#(16)) mval = tagged Valid val[15:0];
-          Bit#(2) bitW = val[17:16];
-          intArray[0][i].from_north.put(mval);
-          intArray[0][i].bitNorth.put(bitW);
+          intArray[0][i].from_north.put(val);
         endrule
       end
     /* ============================================================================== */

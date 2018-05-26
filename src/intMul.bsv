@@ -52,28 +52,27 @@ package intMul;
   import LFSR::*; 
   import GetPut::*;
   interface Ifc_intMul;
-    interface Put#(Maybe#(Bit#(16))) from_north;
-    interface Put#(Bit#(2)) bitNorth;
+    interface Put#(Maybe#(Tuple2#(Bit#(16),Bit#(2)))) from_north;
     //bitNorth: 00 - 4-bit, 01 - 8-bit, 10 - 16-bit MAC
     interface Put#(Maybe#(Bit#(16))) from_west;
-    interface Get#(Maybe#(Bit#(16))) to_south;
+    interface Get#(Maybe#(Tuple2#(Bit#(16),Bit#(2)))) to_south;
     interface Get#(Maybe#(Bit#(16))) to_east;
-    interface Get#(Bit#(2)) bitSouth;
 
     method ActionValue#(Bit#(32)) acc_output;  //This needs to be addressed sometime soon
   endinterface
 
   (*synthesize*)
-  module mkintMul(Ifc_intMul);
-    Reg#(Bit#(32))          rg_acc       <- mkReg(0);
-    Reg#(Maybe#(Bit#(16)))  rg_north     <- mkReg(tagged Invalid);
-    Reg#(Maybe#(Bit#(16)))  rg_west      <- mkReg(tagged Invalid);
-    Reg#(Bit#(2))           rg_bitWidth  <- mkReg(0);
+  module mkintMul#(Int#(8) row, Int#(8) col)(Ifc_intMul);
+    Reg#(Bit#(32))                           rg_acc     <- mkReg(0);
+    Reg#(Maybe#(Tuple2#(Bit#(16),Bit#(2))))  rg_north   <- mkReg(tagged Invalid);
+    Reg#(Maybe#(Bit#(16)))                   rg_west    <- mkReg(tagged Invalid);
 
 
     //TODO
     //Should try out a Structural Verilog Coding Style to see if it helps in Synthesis 
-    rule mult_add_phase(rg_north matches tagged Valid .north &&& rg_west matches tagged Valid .west);
+    rule mult_add_phase(rg_north matches tagged Valid .north1 &&& rg_west matches tagged Valid .west);
+      let north    = tpl_1(north1);
+      let bitWidth = tpl_2(north1); 
       Int#(4) vec_north[4];
       Int#(4) vec_west[4];
       Int#(4) vec_acc[4]; 
@@ -90,7 +89,7 @@ package intMul;
       bit pp3_sign = north[11]^west[11];
       bit pp4_sign = north[3]^west[3];
       $display("\t North : %b \n \t West: %b \n",north,west);
-      if(rg_bitWidth == 2'b00) begin
+      if(bitWidth == 2'b00) begin
         for(Integer i = 0; i < 16; i=i+4) begin
           par_north[i/4] = north[i+3]==1? ~north[i+3:i]+1 : north[i+3:i];
           par_west[i/4]  = west[i+3] ==1? ~west[i+3:i]+1 : west[i+3:i];
@@ -98,7 +97,7 @@ package intMul;
         north_full = {par_north[3],par_north[2],par_north[1],par_north[0]};
         west_full  = {par_west[3],par_west[2],par_west[1],par_west[0]};
       end
-      else if(rg_bitWidth == 2'b01) begin
+      else if(bitWidth == 2'b01) begin
          Bit#(8) north_upper = north[15]==1? ~north[15:8]+1 : north[15:8];
          Bit#(8) north_lower = north[7]==1? ~north[7:0]+1 : north[7:0];
          Bit#(8) west_upper  = west[15]==1? ~west[15:8]+1 : west[15:8];
@@ -106,7 +105,7 @@ package intMul;
          north_full = {north_upper,north_lower};
          west_full  = {west_upper, west_lower};
       end
-      else if (rg_bitWidth == 2'b10) begin
+      else if (bitWidth == 2'b10) begin
         north_full = north[15]==1? ~north+1 : north;
         west_full  = west[15]==1? ~west+1 : west;
       end
@@ -150,7 +149,7 @@ package intMul;
       output_vector = pp2_sign == 1 ? ~output_vector+1 : output_vector;
       //Simplistic Case when the output required is 4 4-bit numbers
       Int#(8) inter[4];
-      if(rg_bitWidth == 2'b00) begin
+      if(bitWidth == 2'b00) begin
         for(Integer i = 3; i >=0; i=i-1)begin
           inter[i] = vec_partial[i][i] + extend(vec_acc[i]);
         end
@@ -160,7 +159,7 @@ package intMul;
         inter[0] = pp4_sign==1? ~inter[0]+1 : inter[0];
         output_vector = unpack({ pack(inter[3]),pack(inter[2]),pack(inter[1]),pack(inter[0])});
       end
-      else if(rg_bitWidth == 2'b01) begin  //2 8-bit numbers
+      else if(bitWidth == 2'b01) begin  //2 8-bit numbers
         output_vector =
         unpack({pp2_sign==1?pack(~partial_output_vector2+1):pack(partial_output_vector2),
                 pp1_sign==1?pack(~partial_output_vector1+1):pack(partial_output_vector1)});
@@ -172,14 +171,8 @@ package intMul;
     endrule
 
     interface Put from_north;
-      method Action put(Maybe#(Bit#(16)) col);
+      method Action put(Maybe#(Tuple2#(Bit#(16),Bit#(2))) col);
         rg_north <= col;
-      endmethod
-    endinterface
-
-    interface Put bitNorth;
-      method Action put(Bit#(2) bitWidth);
-        rg_bitWidth <= bitWidth;
       endmethod
     endinterface
     
@@ -196,14 +189,8 @@ package intMul;
     endinterface
 
     interface Get to_south;
-      method ActionValue#(Maybe#(Bit#(16))) get;
+      method ActionValue#(Maybe#(Tuple2#(Bit#(16),Bit#(2)))) get;
         return rg_north;
-      endmethod
-    endinterface
-
-    interface Get bitSouth;
-      method ActionValue#(Bit#(2)) get;
-        return rg_bitWidth;
       endmethod
     endinterface
 
