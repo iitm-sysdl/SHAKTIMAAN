@@ -139,6 +139,10 @@ package intMul;
           ,vec_partial[i+2][j+2]);
         end
       end
+       partial_output_vector1 = partial_output_vector1 +
+       extend(unpack({pack(vec_acc[1]),pack(vec_acc[0])}));
+       partial_output_vector2 = partial_output_vector2 +
+       extend(unpack({pack(vec_acc[3]),pack(vec_acc[2])}));
 
       for(Integer i=0; i<4; i=i+1)begin
         for(Integer j=0; j<4; j=j+1)begin
@@ -146,6 +150,8 @@ package intMul;
           $display("output_vector: %b vec_partial[i][j] %b", output_vector,vec_partial[i][j]);
         end
       end
+      output_vector = output_vector +
+      extend(unpack({pack(vec_acc[3]),pack(vec_acc[2]),pack(vec_acc[1]),pack(vec_acc[0])}));
       output_vector = pp2_sign == 1 ? ~output_vector+1 : output_vector;
       //Simplistic Case when the output required is 4 4-bit numbers
       Int#(8) inter[4];
