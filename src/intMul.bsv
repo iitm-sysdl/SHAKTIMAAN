@@ -61,12 +61,20 @@ package intMul;
     method ActionValue#(Bit#(32)) acc_output;  //This needs to be addressed sometime soon
   endinterface
 
+  function Bit#(n) getnComplement(Bit#(n) inp);
+    let s = valueOf(n); 
+    return inp[s-1] == 1? ~inp+1 : inp;
+  endfunction
+
+  function Int#(n) getnComplementSign(Int#(n) inp, bit sign);
+    return sign==1? ~inp+1 : inp;
+  endfunction
+ 
   (*synthesize*)
   module mkintMul#(Int#(8) row, Int#(8) col)(Ifc_intMul);
     Reg#(Bit#(32))                           rg_acc     <- mkReg(0);
     Reg#(Maybe#(Tuple2#(Bit#(16),Bit#(2))))  rg_north   <- mkReg(tagged Invalid);
     Reg#(Maybe#(Bit#(16)))                   rg_west    <- mkReg(tagged Invalid);
-
 
     //TODO
     //Should try out a Structural Verilog Coding Style to see if it helps in Synthesis 
@@ -89,26 +97,28 @@ package intMul;
       bit pp3_sign = north[11]^west[11];
       bit pp4_sign = north[3]^west[3];
       $display("\t North : %b \n \t West: %b \n",north,west);
+
       if(bitWidth == 2'b00) begin
         for(Integer i = 0; i < 16; i=i+4) begin
-          par_north[i/4] = north[i+3]==1? ~north[i+3:i]+1 : north[i+3:i];
-          par_west[i/4]  = west[i+3] ==1? ~west[i+3:i]+1 : west[i+3:i];
+          par_north[i/4] = getnComplement(north[i+3:i]);
+          par_west[i/4]  = getnComplement(west[i+3:i]);
         end
         north_full = {par_north[3],par_north[2],par_north[1],par_north[0]};
         west_full  = {par_west[3],par_west[2],par_west[1],par_west[0]};
       end
       else if(bitWidth == 2'b01) begin
-         Bit#(8) north_upper = north[15]==1? ~north[15:8]+1 : north[15:8];
-         Bit#(8) north_lower = north[7]==1? ~north[7:0]+1 : north[7:0];
-         Bit#(8) west_upper  = west[15]==1? ~west[15:8]+1 : west[15:8];
-         Bit#(8) west_lower  = west[7]==1? ~west[7:0]+1 : west[7:0];
+         Bit#(8) north_upper = getnComplement(north[15:8]);
+         Bit#(8) north_lower = getnComplement(north[7:0]);
+         Bit#(8) west_upper  = getnComplement(west[15:8]);
+         Bit#(8) west_lower  = getnComplement(west[7:0]);
          north_full = {north_upper,north_lower};
          west_full  = {west_upper, west_lower};
       end
       else if (bitWidth == 2'b10) begin
-        north_full = north[15]==1? ~north+1 : north;
-        west_full  = west[15]==1? ~west+1 : west;
+        north_full = getnComplement(north);
+        west_full  = getnComplement(west);
       end
+
       $display("\t north: %b west: %b north_full: %b west_full:%b",north,west,north_full,west_full);
       for(Integer i = 0; i < 16; i=i+4) begin
         vec_north[i/4] = unpack(north_full[i+3:i]);
@@ -126,6 +136,7 @@ package intMul;
           vec_partial[i][j]);
         end
       end
+
       //8-bit Shifts!
       //Is this optimal? I don't think so!!!
       for(Integer i=0; i<2; i=i+1)begin
@@ -152,23 +163,24 @@ package intMul;
       end
       output_vector = output_vector +
       extend(unpack({pack(vec_acc[3]),pack(vec_acc[2]),pack(vec_acc[1]),pack(vec_acc[0])}));
-      output_vector = pp2_sign == 1 ? ~output_vector+1 : output_vector;
+      output_vector = getnComplementSign(output_vector,pp2_sign);
+
       //Simplistic Case when the output required is 4 4-bit numbers
       Int#(8) inter[4];
       if(bitWidth == 2'b00) begin
         for(Integer i = 3; i >=0; i=i-1)begin
           inter[i] = vec_partial[i][i] + extend(vec_acc[i]);
         end
-        inter[3] = pp2_sign==1? ~inter[3]+1 : inter[3];
-        inter[2] = pp3_sign==1? ~inter[2]+1 : inter[2];
-        inter[1] = pp1_sign==1? ~inter[1]+1 : inter[1];
-        inter[0] = pp4_sign==1? ~inter[0]+1 : inter[0];
+        inter[3] = getnComplementSign(inter[3],pp2_sign);
+        inter[2] = getnComplementSign(inter[2],pp3_sign);
+        inter[1] = getnComplementSign(inter[1],pp1_sign);
+        inter[0] = getnComplementSign(inter[0],pp4_sign);
         output_vector = unpack({ pack(inter[3]),pack(inter[2]),pack(inter[1]),pack(inter[0])});
       end
       else if(bitWidth == 2'b01) begin  //2 8-bit numbers
         output_vector =
-        unpack({pp2_sign==1?pack(~partial_output_vector2+1):pack(partial_output_vector2),
-                pp1_sign==1?pack(~partial_output_vector1+1):pack(partial_output_vector1)});
+        unpack({pack(getnComplementSign(partial_output_vector2,pp2_sign)),
+                pack(getnComplementSign(partial_output_vector1,pp1_sign))});
       end
       rg_acc <= pack(output_vector);
       rg_north <= tagged Invalid;
