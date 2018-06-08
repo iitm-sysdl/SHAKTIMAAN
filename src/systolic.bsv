@@ -36,40 +36,38 @@ Optimization Status : Unoptimized
 */
 package systolic;
   import  intMul::*;
-  import  AXI4_Types  ::*;
-  import  AXI4_Fabric ::*;
   import  Connectable ::*;
   import  GetPut ::*;
   import  Vector ::*;
   import  FIFOF::*;
 
-  interface Ifc_systolic#(numeric type nRow, numeric type nCol, 
-                          numeric type addr, numeric type data, 
-                          numeric type nFEntries, numeric type mulWidth);
-    interface AXI4_Slave_IFC#(addr,data,0) slave_systolic; //32-bit address? 4 16-bits?
+  interface Ifc_RFIFO_Connections;
+    method Action send_rowbuf_value(Maybe#(Bit#(16)) value); 
+  endinterface
+
+  interface Ifc_CFIFO_Connections;
+    method Action send_colbuf_value(Maybe#(Tuple2#(Bit#(16),Bit#(2))) value);
+  endinterface
+
+  interface Ifc_systolic#(numeric type nRow, numeric type nCol,  
+                          numeric type mulWidth);
+    interface Vector#(nRow, Ifc_RFIFO_Connections) rfifo;
+    interface Vector#(nCol, Ifc_CFIFO_Connections) cfifo;
   endinterface
 
   (*synthesize*)
-  module mksystolic3(Ifc_systolic#(3,3,16,16,2,16));
+  module mksystolic3(Ifc_systolic#(2,2,16));
       let ifc();
       mksystolic inst(ifc);
       return (ifc);
   endmodule
 
-  module mksystolic(Ifc_systolic#(nRow,nCol,addr,data,nFEntries,mulWidth))
+  module mksystolic(Ifc_systolic#(nRow,nCol,mulWidth))
       provisos (
-                Add#(a__,2,nRow),
-                Add#(b__,2,nCol),
-                Add#(c__,16,data),
-                Add#(d__,16,mulWidth),  //Change every 16 with MulWidth
-                Add#(mulWidth,2,mulWidth2)
                );
       let vnRow = valueOf(nRow);
       let vnCol = valueOf(nCol);
-      let vnFEntries = valueOf(nFEntries);
-      AXI4_Slave_Xactor_IFC #(addr, data, 0)           s_xactor  <- mkAXI4_Slave_Xactor;
-      Vector#(nRow, FIFOF#(Bit#(16)))                  rowBuf    <- replicateM(mkSizedFIFOF(vnFEntries));
-      Vector#(nCol, FIFOF#(Tuple2#(Bit#(16),Bit#(2)))) colBuf    <- replicateM(mkSizedFIFOF(vnFEntries));
+      //let vnFEntries = valueOf(nFEntries);
       
       Ifc_intMul intArray[vnRow][vnCol];
       for(Integer i = 0; i < vnRow; i=i+1) begin
@@ -77,47 +75,56 @@ package systolic;
           intArray[i][j] <- mkintMul(fromInteger(i),fromInteger(j));
         end
       end
-
-      /* Definition of Configuration Registers for Testing with C-Class */
-      /* ============================================================== */
+      
 
       /* ==================== Systolic Array Connections ======================*/
       //West->East Connections
-      for(Integer i = 0; i < vnRow; i=i+1) begin
-        for(Integer j = 0; j < (vnCol-1); j=j+1) begin
+      for(Integer i = 0; i < vnRow-1; i=i+1) begin
+        for(Integer j = 0; j < vnCol-2; j=j+1) begin
           mkConnection(intArray[i][j].to_east, intArray[i][j+1].from_west);
         end
       end
       
       //North->South Connections
-      for(Integer i = 0; i < (vnRow-1); i=i+1) begin
-        for(Integer j = 0; j < vnCol; j=j+1) begin
+      for(Integer i = 0; i < vnRow-2; i=i+1) begin
+        for(Integer j = 0; i < vnCol-1; j=j+1) begin
           mkConnection(intArray[i][j].to_south, intArray[i+1][j].from_north);
         end
       end
       /* ============================================================================= */
 
-     /* =================== Rules to Connect Row Buffers to Arrays ================== */
-      for(Integer i = 0; i < vnRow; i=i+1) begin
-        rule send_row_buf_value;
-          Maybe#(Bit#(16)) mval = tagged Valid rowBuf[i].first;
-          rowBuf[i].deq;
-          intArray[i][0].from_west.put(mval);
-        endrule
-      end
-    /* ============================================================================== */
+      /* =========== TODO Code to get the Accumulators out and send it to top ======== */
+      /* ============================================================================= */
 
-    /* ==================== Rules to Connect Col Buffers to Arrays  ================= */
-      for(Integer i = 0; i < vnCol; i=i+1) begin
-        rule send_col_buf_value;
-          let val = tagged Valid colBuf[i].first;
-          colBuf[i].deq;
-          intArray[0][i].from_north.put(val);
-        endrule
-      end
-    /* ============================================================================== */
+      
+      /* ================= Making Interface Connections ==============================  */
+      /* ============================================================================= */
+        Vector#(nRow, Ifc_RFIFO_Connections) vec_rfifo_ifc;
+        Vector#(nCol, Ifc_CFIFO_Connections) vec_cfifo_ifc;
 
+        for(Integer i = 0; i < vnRow; i=i+1) begin
+          vec_rfifo_ifc[i] = (
+            interface Ifc_RFIFO_Connections;
+              method Action send_rowbuf_value(Maybe#(Bit#(16)) value);
+                  intArray[i][0].from_west.put(value);
+              endmethod
+            endinterface
+          );
+        end
 
+        for(Integer i = 0; i < vnCol; i=i+1) begin
+          vec_cfifo_ifc[i] = (
+             interface Ifc_CFIFO_Connections;
+               method Action send_colbuf_value(Maybe#(Tuple2#(Bit#(16),Bit#(2))) value);
+                  intArray[0][i].from_north.put(value);
+               endmethod
+             endinterface
+          );
+        end
+
+        interface rfifo = vec_rfifo_ifc;
+        interface cfifo = vec_cfifo_ifc;
+        /* ================================================================ */
 
   endmodule
 endpackage
