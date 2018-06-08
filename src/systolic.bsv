@@ -79,15 +79,15 @@ package systolic;
 
       /* ==================== Systolic Array Connections ======================*/
       //West->East Connections
-      for(Integer i = 0; i < vnRow-1; i=i+1) begin
-        for(Integer j = 0; j < vnCol-2; j=j+1) begin
+      for(Integer i = 0; i < vnRow; i=i+1) begin
+        for(Integer j = 0; j < vnCol-1; j=j+1) begin
           mkConnection(intArray[i][j].to_east, intArray[i][j+1].from_west);
         end
       end
       
       //North->South Connections
-      for(Integer i = 0; i < vnRow-2; i=i+1) begin
-        for(Integer j = 0; i < vnCol-1; j=j+1) begin
+      for(Integer i = 0; i < vnRow-1; i=i+1) begin
+        for(Integer j = 0; i < vnCol; j=j+1) begin
           mkConnection(intArray[i][j].to_south, intArray[i+1][j].from_north);
         end
       end
