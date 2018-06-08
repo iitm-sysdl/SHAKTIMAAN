@@ -55,12 +55,12 @@ package systolic;
     interface Vector#(nCol, Ifc_CFIFO_Connections) cfifo;
   endinterface
 
-  (*synthesize*)
-  module mksystolic3(Ifc_systolic#(2,2,16));
-      let ifc();
-      mksystolic inst(ifc);
-      return (ifc);
-  endmodule
+  //(*synthesize*)
+  //module mksystolic2(Ifc_systolic#(2,2,16));
+  //    let ifc();
+  //    mksystolic inst(ifc);
+  //    return (ifc);
+  //endmodule
 
   module mksystolic(Ifc_systolic#(nRow,nCol,mulWidth))
       provisos (
@@ -87,7 +87,7 @@ package systolic;
       
       //North->South Connections
       for(Integer i = 0; i < vnRow-1; i=i+1) begin
-        for(Integer j = 0; i < vnCol; j=j+1) begin
+        for(Integer j = 0; j < vnCol; j=j+1) begin
           mkConnection(intArray[i][j].to_south, intArray[i+1][j].from_north);
         end
       end
