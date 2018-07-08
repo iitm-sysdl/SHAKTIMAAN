@@ -1,0 +1,4 @@
+`define AccumBufStart 'h28
+`define AccumBufEnd   'h2028
+`define GBufStart     'h2030
+`define GBufEnd       'h2830
