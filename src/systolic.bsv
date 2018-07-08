@@ -36,17 +36,20 @@ Optimization Status : Unoptimized
 */
 package systolic;
   import  intMul::*;
+  import  intMul_WS::*;
   import  Connectable ::*;
   import  GetPut ::*;
   import  Vector ::*;
   import  FIFOF::*;
+	`include "defined_parameters.bsv"
+	import defined_types::*;
 
   interface Ifc_RFIFO_Connections;
     method Action send_rowbuf_value(Maybe#(Bit#(16)) value); 
   endinterface
 
   interface Ifc_CFIFO_Connections;
-    method Action send_colbuf_value(Maybe#(Tuple2#(Bit#(16),Bit#(2))) value);
+    method Action send_colbuf_value(Tuple3#(Maybe#(Bit#(16)),Bit#(8),Bit#(2)) value);
   endinterface
 
   interface Ifc_systolic#(numeric type nRow, numeric type nCol,  
@@ -69,15 +72,16 @@ package systolic;
       let vnCol = valueOf(nCol);
       //let vnFEntries = valueOf(nFEntries);
       
-      Ifc_intMul intArray[vnRow][vnCol];
+      Ifc_intMul_WS intArray[vnRow][vnCol];
       for(Integer i = 0; i < vnRow; i=i+1) begin
         for(Integer j = 0; j < vnCol; j=j+1) begin
-          intArray[i][j] <- mkintMul(fromInteger(i),fromInteger(j));
+          intArray[i][j] <- mkintMulWS(fromInteger(i),fromInteger(j), vnRow-i+1);
         end
       end
       
 
       /* ==================== Systolic Array Connections ======================*/
+
       //West->East Connections
       for(Integer i = 0; i < vnRow; i=i+1) begin
         for(Integer j = 0; j < vnCol-1; j=j+1) begin
@@ -115,7 +119,8 @@ package systolic;
         for(Integer i = 0; i < vnCol; i=i+1) begin
           vec_cfifo_ifc[i] = (
              interface Ifc_CFIFO_Connections;
-               method Action send_colbuf_value(Maybe#(Tuple2#(Bit#(16),Bit#(2))) value);
+               method Action send_colbuf_value(Tuple3#(Maybe#(Bit#(16)),Bit#(8),Bit#(2)) value);
+                 //Should Decide where this Bit#(8) comes from!! For now Keeping it from Buf
                   intArray[0][i].from_north.put(value);
                endmethod
              endinterface

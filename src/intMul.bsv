@@ -51,6 +51,7 @@ package intMul;
   import Vector::*;
   import LFSR::*; 
   import GetPut::*;
+  import functions::*;
   interface Ifc_intMul;
     interface Put#(Maybe#(Tuple2#(Bit#(16),Bit#(2)))) from_north;
     //bitNorth: 00 - 4-bit, 01 - 8-bit, 10 - 16-bit MAC
@@ -61,15 +62,6 @@ package intMul;
     method ActionValue#(Bit#(32)) acc_output;  //This needs to be addressed sometime soon
   endinterface
 
-  function Bit#(n) getnComplement(Bit#(n) inp);
-    let s = valueOf(n); 
-    return inp[s-1] == 1? ~inp+1 : inp;
-  endfunction
-
-  function Int#(n) getnComplementSign(Int#(n) inp, bit sign);
-    return sign==1? ~inp+1 : inp;
-  endfunction
- 
   (*synthesize*)
   module mkintMul#(Int#(8) row, Int#(8) col)(Ifc_intMul);
     Reg#(Bit#(32))                           rg_acc     <- mkReg(0);
