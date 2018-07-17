@@ -50,6 +50,7 @@ package systolic;
 
   interface Ifc_CFIFO_Connections;
     method Action send_colbuf_value(Tuple3#(Maybe#(Bit#(16)),Bit#(8),Bit#(2)) value);
+    method ActionValue#(Bit#(32)) send_accumbuf_value;
   endinterface
 
   interface Ifc_systolic#(numeric type nRow, numeric type nCol,  
@@ -123,9 +124,19 @@ package systolic;
                  //Should Decide where this Bit#(8) comes from!! For now Keeping it from Buf
                   intArray[0][i].from_north.put(value);
                endmethod
-             endinterface
+
+                method ActionValue#(Bit#(32)) send_accumbuf_value;
+                  let x <- intArray[vnRow-1][i].send_acc_to_south.get;
+                  return x; 
+                endmethod
+              endinterface
           );
         end
+
+        /* ==================== Extract Accum Values ================================ */
+        //Need some Control Flow to regulate the values, so that random values are prevented from
+        //coming out
+
 
         interface rfifo = vec_rfifo_ifc;
         interface cfifo = vec_cfifo_ifc;

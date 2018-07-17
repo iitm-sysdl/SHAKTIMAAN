@@ -95,8 +95,8 @@ package systolic_top;
     Vector#(nRow, FIFOF#(Bit#(16)))                           rowBuf            <- replicateM(mkSizedFIFOF(vnFEntries));
     Vector#(nCol, FIFOF#(Tuple3#(Bit#(16),Bit#(8),Bit#(2))))  colBuf            <- replicateM(mkSizedFIFOF(vnFEntries)); 
     //The Co-ord Value Bit#(8) is temporarily put here
-    Vector#(nRow, BRAM_DUAL_PORT_BE#(Bit#(gindexaddr),Bit#(16),2))     gBuffer  <- replicateM(mkBRAMCore2BE(gMem,False));
-    Vector#(nCol, BRAM_DUAL_PORT_BE#(Bit#(accumindexaddr),Bit#(32),4)) accumBuf <- replicateM(mkBRAMCore2BE(accMem,False));
+    Vector#(gbufbankaddress, BRAM_DUAL_PORT_BE#(Bit#(gindexaddr),Bit#(16),2))     gBuffer  <- replicateM(mkBRAMCore2BE(gMem,False));
+    Vector#(nCol, BRAM_DUAL_PORT_BE#(Bit#(accumindexaddr),Bit#(32),4))            accumBuf <- replicateM(mkBRAMCore2BE(accMem,False));
     //BRAM_DUAL_PORT_BE#(Bit#(gbufaddr), Bit#(16), 2)  gBuffer   <- mkBRAMCore2BE(gBUF,False);
     //BRAM_DUAL_PORT_BE#(Bit#(accumaddr), Bit#(32), 4) accumBuf  <- mkBRAMCore2BE(aCC,False);
     AXI4_Slave_Xactor_IFC#(`PADDR,data,0)            s_xactor  <- mkAXI4_Slave_Xactor;
@@ -111,7 +111,8 @@ package systolic_top;
 
     //FIFO Loader FSM
     Reg#(Bit#(5)) gen_state         <- mkReg(-1);   //32 states might be overkill
-    Reg#(Bit#(gindexaddr)) rg_event_cntr <- mkReg(0); 
+    Reg#(Bit#(gindexaddr)) rg_event_cntr <- mkReg(0);
+    Reg#(Bit#(nRow)) rg_rl_counter <- mkReg(0);
 
     //Local Registers
     Reg#(Bit#(4))                 row_counter       <- mkReg(0);
@@ -121,10 +122,16 @@ package systolic_top;
 		Reg#(AXI4_Rd_Addr#(`PADDR,0)) rg_read_packet    <- mkReg(?);
     Reg#(Bit#(accumbankaddress))  rg_abufbank       <- mkRegU();
     Reg#(Bit#(gbufbankaddress))   rg_gbufbank       <- mkRegU();
-    Reg#(Bit#(TLog#(TMul#(nRow,nCol)))) req_counter <- mkReg(0);
     Vector#(nRow, Reg#(Bit#(gindexaddr))) vec_index <- replicateM(mkReg(0));
+    Vector#(nRow, Reg#(Bit#(gbufbankaddress))) bank_index <- replicateM(mkReg(0));
+    Reg#(Bit#(accumindexaddr))  rg_acc_counter <- mkReg(0);
 
-    
+    //Not sure if this needs to be in place -- TEMPORARY
+    Vector#(nRow, Reg#(Bit#(TExp#(gbufbankaddress)))) vec_bank_counter;
+    for(Integer i = 0; i < vnRow; i=i+1) begin
+      vec_bank_counter[i] <- mkReg(fromInteger(i*vnRow));
+    end
+
     //Should there be a Master interface with bigger busWidth? -- This enables Systolic to access
     //Memory directly!!! Should that power be given?
     //Assuming a Memory Map for 10 Configuration Registers --- 0 to 'h24
@@ -372,30 +379,50 @@ package systolic_top;
 
     //NEW LOGIC
 
-    rule inc_req_counter(startBit==1 && req_counter <= fromInteger(vnRow*vnCol));
-      req_counter <= req_counter+1;   //The fanout of this register is going to be huge
+    //Need is to require throughput of one request per cycle! But the counters increment is not in
+    //tandem
+
+    //This cannot keep incrementing due to resource constraints that might cause stalls in gbuf
+    rule rl_increment_counter(startBit==1'b1);
+      rg_rl_counter <= rg_rl_counter + 1; 
+      //Fanout of this reg is going to be huge. Can have a vector of reg with lesser size to do this
     endrule
 
-
-    for(Integer i = 0; i < vnRow; i=i+1) begin
-      rule send_req(startBit == 1);
-        Bit#(TLog#(TMul#(nRow,nCol))) m = fromInteger(i);
-        if(m >= req_counter) begin
-          gBuffer[i].a.put(0,vec_index[i], ?);
+    // Scheme - 1
+    for(Integer i = 0; i < gbufBank; i=i+1) begin
+      rule send_req(startBit==1'b1);
+        gBuffer[i].a.put(0,vec_index[i], ?); 
+        if(rg_rl_counter >= fromInteger(i*gbufBank)) begin //i*filter_row
           vec_index[i] <= vec_index[i]+1;
-          rg_ram_cntr[i] <= rg_ram_cntr[i]+1;  //ConfigReg?
         end
       endrule
 
-      //Is Guarded Property Maintained?
-      rule recv_rsp(startBit == 1); //Make this BRAM guarded
-        Bit#(TLog#(TMul#(nRow,nCol))) m = fromInteger(i);
-        if(m >= req_counter) begin //Figure the actual condition
-          let gVal = gBuffer[i].a.read();
+    //If the BRAM is not guarded, have a state switch explicitly!!
+      rule recv_rsp_enq_fifo(startBit==1'b1);
+        let gVal = gBuffer[i].a.read();
+        for(Integer j = i*gbufBank; j < i*(gbufBank+1) ; j=j+1) begin
+         if(rg_rl_counter >= fromInteger(j))  //Added now after Discussion with Neel
+          rowBuf[j].enq(gVal);
+        end
+          //Else either enqueue zero or nothing at all
+      endrule
+     end
+
+    // Scheme - 2
+    // Employ Neel's scheme and have both of them in place!!! Comment what is not required
+
+    /* ====================== Loading Value from Accum to Accum Buffer =============== */
+        
+      rule rl_get_accumulator;
+        rg_acc_counter <= rg_acc_counter+1;
+        for(Integer i = 0; i < vnCol; i=i+1) begin
+          let x <- systolic_array.cfifo[i].send_accumbuf_value;
+          accumBuf[i].b.put(0, rg_acc_counter, x);                 
         end
       endrule
-    end
+      
 
+    /* =============================================================================== */
 
 
 
