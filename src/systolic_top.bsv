@@ -58,24 +58,27 @@ package systolic_top;
   typedef enum{Idle,HandleBurst} Mem_state deriving(Bits,Eq);
 
     (*synthesize*)
-    module mksystolic3(Ifc_systolic_top#(3,3,32,32,32,16,2,16));
+    module mksystolic3(Ifc_systolic_top#(3,3,32,32,16,16,2,16));
         let ifc();
         mksystolic_top inst(ifc);
         return (ifc);
     endmodule
 
-  module mksystolic_top(Ifc_systolic_top#(nRow,nCol,addr,data,gbufaddr,accumaddr,nFEntries,mulWidth))
+  module mksystolic_top(Ifc_systolic_top#(sqrtnRow,sqrtnCol,addr,data,gbufaddr,accumaddr,nFEntries,mulWidth))
     provisos(
-             Add#(a__,2,nRow),
-             Add#(b__,2,nCol),
+             Add#(a__,2,sqrtnRow),
+             Add#(b__,2,sqrtnCol),
+             Mul#(sqrtnRow,sqrtnRow,nRow),
+             Mul#(sqrtnCol,sqrtnCol,nCol),
              Add#(d__,16,mulWidth),  //Change every 16 with MulWidth
              Add#(mulWidth,2,mulWidth2),
              Add#(c__, accumaddr, 32),
              Add#(e__, gbufaddr, 32),
-             Log#(nRow,gbufbankaddress),
+             Log#(sqrtnRow,gbufbankaddress),
              Log#(nCol,accumbankaddress),
              Add#(gindexaddr,TAdd#(gbufbankaddress,2),gbufaddr),
              Add#(accumindexaddr, TAdd#(accumbankaddress,2), accumaddr),
+            // Div#(accumindexadr,nCol, nColcounter),
              Add#(g__, 16, data),
              Add#(f__, 32, data)  //This is conflicting with above
             );
@@ -90,24 +93,45 @@ package systolic_top;
     let accIndex   = valueOf(accumindexaddr);
     let accMem     = valueOf(TExp#(accumindexaddr));
     let gMem       = valueOf(TExp#(gindexaddr));
+    let sqRow      = valueOf(sqrtnRow);
+    let sqCol      = valueOf(sqrtnCol);
 
     Ifc_systolic#(nRow,nCol,mulWidth)                         systolic_array    <- mksystolic;  
     Vector#(nRow, FIFOF#(Bit#(16)))                           rowBuf            <- replicateM(mkSizedFIFOF(vnFEntries));
     Vector#(nCol, FIFOF#(Tuple3#(Bit#(16),Bit#(8),Bit#(2))))  colBuf            <- replicateM(mkSizedFIFOF(vnFEntries)); 
     //The Co-ord Value Bit#(8) is temporarily put here
-    Vector#(gbufbankaddress, BRAM_DUAL_PORT_BE#(Bit#(gindexaddr),Bit#(16),2))     gBuffer  <- replicateM(mkBRAMCore2BE(gMem,False));
-    Vector#(nCol, BRAM_DUAL_PORT_BE#(Bit#(accumindexaddr),Bit#(32),4))            accumBuf <- replicateM(mkBRAMCore2BE(accMem,False));
+    Vector#(sqrtnRow, BRAM_DUAL_PORT_BE#(Bit#(gindexaddr),Bit#(16),2))     gBuffer  <- replicateM(mkBRAMCore2BE(gMem,False));
+    Vector#(nCol, BRAM_DUAL_PORT_BE#(Bit#(accumindexaddr),Bit#(32),4))     accumBuf <- replicateM(mkBRAMCore2BE(accMem,False));
     //BRAM_DUAL_PORT_BE#(Bit#(gbufaddr), Bit#(16), 2)  gBuffer   <- mkBRAMCore2BE(gBUF,False);
     //BRAM_DUAL_PORT_BE#(Bit#(accumaddr), Bit#(32), 4) accumBuf  <- mkBRAMCore2BE(aCC,False);
     AXI4_Slave_Xactor_IFC#(`PADDR,data,0)            s_xactor  <- mkAXI4_Slave_Xactor;
-    
+   
+
+
+    //The current Accelerator Configuration is simple. The transactions begin by software writing
+    //into weight buffers which is followed by the transfer of feature map kernels into the global
+    //buffers -- Now the decision that needs to be made here is to know when to start the
+    //transactions 
+    //Software has visibility into reading 
+
     
     //Configuration Register Space
     Reg#(Bit#(4)) filter_rows       <- mkReg(0);  
     Reg#(Bit#(4)) filter_cols       <- mkReg(0);
     Reg#(Bit#(8)) filter_dims       =  concatReg2(filter_rows,filter_cols); 
     Reg#(Bit#(3)) padding_size      <- mkReg(0);
-    Reg#(bit) startBit              <- mkReg(0);
+    Reg#(Bit#(8)) ifmap_rowdims     <- mkReg(0);
+    Reg#(Bit#(8)) ifmap_coldims     <- mkReg(0);
+    Reg#(Bit#(16)) ifmap_dims       = concatReg2(ifmap_rowdims,ifmap_coldims); 
+    Reg#(bit) startBit              <- mkReg(1);
+    Reg#(Bit#(8)) rg_weight_counter <- mkReg(0); //Config --Hardcoded to 8 for now
+
+
+    //Status Bits
+    Reg#(bit) rg_idle    <- mkReg(0);
+    Reg#(bit) rg_running <- mkReg(0);
+    Reg#(Bit#(accumindexaddr))  rg_acc_counter <- mkReg(0);
+
 
     //FIFO Loader FSM
     Reg#(Bit#(5)) gen_state         <- mkReg(-1);   //32 states might be overkill
@@ -124,13 +148,13 @@ package systolic_top;
     Reg#(Bit#(gbufbankaddress))   rg_gbufbank       <- mkRegU();
     Vector#(nRow, Reg#(Bit#(gindexaddr))) vec_index <- replicateM(mkReg(0));
     Vector#(nRow, Reg#(Bit#(gbufbankaddress))) bank_index <- replicateM(mkReg(0));
-    Reg#(Bit#(accumindexaddr))  rg_acc_counter <- mkReg(0);
+    Reg#(Bit#(8)) rg_coord_counter <- mkReg(0); //Local counter
 
     //Not sure if this needs to be in place -- TEMPORARY
-    Vector#(nRow, Reg#(Bit#(TExp#(gbufbankaddress)))) vec_bank_counter;
-    for(Integer i = 0; i < vnRow; i=i+1) begin
-      vec_bank_counter[i] <- mkReg(fromInteger(i*vnRow));
-    end
+    //Vector#(nRow, Reg#(Bit#(TExp#(gbufbankaddress)))) vec_bank_counter;
+    //for(Integer i = 0; i < sqRow; i=i+1) begin
+    //  vec_bank_counter[i] <- mkReg(fromInteger(i*vnRow));
+    //end
 
     //Should there be a Master interface with bigger busWidth? -- This enables Systolic to access
     //Memory directly!!! Should that power be given?
@@ -187,6 +211,14 @@ package systolic_top;
         return tuple2(accumindex,accumbank);
       endfunction
 
+      function Action set_systolic(Bit#(`PADDR) addr, Bit#(32) data);
+        action
+            case(addr)
+              'h3844 : startBit <= data[0];
+            endcase
+        endaction
+      endfunction
+
       // =========================================================
       // Function Wrappers
       // =========================================================
@@ -239,12 +271,24 @@ package systolic_top;
           //Write Request to AccumBuffer Range
           if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin
             //accumBuf.b.put(wstrb[3:0],accindex,truncate(lv_data));
-            accumBuf[abufbank].b.put(wstrb[3:0],aindex,truncate(lv_data));
+         //   accumBuf[abufbank].b.put(wstrb[3:0],aindex,truncate(lv_data));
+          //Send Slave Error
           end
           else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin
             //gBuffer.b.put(wstrb[1:0], gbufindex, truncate(lv_data));
             gBuffer[gbufbank].b.put(wstrb[1:0],gindex,truncate(lv_data));
           end
+          else if(lv_addr >= `WeightStart && lv_addr <= `WeightEnd) begin
+            Bit#(2) co_ord = 0;  //Temporary data value
+            //Logic to send weight-coordinates to the buffers
+            if(rg_coord_counter != rg_weight_counter)
+              rg_coord_counter <= rg_coord_counter+1;
+            else
+              rg_coord_counter <= 0;
+            colBuf[abufbank].enq(tuple3(truncate(lv_data),rg_coord_counter,co_ord));     
+          end
+          else //Configuration Address Space
+            set_systolic(lv_addr, truncate(lv_data));
 
 
      let resp = AXI4_Wr_Resp {bresp: AXI4_OKAY, buser: aw.awuser, bid:aw.awid};
@@ -274,10 +318,21 @@ package systolic_top;
 
           //Write Request to AccumBuffer Range
           if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin
-            accumBuf[abufbank].b.put(wstrb[3:0],aindex,truncate(lv_data));
+            //accumBuf[abufbank].b.put(wstrb[3:0],aindex,truncate(lv_data));
+            //Send Slave Error
           end
           else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin
             gBuffer[gbufbank].b.put(wstrb[1:0], gindex, truncate(lv_data));
+          end
+          else if(lv_addr >= `WeightStart && lv_addr <= `WeightEnd) begin
+            Bit#(2) co_ord = 0;  //Temporary data value
+
+            //Logic to send weight-coordinates to the buffers
+            if(rg_coord_counter != rg_weight_counter)
+              rg_coord_counter <= rg_coord_counter+1;
+            else
+              rg_coord_counter <= 0;
+            colBuf[abufbank].enq(tuple3(truncate(lv_data),rg_coord_counter,co_ord));     
           end
 
       
@@ -389,10 +444,10 @@ package systolic_top;
     endrule
 
     // Scheme - 1
-    for(Integer i = 0; i < gbufBank; i=i+1) begin
+    for(Integer i = 0; i < sqRow; i=i+1) begin
       rule send_req(startBit==1'b1);
         gBuffer[i].a.put(0,vec_index[i], ?); 
-        if(rg_rl_counter >= fromInteger(i*gbufBank)) begin //i*filter_row
+        if(rg_rl_counter >= fromInteger(i*sqRow)) begin //i*filter_row
           vec_index[i] <= vec_index[i]+1;
         end
       endrule
@@ -400,7 +455,7 @@ package systolic_top;
     //If the BRAM is not guarded, have a state switch explicitly!!
       rule recv_rsp_enq_fifo(startBit==1'b1);
         let gVal = gBuffer[i].a.read();
-        for(Integer j = i*gbufBank; j < i*(gbufBank+1) ; j=j+1) begin
+        for(Integer j = i*sqRow; j < sqRow*(i+1) ; j=j+1) begin
          if(rg_rl_counter >= fromInteger(j))  //Added now after Discussion with Neel
           rowBuf[j].enq(gVal);
         end
@@ -415,14 +470,16 @@ package systolic_top;
         
       rule rl_get_accumulator;
         rg_acc_counter <= rg_acc_counter+1;
+        Vector#(nCol,Bit#(32)) tmp;
         for(Integer i = 0; i < vnCol; i=i+1) begin
           let x <- systolic_array.cfifo[i].send_accumbuf_value;
-          accumBuf[i].b.put(0, rg_acc_counter, x);                 
+          tmp[i] = x;
+          accumBuf[i].b.put('1, rg_acc_counter, tmp[i]);                 
         end
       endrule
-      
 
     /* =============================================================================== */
+
 
 
 

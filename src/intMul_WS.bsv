@@ -35,6 +35,7 @@ package intMul_WS;
   import functions::*;
   import GetPut::*;
   import ConfigReg::*;
+  import DReg::*;
 
   interface Ifc_intMul_WS;
     interface Put#(Tuple3#((Maybe#(Bit#(16))),Bit#(8),Bit#(2))) from_north; //What is Bit#(8)?
@@ -47,7 +48,7 @@ package intMul_WS;
 
   module mkintMulWS#(Int#(8) row, Int#(8) col, parameter Integer coord)(Ifc_intMul_WS);
 
-  Reg#(Maybe#(Bit#(16)))          rg_north         <- mkConfigReg(tagged Invalid);
+  Reg#(Maybe#(Bit#(16)))         rg_north         <- mkConfigReg(tagged Invalid);
   Reg#(Bool)                     weight_valid     <- mkReg(True);
   Reg#(Maybe#(Bit#(16)))         rg_west          <- mkConfigReg(tagged Invalid);
   Reg#(Bit#(2))                  rg_bitWidth      <- mkReg(0);
@@ -55,16 +56,17 @@ package intMul_WS;
   Wire#(Bit#(32))                acc_output       <- mkConfigReg(0);
   Reg#(Bit#(8))                  rg_coord         <- mkReg(fromInteger(coord));
   Reg#(Bit#(8))                  rg_counter       <- mkReg(0);
+  Reg#(Bool)                     rg_flow_ctrl     <- mkDReg(False);
+  Reg#(Bool)                     rg_hor_flow_ctrl <- mkDReg(False);
 
-
-  Bool check = (rg_counter == rg_coord);
+  Bool check = (rg_counter >= rg_coord);
    
 
   rule mult_add_phase(rg_north matches tagged Valid .north &&& rg_west matches tagged Valid .west);
     Bit#(1) pp_sign[4];
-     
     Int#(32) output_mul = extend(unpack(north))*extend(unpack(west)); 
     acc_output <= pack(output_mul + unpack(input_acc));
+    $display($time,"\t Systolic[%d][%d]: rg_coord: %d \n MultAdd Phase Firing north: %d weight: %d output_mul:%d",row,col,rg_coord,north,west,output_mul);
     rg_west <= tagged Invalid;
 
     /* ============ Sign Calculation ============= */
@@ -106,6 +108,9 @@ package intMul_WS;
       rg_north     <= tpl_1(inp);
       rg_counter   <= tpl_2(inp);
       rg_bitWidth  <= tpl_3(inp);
+      rg_flow_ctrl <= True;
+      Bit#(16) x = fromMaybe(0,tpl_1(inp));
+      $display($time,"\t Systolic[%h][%h]: Receiving Weight: %d coord:%h",row,col,x,tpl_2(inp)); 
     endmethod
   endinterface
 
@@ -122,20 +127,23 @@ package intMul_WS;
   endinterface
 
   interface Put from_west;
-    method Action put(Maybe#(Bit#(16)) row);
-      rg_west <= row;
+    method Action put(Maybe#(Bit#(16)) rowW);
+      rg_west <= rowW;
+      rg_hor_flow_ctrl <= True;
     endmethod
   endinterface
     
   interface Get to_east;
-    method ActionValue#(Maybe#(Bit#(16))) get;
+    method ActionValue#(Maybe#(Bit#(16))) get if(rg_hor_flow_ctrl);
       return rg_west;
     endmethod
   endinterface
 
   interface Get to_south;
-    method ActionValue#(Tuple3#(Maybe#(Bit#(16)),Bit#(8),Bit#(2))) get if(!check);
+    method ActionValue#(Tuple3#(Maybe#(Bit#(16)),Bit#(8),Bit#(2))) get if(!check && rg_flow_ctrl);
       let send = tuple3(rg_north,rg_counter,rg_bitWidth);
+      Bit#(16) x = fromMaybe(0,rg_north);
+      $display($time,"\tSystolic[%h][%h]: Sending weight below: %d coord:%h",row,col,x,rg_counter);
       return send;
     endmethod
   endinterface 
