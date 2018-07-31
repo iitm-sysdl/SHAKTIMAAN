@@ -94,6 +94,7 @@ package systolic;
       for(Integer i = 0; i < vnRow-1; i=i+1) begin
         for(Integer j = 0; j < vnCol; j=j+1) begin
           mkConnection(intArray[i][j].to_south, intArray[i+1][j].from_north);
+          mkConnection(intArray[i][j].send_acc_to_south, intArray[1+1][j].acc_from_north);
         end
       end
       /* ============================================================================= */
@@ -123,6 +124,7 @@ package systolic;
                method Action send_colbuf_value(Tuple3#(Maybe#(Bit#(16)),Bit#(8),Bit#(2)) value);
                  //Should Decide where this Bit#(8) comes from!! For now Keeping it from Buf
                   intArray[0][i].from_north.put(value);
+                  intArray[0][i].acc_from_north.put(5);
                endmethod
 
                 method ActionValue#(Bit#(32)) send_accumbuf_value;
@@ -180,6 +182,13 @@ package systolic;
        end
        if(rg_counter == 'd10)
          $finish(0);
+    endrule
+
+    rule print_activations;
+      for(Integer i = 0; i < 3; i=i+1) begin
+        let x <- systolic_array.cfifo[i].send_accumbuf_value;
+        $display($time,"\tColNo: %d val: %d\n", i,x);
+      end
     endrule
 
   endmodule
