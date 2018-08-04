@@ -48,6 +48,21 @@ package systolic_top;
   `include "systolic.defs"
 	import axi_addr_generator::*;
 
+  // Parameterized Interface which takes in number of rows/cols of Systolic array as input -- it
+  // is capable of handling non-square systolic arrays but for simplicity of first cut design its
+  // assumed to be a square size only, nRow and nCol are used for future extensions, could've done
+  // with just one variable -- and it takes in accum buffer and gbuffer's addr width and also the
+  // number of entries for the systolic buffers which decouples these buffers from the systolic
+  // arrays. Finally mulWidth is also a parameter which is used in case we are going to use
+  // parameterized multipliers.
+
+  // For now, the inputs are the square root of the number of rows/cols which is squared to make the
+  // systolic array. This is done because in WS dataflow weights are retained and general filter size
+  // is 3x3, 5x5 or 7x7 -- not considering depthwise convolutions now -- Hence systolic array is
+  // generally 9x9, 25x25 or 49x49 but it can be any square size!! But, for now it can't be arbitrary
+  // size like 7x7 or 8x8 since it becomes hard to handle WS dataflow with arbitrary systolic array
+  // size! It's not difficult to give that support though! 
+
   interface Ifc_systolic_top#(numeric type nRow, numeric type nCol, 
                               numeric type addr, numeric type data,
                               numeric type accumaddr,numeric type gbufaddr,  
@@ -66,18 +81,30 @@ package systolic_top;
 
   module mksystolic_top(Ifc_systolic_top#(sqrtnRow,sqrtnCol,addr,data,gbufaddr,accumaddr,nFEntries,mulWidth))
     provisos(
-             Add#(a__,2,sqrtnRow),
-             Add#(b__,2,sqrtnCol),
-             Mul#(sqrtnRow,sqrtnRow,nRow),
-             Mul#(sqrtnCol,sqrtnCol,nCol),
+             Add#(a__,2,sqrtnRow),  // Square root of Number of Rows of Array must atleast be 2
+             Add#(b__,2,sqrtnCol),  // Square root of Number of Cols of Array must atleast be 2
+             Mul#(sqrtnRow,sqrtnRow,nRow), //The sqrtRow is squared to get the number of rows
+             Mul#(sqrtnCol,sqrtnCol,nCol), //The sqrtCol is squared to get the number of cols
              Add#(d__,16,mulWidth),  //Change every 16 with MulWidth
-             Add#(mulWidth,2,mulWidth2),
-             Add#(c__, accumaddr, 32),
-             Add#(e__, gbufaddr, 32),
-             Log#(sqrtnRow,gbufbankaddress),
-             Log#(nCol,accumbankaddress),
-             Add#(gindexaddr,TAdd#(gbufbankaddress,2),gbufaddr),
+             Add#(mulWidth,2,mulWidth2), //mulWidth2 is a parameter which is mulWidth+2 -- Not used
+             Add#(c__, accumaddr, 32), // accumaddr is always less than 4GB -- Compiler
+             Add#(e__, gbufaddr, 32),  // gbufaddr is always less than 4GB -- Compiler
+             Log#(sqrtnRow,gbufbankaddress), 
+             //The number of rowbank bits -- the number of banks required are square root of the
+             //systolic array row size in our design. Why? Consider a filter size of 3x3, when 
+             //unrolled it takes a column of 9 elements, but the activation inputs have a spatial
+             //reuse because the filter slides across the activation plane when it comes to
+             //convolution operation. Because of this sliding, it is easier to handle
+             //with perfect square systolic size. But the problem here is we are fixing the array
+             //size statically for some filter size say 3x3 or 5x5 hence across layers if the size 
+             //varies which inevitably happens then tiling needs to happen at the software side
+             //which might lead to loss of performance 
+          
+             Log#(nCol,accumbankaddress), //The number of accumulator banks is number of cols!
+             Add#(gindexaddr,TAdd#(gbufbankaddress,2),gbufaddr), //check correctness
+             //Splitting paddr into gbuf bank address, index address
              Add#(accumindexaddr, TAdd#(accumbankaddress,2), accumaddr),
+             //Splitting paddr into accum bank address, index address
             // Div#(accumindexadr,nCol, nColcounter),
              Add#(g__, 16, data),
              Add#(f__, 32, data)  //This is conflicting with above
@@ -96,9 +123,9 @@ package systolic_top;
     let sqRow      = valueOf(sqrtnRow);
     let sqCol      = valueOf(sqrtnCol);
 
-    Ifc_systolic#(nRow,nCol,mulWidth)                         systolic_array    <- mksystolic;  
-    Vector#(nRow, FIFOF#(Bit#(16)))                           rowBuf            <- replicateM(mkSizedFIFOF(vnFEntries));
-    Vector#(nCol, FIFOF#(Tuple3#(Bit#(16),Bit#(8),Bit#(2))))  colBuf            <- replicateM(mkSizedFIFOF(vnFEntries)); 
+    Ifc_systolic#(nRow,nCol,mulWidth)                                  systolic_array    <- mksystolic;  
+    Vector#(nRow, FIFOF#(Bit#(16)))                                    rowBuf            <- replicateM(mkSizedFIFOF(vnFEntries));
+    Vector#(nCol, FIFOF#(Tuple4#(Bit#(16),Bit#(32),Bit#(8),Bit#(2))))  colBuf            <- replicateM(mkSizedFIFOF(vnFEntries)); 
     //The Co-ord Value Bit#(8) is temporarily put here
     Vector#(sqrtnRow, BRAM_DUAL_PORT_BE#(Bit#(gindexaddr),Bit#(16),2))     gBuffer  <- replicateM(mkBRAMCore2BE(gMem,False));
     Vector#(nCol, BRAM_DUAL_PORT_BE#(Bit#(accumindexaddr),Bit#(32),4))     accumBuf <- replicateM(mkBRAMCore2BE(accMem,False));
@@ -116,15 +143,15 @@ package systolic_top;
 
     
     //Configuration Register Space
-    Reg#(Bit#(4)) filter_rows       <- mkReg(0);  
-    Reg#(Bit#(4)) filter_cols       <- mkReg(0);
-    Reg#(Bit#(8)) filter_dims       =  concatReg2(filter_rows,filter_cols); 
-    Reg#(Bit#(3)) padding_size      <- mkReg(0);
-    Reg#(Bit#(8)) ifmap_rowdims     <- mkReg(0);
-    Reg#(Bit#(8)) ifmap_coldims     <- mkReg(0);
-    Reg#(Bit#(16)) ifmap_dims       = concatReg2(ifmap_rowdims,ifmap_coldims); 
-    Reg#(bit) startBit              <- mkReg(1);
-    Reg#(Bit#(8)) rg_weight_counter <- mkReg(0); //Config --Hardcoded to 8 for now
+    Reg#(Bit#(4))  filter_rows       <- mkReg(0);  
+    Reg#(Bit#(4))  filter_cols       <- mkReg(0);
+    Reg#(Bit#(8))  filter_dims       =  concatReg2(filter_rows,filter_cols); 
+    Reg#(Bit#(3))  padding_size      <- mkReg(0);
+    Reg#(Bit#(8))  ifmap_rowdims     <- mkReg(0);
+    Reg#(Bit#(8))  ifmap_coldims     <- mkReg(0);
+    Reg#(Bit#(16)) ifmap_dims        = concatReg2(ifmap_rowdims,ifmap_coldims); 
+    Reg#(bit) startBit               <- mkReg(1);
+    Reg#(Bit#(8)) rg_weight_counter  <- mkReg(0); //Config --Hardcoded to 8 for now
 
 
     //Status Bits
@@ -247,7 +274,7 @@ package systolic_top;
         rule send_col_buf_value;
           let val = colBuf[i].first;
           let val1 = tagged Valid tpl_1(val);
-          let finVal = tuple3(val1,tpl_2(val),tpl_3(val)); //This is very crude! 
+          let finVal = tuple4(val1,tpl_2(val),tpl_3(val),tpl_4(val)); //This is very crude! 
           colBuf[i].deq;
           systolic_array.cfifo[i].send_colbuf_value(finVal);
         endrule
@@ -366,11 +393,13 @@ package systolic_top;
       if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin 
           accumBuf[abufbank].a.put(0,aindex, ?);
           gACheck <= True;
-        end
-        else begin
+      end
+      else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin
           gBuffer[gbufbank].a.put(0,gindex,?);
           gACheck <= False;
-        end
+      end
+      else begin //Configuration Address Space
+      end
       rg_rd_state <= HandleBurst;
     endrule
 
@@ -479,10 +508,6 @@ package systolic_top;
       endrule
 
     /* =============================================================================== */
-
-
-
-
 
   interface slave_systolic =  s_xactor.axi_side;
   endmodule

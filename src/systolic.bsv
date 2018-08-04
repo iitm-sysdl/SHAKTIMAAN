@@ -49,7 +49,7 @@ package systolic;
   endinterface
 
   interface Ifc_CFIFO_Connections;
-    method Action send_colbuf_value(Tuple3#(Maybe#(Bit#(16)),Bit#(8),Bit#(2)) value);
+    method Action send_colbuf_value(Tuple4#(Maybe#(Bit#(16)), Bit#(32), Bit#(8),Bit#(2)) value);
     method ActionValue#(Bit#(32)) send_accumbuf_value;
   endinterface
 
@@ -121,10 +121,11 @@ package systolic;
         for(Integer i = 0; i < vnCol; i=i+1) begin
           vec_cfifo_ifc[i] = (
              interface Ifc_CFIFO_Connections;
-               method Action send_colbuf_value(Tuple3#(Maybe#(Bit#(16)),Bit#(8),Bit#(2)) value);
+               method Action send_colbuf_value(Tuple4#(Maybe#(Bit#(16)), Bit#(32), Bit#(8),Bit#(2)) value);
                  //Should Decide where this Bit#(8) comes from!! For now Keeping it from Buf
-                  intArray[0][i].from_north.put(value);
-                  intArray[0][i].acc_from_north.put(5);
+                  match {.mulinput,.accinput,.counter,.val} = value;
+                  intArray[0][i].from_north.put(tuple3(mulinput,counter,val));
+                  intArray[0][i].acc_from_north.put(accinput); //Put the value sent from the top!!
                endmethod
 
                 method ActionValue#(Bit#(32)) send_accumbuf_value;
@@ -170,7 +171,7 @@ package systolic;
         $display("\t TB: Tag Valid");
       end
       for(Integer i = 0; i < 3; i=i+1) begin
-        systolic_array.cfifo[i].send_colbuf_value(tuple3(rg_weight_dummy,rg_counter,2'b00));
+        systolic_array.cfifo[i].send_colbuf_value(tuple4(rg_weight_dummy,5,rg_counter,2'b00));
       end
     endrule
 

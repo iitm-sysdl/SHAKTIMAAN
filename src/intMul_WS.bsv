@@ -53,11 +53,12 @@ package intMul_WS;
   Reg#(Maybe#(Bit#(16)))         rg_west          <- mkConfigReg(tagged Invalid);
   Reg#(Bit#(2))                  rg_bitWidth      <- mkReg(0);
   Reg#(Bit#(32))                 input_acc        <- mkConfigReg(0);
-  Wire#(Bit#(32))                acc_output       <- mkConfigReg(0);
+  Wire#(Bit#(32))                acc_output       <- mkWire();
   Reg#(Bit#(8))                  rg_coord         <- mkReg(fromInteger(coord));
   Reg#(Bit#(8))                  rg_counter       <- mkReg(0);
   Reg#(Bool)                     rg_flow_ctrl     <- mkDReg(False);
   Reg#(Bool)                     rg_hor_flow_ctrl <- mkDReg(False);
+  Reg#(Bool)                     rg_acc_flow_ctrl <- mkDReg(False);
 
   Bool check = (rg_counter >= rg_coord);
    
@@ -67,7 +68,9 @@ package intMul_WS;
     Int#(32) output_mul = extend(unpack(north))*extend(unpack(west)); 
     acc_output <= pack(output_mul + unpack(input_acc));
     $display($time,"\t Systolic[%d][%d]: rg_coord: %d \n MultAdd Phase Firing north: %d weight: %d output_mul:%d",row,col,rg_coord,north,west,output_mul);
+    $display($time,"\t input_acc: %d",input_acc);
     rg_west <= tagged Invalid;
+    rg_acc_flow_ctrl <= True;
 
     /* ============ Sign Calculation ============= */
     //for(Integer i = 0; i < 16; i=i+4) begin
@@ -116,12 +119,14 @@ package intMul_WS;
 
   interface Put acc_from_north;
     method Action put(Bit#(32) acc);
+      $display($time,"Systolic[%d][%d] Receiving acc_input: %d",row,col,acc);
       input_acc <= acc;
     endmethod
   endinterface
 
   interface Get send_acc_to_south;
     method ActionValue#(Bit#(32)) get;
+      $display($time,"Systolic[%d][%d] Sending acc_output: %d",row,col,acc_output); 
       return acc_output;
     endmethod
   endinterface
