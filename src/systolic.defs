@@ -1,4 +1,8 @@
+`define IfmapDims     'h0
+`define startBit      'h2
 `define AccumBufStart 'h28
 `define AccumBufEnd   'h2028
 `define GBufStart     'h2030
 `define GBufEnd       'h2830
+`define WeightStart   'h3830
+`define WeightEnd     'h4830
