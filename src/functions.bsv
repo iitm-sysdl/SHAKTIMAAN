@@ -39,4 +39,15 @@ package functions;
     return sign==1? ~inp+1 : inp;
   endfunction
  
+  function Reg#(t) readOnlyReg(t r);
+    return (interface Reg;
+            method t _read = r;
+            method Action _write(t x) = noAction;
+        endinterface);
+  endfunction
+
+  function Bit#(m) truncateLSB(Bit#(n) value);
+    return value[valueOf(n)-1:valueOf(n)-valueOf(m)];
+  endfunction
+
 endpackage
