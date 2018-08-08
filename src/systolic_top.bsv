@@ -162,9 +162,12 @@ package systolic_top;
     Reg#(Bit#(3))  padding_size      <- mkReg(0);
     Reg#(Bit#(8))  ifmap_rowdims     <- mkReg(0);
     Reg#(Bit#(8))  ifmap_coldims     <- mkReg(0);
-    Reg#(bit)      startBit          <- mkReg(1);
+    Reg#(bit)      startBit          <- mkReg(0); //Denotes the start of the transaction
+    Reg#(bit)      accumWeight       <- mkReg(1); //Denotes if the ColBuf is accum or weight
+    Reg#(Bit#(2))  sysConfig         =  concatReg2(accumWeight, startBit); 
     Reg#(Bit#(8))  rg_weight_counter <- mkReg(0); //Config --Hardcoded to 8 for now
     Reg#(Bool)     set_trigger_dims  <- mkReg(False);
+    Reg#(Bit#(8)) rg_coord_counter <- mkReg(1); //Local counter
 
 
     Vector#(nRow, Reg#(Bit#(8))) vec_row_counter <- replicateM(mkReg(0));
@@ -193,7 +196,6 @@ package systolic_top;
     Reg#(Bit#(gbufbankaddress))   rg_gbufbank       <- mkRegU();
     Vector#(nRow, Reg#(Bit#(gindexaddr))) vec_index <- replicateM(mkReg(0));
     Vector#(nRow, Reg#(Bit#(gbufbankaddress))) bank_index <- replicateM(mkReg(0));
-    Reg#(Bit#(8)) rg_coord_counter <- mkReg(0); //Local counter
 
     //Not sure if this needs to be in place -- TEMPORARY
     //Vector#(nRow, Reg#(Bit#(TExp#(gbufbankaddress)))) vec_bank_counter;
@@ -283,8 +285,13 @@ package systolic_top;
       function Action set_systolic(Bit#(`PADDR) addr, Bit#(32) data);
         action
             case(addr)
-                `IfmapDims : ifmap_dims <= truncate(data);
-                `startBit  : startBit <= data[0];
+                `IfmapDims   : ifmap_dims <= truncate(data);
+                `sysConfig   : begin 
+                                  sysConfig <= data[1:0];
+                                  $display("\t setting startbit \n");
+                               end
+                `CoordCount  : rg_coord_counter <= truncate(data);
+                `weightCount : rg_weight_counter <= truncate(data);
             endcase
         endaction
       endfunction
@@ -292,7 +299,8 @@ package systolic_top;
       function Bit#(16) get_systolic(Bit#(`PADDR) addr);
         Reg#(Bit#(16)) register =  (
                 case(addr)
-                  `IfmapDims : ifmap_dims;
+                  `IfmapDims  : ifmap_dims;
+                  //`CoordCount : rg_coord_counter;
                   //`startBit  : startBit;
                    default   : readOnlyReg(16'b0);
                 endcase
@@ -346,33 +354,55 @@ package systolic_top;
      let wstrb = w.wstrb;
      //Bit#(accumaddr) accindex = truncate(lv_addr - fromInteger(`AccumBufStart));
      //Bit#(gbufaddr) gbufindex = truncate(lv_addr - fromInteger(`GBufStart));
-     let {gindex, gbufbank} <- split_address_gbufW.func(lv_addr);
+     let {gindex, gbufferbank} <- split_address_gbufW.func(lv_addr);
      let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
+     $display($time, "\t lv_addr: %h lv_data: %h gindex: %h gbufferbank: %h",lv_addr,lv_data,gindex,gbufferbank);
+     //Write Request to AccumBuffer Range
+     if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin
+       //accumBuf.b.put(wstrb[3:0],accindex,truncate(lv_data));
+     //   accumBuf[abufbank].b.put(wstrb[3:0],aindex,truncate(lv_data));
+     //Send Slave Error
+     end
+     else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin
+       //gBuffer.b.put(wstrb[1:0], gbufindex, truncate(lv_data));
+       for(Integer i = 0; i <= gbufBank ; i=i+1) begin 
+        $display($time, "\t Sending request to gbuf: %h", gbufferbank);
+        gBuffer[gbufferbank+fromInteger(i)].portB.request.put(makeRequest(True,wstrb[1:0],gindex,lv_data[15+i*16:i*16]));
+       end
+     end
+     else if(lv_addr >= `WeightStart && lv_addr <= `WeightEnd) begin
+       Bit#(2) mulW = 0;  //Temporary data value
+       //Logic to send weight-coordinates to the buffers
+       if(rg_coord_counter != rg_weight_counter)
+         rg_coord_counter <= rg_coord_counter+1;
+       //else
+       //  rg_coord_counter <= 0;
+       // Assuming a bus width of 64 for now -- will extend to 512 maybe
+       // This is not parameterized for now -- TODO
+       //USeless Adders and Muxes
+       /*============= To be reviewed code - This is assuming buswidth =====================*/
+       if(accumWeight==1'b1) begin //Loading Weights
+         $display("\t Vinod: lv_data: %h", lv_data);
+         for(Integer i = 0; i < 4; i=i+1) begin
+           colBuf[gindex+fromInteger(i)].enq(tuple4(lv_data[15+i*16:i*16],0,rg_coord_counter,mulW));
+         end
+       end
+       else begin
+         for(Integer i = 0; i < 2; i=i+1) begin 
+           colBuf[gindex+fromInteger(i)].enq(tuple4(0,lv_data[31+i*32:i*32],rg_coord_counter,mulW));
+           //High value for rg_coord so weights stay
+         end
+       end
+       /* ==================================================================================*/
 
-          //Write Request to AccumBuffer Range
-          if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin
-            //accumBuf.b.put(wstrb[3:0],accindex,truncate(lv_data));
-         //   accumBuf[abufbank].b.put(wstrb[3:0],aindex,truncate(lv_data));
-          //Send Slave Error
-          end
-          else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin
-            //gBuffer.b.put(wstrb[1:0], gbufindex, truncate(lv_data));
-            gBuffer[gbufbank].portB.request.put(makeRequest(True,wstrb[1:0],gindex,truncate(lv_data)));
-          end
-          else if(lv_addr >= `WeightStart && lv_addr <= `WeightEnd) begin
-            Bit#(2) co_ord = 0;  //Temporary data value
-            //Logic to send weight-coordinates to the buffers
-            if(rg_coord_counter != rg_weight_counter)
-              rg_coord_counter <= rg_coord_counter+1;
-            else
-              rg_coord_counter <= 0;
-            colBuf[abufbank].enq(tuple4(truncateLSB(lv_data),truncate(lv_data),rg_coord_counter,co_ord));
-            //Shouldn't accumulator be a separate channel??
-            //Or equivalently rg_coord_counter programmable
-          end
-          else //Configuration Address Space
-            set_systolic(lv_addr, truncate(lv_data));
-
+       //colBuf[gindex].enq(tuple4(truncateLSB(lv_data),truncate(lv_data),rg_coord_counter,mulW));
+       //Shouldn't accumulator be a separate channel??
+       //Or equivalently rg_coord_counter programmable
+     end
+     else begin //Configuration Address Space
+       $display($time, "\t Setting Config Address \n");
+       set_systolic(lv_addr, truncate(lv_data));
+     end
 
      let resp = AXI4_Wr_Resp {bresp: AXI4_OKAY, buser: aw.awuser, bid:aw.awid};
      if(aw.awlen != 0) begin 
@@ -396,27 +426,44 @@ package systolic_top;
       let wstrb = w.wstrb;
       Bit#(accumaddr) accindex  = truncate(lv_addr - fromInteger(`AccumBufStart));
       Bit#(gbufaddr)  gbufindex = truncate(lv_addr - fromInteger(`GBufStart));
-      let {gindex, gbufbank} <- split_address_gbufW.func(lv_addr);
+      let {gindex, gbufferbank} <- split_address_gbufW.func(lv_addr);
       let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
 
-          //Write Request to AccumBuffer Range
-          if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin
-            //accumBuf[abufbank].b.put(wstrb[3:0],aindex,truncate(lv_data));
-            //Send Slave Error
-          end
-          else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin
-            gBuffer[gbufbank].portB.request.put(makeRequest(True,wstrb[1:0],gindex,truncate(lv_data)));
-          end
-          else if(lv_addr >= `WeightStart && lv_addr <= `WeightEnd) begin
-            Bit#(2) co_ord = 0;  //Temporary data value
+      //Write Request to AccumBuffer Range
+      if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin
+        //accumBuf[abufbank].b.put(wstrb[3:0],aindex,truncate(lv_data));
+        //Send Slave Error
+      end
+      else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin
+        for(Integer i = 0; i <= gbufBank ; i=i+1) begin 
+          gBuffer[gbufferbank+fromInteger(i)].portB.request.put(makeRequest(True,wstrb[1:0],gindex,lv_data[15+i*16:i*16]));
+        end
+        //gBuffer[gbufbank].portB.request.put(makeRequest(True,wstrb[1:0],gindex,truncate(lv_data)));
+      end
+      else if(lv_addr >= `WeightStart && lv_addr <= `WeightEnd) begin
+        Bit#(2) mulW = 0;  //Temporary data value
 
-            //Logic to send weight-coordinates to the buffers
-            if(rg_coord_counter != rg_weight_counter)
-              rg_coord_counter <= rg_coord_counter+1;
-            else
-              rg_coord_counter <= 0;
-            colBuf[abufbank].enq(tuple4(truncateLSB(lv_data),truncate(lv_data),rg_coord_counter,co_ord));     
+        //Logic to send weight-coordinates to the buffers
+        if(rg_coord_counter != rg_weight_counter)
+          rg_coord_counter <= rg_coord_counter+1;
+        else
+          rg_coord_counter <= 0;
+        
+        //Useless Adders and Muxes -- Come up with more efficient logic -- TODO
+        /*============= To be reviewed code - This is assuming buswidth =====================*/
+        if(accumWeight==1'b1) begin //Loading Weights
+          for(Integer i = 0; i < 4; i=i+1) begin
+            colBuf[gindex+fromInteger(i)].enq(tuple4(lv_data[15+i*16:i*16],0,rg_coord_counter,mulW));
           end
+        end
+        else begin
+          for(Integer i = 0; i < 2; i=i+1) begin 
+            colBuf[gindex+fromInteger(i)].enq(tuple4(0,lv_data[31+i*32:i*32],20,mulW)); //20 so weights stay
+          end
+        end
+        //colBuf[gindex].enq(tuple4(truncateLSB(lv_data),truncate(lv_data),rg_coord_counter,mulW));     
+      end
+      /* ==================================================================================*/
       
       let new_address=burst_address_generator(rg_write_packet.awlen,rg_write_packet.awsize,
                                               rg_write_packet.awburst,rg_write_packet.awaddr);
@@ -450,7 +497,7 @@ package systolic_top;
           gACheck <= True;
       end
       else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin
-          gBuffer[gbufbank].portA.request.put(makeRequest(False,0,gindex,?));
+          gBuffer[gbufbank].portB.request.put(makeRequest(False,0,gindex,?));
           gACheck <= False;
       end
       else begin //Configuration Address Space
@@ -467,7 +514,7 @@ package systolic_top;
 	    s_xactor.i_rd_data.enq(rA);
       end
       else begin
-       let gVal <- gBuffer[rg_gbufbank].portA.response.get();
+       let gVal <- gBuffer[rg_gbufbank].portB.response.get();
        let rG = AXI4_Rd_Data {rresp: AXI4_OKAY, rdata: extend(gVal) ,rlast:
                               rg_readburst_counter==rg_read_packet.arlen, ruser: 0, 
                               rid:rg_read_packet.arid};
@@ -493,7 +540,7 @@ package systolic_top;
           gACheck <= True;
         end
         else begin
-          gBuffer[gbufbank].portA.request.put(makeRequest(False,0,gindex,?)); 
+          gBuffer[gbufbank].portB.request.put(makeRequest(False,0,gindex,?)); 
           //Check if portA should be used here
           gACheck <= False;
         end
@@ -537,6 +584,7 @@ package systolic_top;
     // Scheme - 1
     for(Integer i = 0; i < sqRow; i=i+1) begin
       rule send_req(startBit==1'b1);
+        $display($time,"\t Systolic Bank[%d] beginning to read from BRAM",i);
         gBuffer[i].portA.request.put(makeRequest(False,0,vec_index[i], ?)); 
         if(rg_rl_counter >= fromInteger(i*sqRow)) begin //i*filter_row
           vec_index[i] <= vec_index[i]+1;
@@ -561,6 +609,7 @@ package systolic_top;
            rg_rl_counter <= rg_rl_counter + 1; 
            //Could be buggy since there could be case in which one of the banks stalls
          let gVal <- gBuffer[i].portA.response.get();
+         $display($time,"\t Systolic read from bank %d and feeding inputs to array with val %h",i,gVal);
          for(Integer j = i*sqRow; j < sqRow*(i+1); j=j+1) begin
            vec_row_counter[j] <= vec_row_counter[j]+1;
            if(vec_row_counter[j] >= fromInteger(j) && vec_row_counter[j] < vec_end_value[j])
