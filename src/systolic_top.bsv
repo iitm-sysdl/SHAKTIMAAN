@@ -42,6 +42,7 @@ package systolic_top;
 	import BUtils::*;
   import Semi_FIFOF::*;
   import UniqueWrappers::*;
+  import ConfigReg::*;
 
 
 	`include "defined_parameters.bsv"
@@ -194,7 +195,8 @@ package systolic_top;
 		Reg#(AXI4_Rd_Addr#(`PADDR,0)) rg_read_packet    <- mkReg(?);
     Reg#(Bit#(accumbankaddress))  rg_abufbank       <- mkRegU();
     Reg#(Bit#(gbufbankaddress))   rg_gbufbank       <- mkRegU();
-    Vector#(nRow, Reg#(Bit#(gindexaddr))) vec_index <- replicateM(mkReg(0));
+    Vector#(sqrtnRow, Reg#(Bit#(gindexaddr))) vec_index <- replicateM(mkConfigReg(0));
+    Vector#(sqrtnRow, Reg#(Bit#(gindexaddr))) vec_input <- replicateM(mkConfigReg(-1)); //Have a config to clear
     Vector#(nRow, Reg#(Bit#(gbufbankaddress))) bank_index <- replicateM(mkReg(0));
 
     //Not sure if this needs to be in place -- TEMPORARY
@@ -356,7 +358,7 @@ package systolic_top;
      //Bit#(gbufaddr) gbufindex = truncate(lv_addr - fromInteger(`GBufStart));
      let {gindex, gbufferbank} <- split_address_gbufW.func(lv_addr);
      let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
-     $display($time, "\t lv_addr: %h lv_data: %h gindex: %h gbufferbank: %h",lv_addr,lv_data,gindex,gbufferbank);
+     $display($time, "lv_addr: %h lv_data: %h gindex: %h gbufferbank: %h",lv_addr,lv_data,gindex,gbufferbank);
      //Write Request to AccumBuffer Range
      if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin
        //accumBuf.b.put(wstrb[3:0],accindex,truncate(lv_data));
@@ -366,8 +368,10 @@ package systolic_top;
      else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin
        //gBuffer.b.put(wstrb[1:0], gbufindex, truncate(lv_data));
        for(Integer i = 0; i <= gbufBank ; i=i+1) begin 
-        $display($time, "\t Sending request to gbuf: %h", gbufferbank);
-        gBuffer[gbufferbank+fromInteger(i)].portB.request.put(makeRequest(True,wstrb[1:0],gindex,lv_data[15+i*16:i*16]));
+         let m = gbufferbank+fromInteger(i);
+        $display($time, "Sending request to gbuf: %h of %dth buffer vec_input: %d", gbufferbank,i,vec_input[m]);
+        gBuffer[m].portB.request.put(makeRequest(True,wstrb[1:0],gindex,lv_data[15+i*16:i*16]));
+        vec_input[m] <= vec_input[m]+1;
        end
      end
      else if(lv_addr >= `WeightStart && lv_addr <= `WeightEnd) begin
@@ -382,7 +386,7 @@ package systolic_top;
        //USeless Adders and Muxes
        /*============= To be reviewed code - This is assuming buswidth =====================*/
        if(accumWeight==1'b1) begin //Loading Weights
-         $display("\t Vinod: lv_data: %h", lv_data);
+         $display("Vinod: lv_data: %h", lv_data);
          for(Integer i = 0; i < 4; i=i+1) begin
            colBuf[gindex+fromInteger(i)].enq(tuple4(lv_data[15+i*16:i*16],0,rg_coord_counter,mulW));
          end
@@ -549,8 +553,9 @@ package systolic_top;
     endrule
 
     rule set_dims_register(set_trigger_dims);
+      //$display($time,"ifmap_rowdims: %d",ifmap_rowdims);
       for(Integer i = 0; i < vnRow; i=i+1) begin
-        vec_end_value[i] <= ifmap_rowdims - fromInteger(vnRow) + fromInteger(i);
+        vec_end_value[i] <= ifmap_coldims +  fromInteger(i);
       end
     endrule
 
@@ -583,8 +588,8 @@ package systolic_top;
 
     // Scheme - 1
     for(Integer i = 0; i < sqRow; i=i+1) begin
-      rule send_req(startBit==1'b1);
-        $display($time,"\t Systolic Bank[%d] beginning to read from BRAM",i);
+      rule send_req(startBit==1'b1 && vec_index[i] <= vec_input[i]);
+        $display($time,"Systolic Bank[%d] beginning to read from BRAM vec_index[%d] %d vec_input[%d] %d",i, i,vec_index[i],i,vec_input[i]);
         gBuffer[i].portA.request.put(makeRequest(False,0,vec_index[i], ?)); 
         if(rg_rl_counter >= fromInteger(i*sqRow)) begin //i*filter_row
           vec_index[i] <= vec_index[i]+1;
@@ -609,11 +614,12 @@ package systolic_top;
            rg_rl_counter <= rg_rl_counter + 1; 
            //Could be buggy since there could be case in which one of the banks stalls
          let gVal <- gBuffer[i].portA.response.get();
-         $display($time,"\t Systolic read from bank %d and feeding inputs to array with val %h",i,gVal);
+         $display($time,"Systolic read from bank %d and feeding inputs to array with val %h",i,gVal);
          for(Integer j = i*sqRow; j < sqRow*(i+1); j=j+1) begin
            vec_row_counter[j] <= vec_row_counter[j]+1;
            if(vec_row_counter[j] >= fromInteger(j) && vec_row_counter[j] < vec_end_value[j])
              rowBuf[j].enq(gVal);
+           $display("Systolic vec_row_counter[%d] %d, counter: %d, vec_end_value[%d] %d",j,vec_row_counter[j], j, j,vec_end_value[j]);
          end
        endrule
     end

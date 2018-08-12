@@ -94,7 +94,7 @@ package systolic;
       for(Integer i = 0; i < vnRow-1; i=i+1) begin
         for(Integer j = 0; j < vnCol; j=j+1) begin
           mkConnection(intArray[i][j].to_south, intArray[i+1][j].from_north);
-          mkConnection(intArray[i][j].send_acc_to_south, intArray[1+1][j].acc_from_north);
+          mkConnection(intArray[i][j].send_acc_to_south, intArray[i+1][j].acc_from_north);
         end
       end
       /* ============================================================================= */

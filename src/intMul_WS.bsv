@@ -67,7 +67,7 @@ package intMul_WS;
     Bit#(1) pp_sign[4];
     Int#(32) output_mul = extend(unpack(north))*extend(unpack(west)); 
     acc_output <= pack(output_mul + unpack(input_acc));
-    $display($time,"\t Systolic[%d][%d]: rg_coord: %d \n MultAdd Phase Firing north: %d weight: %d output_mul:%d",row,col,rg_coord,north,west,output_mul);
+    $display($time,"Systolic[%d][%d]: rg_coord: %d MultAdd Phase Firing west: %d weight: %d output_mul:%d \n",row,col,rg_coord,west,north,output_mul);
     $display($time,"\t input_acc: %d",input_acc);
     rg_west <= tagged Invalid;
     rg_acc_flow_ctrl <= True;
@@ -113,7 +113,7 @@ package intMul_WS;
       rg_bitWidth  <= tpl_3(inp);
       rg_flow_ctrl <= True;
       Bit#(16) x = fromMaybe(0,tpl_1(inp));
-      $display($time,"\t Systolic[%h][%h]: Receiving Weight: %d coord:%h",row,col,x,tpl_2(inp)); 
+      $display($time,"\t Systolic[%h][%h]: Receiving Weight: %d coord:%h rg_coord: %h",row,col,x,tpl_2(inp), rg_coord); 
     endmethod
   endinterface
 
@@ -133,6 +133,7 @@ package intMul_WS;
 
   interface Put from_west;
     method Action put(Maybe#(Bit#(16)) rowW);
+      $display($time,"Systolic[%d][%d] Receiving Value from West",row,col);
       rg_west <= rowW;
       rg_hor_flow_ctrl <= True;
     endmethod
@@ -140,6 +141,7 @@ package intMul_WS;
     
   interface Get to_east;
     method ActionValue#(Maybe#(Bit#(16))) get if(rg_hor_flow_ctrl);
+      $display($time,"Systolic[%d][%d] Sending Value %d to East Systolic[%d][%d]",row,col,rg_west,row+1,col+1);
       return rg_west;
     endmethod
   endinterface
