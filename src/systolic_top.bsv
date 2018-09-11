@@ -29,6 +29,8 @@ Details:
 --------------------------------------------------------------------------------------------------
 */
 package systolic_top;
+
+ /* ========= Imports ============ */ 
   import  AXI4_Types  ::*;
   import  AXI4_Fabric ::*;
   import  Connectable ::*;
@@ -43,13 +45,15 @@ package systolic_top;
   import Semi_FIFOF::*;
   import UniqueWrappers::*;
   import ConfigReg::*;
-
-
 	`include "defined_parameters.bsv"
 	import defined_types::*;
-  `include "systolic.defs"
+  `include "systolic.defines"
 	import axi_addr_generator::*;
   import functions::*;
+
+ /* ========= Exports ============ */
+   export Ifc_systolic_top_axi4(..);
+   export mksystolic_top_axi4;
 
   // Parameterized Interface which takes in number of rows/cols of Systolic array as input -- it
   // is capable of handling non-square systolic arrays but for simplicity of first cut design its
@@ -66,23 +70,23 @@ package systolic_top;
   // size like 7x7 or 8x8 since it becomes hard to handle WS dataflow with arbitrary systolic array
   // size! It's not difficult to give that support though! 
 
-  interface Ifc_systolic_top#(numeric type nRow, numeric type nCol, 
-                              numeric type addr, numeric type data,
-                              numeric type accumaddr,numeric type gbufaddr,  
-                              numeric type nFEntries,numeric type mulWidth);
-    interface AXI4_Slave_IFC#(`PADDR,data,0) slave_systolic; //32-bit address? 4 16-bits?
+  interface Ifc_systolic_top_axi4#(numeric type addr_width, numeric type data_width, 
+                                   numeric type user_width, numeric type nRow, numeric type nCol, 
+                                   numeric type accumaddr,numeric type gbufaddr,  
+                                   numeric type nFEntries,numeric type mulWidth);
+    interface AXI4_Slave_IFC#(`PADDR,data_width,0) slave_systolic; //32-bit address? 4 16-bits?
   endinterface
 	
   typedef enum{Idle,HandleBurst} Mem_state deriving(Bits,Eq);
 
-    (*synthesize*)
-    module mksystolic3(Ifc_systolic_top#(3,3,32,64,16,16,2,16));
-        let ifc();
-        mksystolic_top inst(ifc);
-        return (ifc);
-    endmodule
+   // (*synthesize*)
+   // module mksystolic3(Ifc_systolic_top_axi4#(32,64,0,3,3,16,16,2,16));
+   //     let ifc();
+   //     mksystolic_top_axi4 inst(ifc);
+   //     return (ifc);
+   // endmodule
 
-  module mksystolic_top(Ifc_systolic_top#(sqrtnRow,sqrtnCol,addr,data,gbufaddr,accumaddr,nFEntries,mulWidth))
+  module mksystolic_top_axi4(Ifc_systolic_top_axi4#(addr_width,data_width,user_width,sqrtnRow,sqrtnCol,gbufaddr,accumaddr,nFEntries,mulWidth))
     provisos(
              Add#(a__,2,sqrtnRow),  // Square root of Number of Rows of Array must atleast be 2
              Add#(b__,2,sqrtnCol),  // Square root of Number of Cols of Array must atleast be 2
@@ -109,8 +113,8 @@ package systolic_top;
              Add#(accumindexaddr, TAdd#(accumbankaddress,2), accumaddr),
              //Splitting paddr into accum bank address, index address
             // Div#(accumindexadr,nCol, nColcounter),
-             Add#(g__, 16, data),
-             Add#(f__, 32, data)  //This is conflicting with above
+             Add#(g__, 16, data_width),
+             Add#(f__, 32, data_width)  //This is conflicting with above
             );
     let vnFEntries = valueOf(nFEntries);
     let vnRow      = valueOf(nRow);
@@ -145,7 +149,7 @@ package systolic_top;
 
     //BRAM_DUAL_PORT_BE#(Bit#(gbufaddr), Bit#(16), 2)  gBuffer   <- mkBRAMCore2BE(gBUF,False);
     //BRAM_DUAL_PORT_BE#(Bit#(accumaddr), Bit#(32), 4) accumBuf  <- mkBRAMCore2BE(aCC,False);
-    AXI4_Slave_Xactor_IFC#(`PADDR,data,0)            s_xactor  <- mkAXI4_Slave_Xactor;
+    AXI4_Slave_Xactor_IFC#(`PADDR,data_width,0)            s_xactor  <- mkAXI4_Slave_Xactor;
    
 
 

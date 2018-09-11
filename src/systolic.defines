@@ -1,3 +1,4 @@
+// slave_bound: ??
 `define IfmapDims     'hB0000000
 `define sysConfig     'hB0000002
 `define CoordCount    'hB0000004
