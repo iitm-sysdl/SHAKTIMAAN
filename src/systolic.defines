@@ -5,7 +5,7 @@
 `define weightCount   'hB0000006
 `define WeightStart   'hB0010000      
 `define WeightEnd     'hB001ffff
-`define AccumBufStart 'hB0020000
-`define AccumBufEnd   'hB002ffff
+`define AccumBufStart 'hB0200000
+`define AccumBufEnd   'hB02fffff
 `define GBufStart     'hB0030000
 `define GBufEnd       'hB003ffff

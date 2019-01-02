@@ -133,15 +133,15 @@ package intMul_WS;
 
   interface Put from_west;
     method Action put(Maybe#(Bit#(16)) rowW);
-      $display($time,"Systolic[%d][%d] Receiving Value from West",row,col);
+      $display($time,"Systolic[%d][%d] Receiving Valid: %d Value from West %d",row,col,isValid(rowW),fromMaybe(?,rowW));
       rg_west <= rowW;
       rg_hor_flow_ctrl <= True;
     endmethod
   endinterface
     
   interface Get to_east;
-    method ActionValue#(Maybe#(Bit#(16))) get if(rg_hor_flow_ctrl);
-      $display($time,"Systolic[%d][%d] Sending Value %d to East Systolic[%d][%d]",row,col,rg_west,row+1,col+1);
+    method ActionValue#(Maybe#(Bit#(16))) get if(rg_hor_flow_ctrl && isValid(rg_west));
+      $display($time,"Systolic[%d][%d] Sending Valid: %d Value %d to East Systolic[%d][%d]",row,col,isValid(rg_west),fromMaybe(?,rg_west),row,col+1);
       return rg_west;
     endmethod
   endinterface

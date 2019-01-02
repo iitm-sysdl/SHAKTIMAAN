@@ -77,7 +77,7 @@ package systolic_top;
     interface AXI4_Slave_IFC#(`PADDR,data_width,0) slave_systolic; //32-bit address? 4 16-bits?
   endinterface
 	
-  typedef enum{Idle,HandleBurst} Mem_state deriving(Bits,Eq);
+  typedef enum{Idle,HandleBurst, HandleGBurst, HandleABurst} Mem_state deriving(Bits,Eq);
 
    // (*synthesize*)
    // module mksystolic3(Ifc_systolic_top_axi4#(32,64,0,3,3,16,16,2,16));
@@ -108,7 +108,9 @@ package systolic_top;
              //which might lead to loss of performance 
           
              Log#(nCol,accumbankaddress), //The number of accumulator banks is number of cols!
-             Add#(gindexaddr,TAdd#(gbufbankaddress,2),gbufaddr), //check correctness
+             Log#(gindexaddr, LogGindex),
+             Add#(gsubindex, 3, gsubindex3),
+             Add#(gindexaddr,TAdd#(gbufbankaddress,gsubindex3),gbufaddr), //check correctness
              //Splitting paddr into gbuf bank address, index address
              Add#(accumindexaddr, TAdd#(accumbankaddress,2), accumaddr),
              //Splitting paddr into accum bank address, index address
@@ -197,6 +199,8 @@ package systolic_top;
     Reg#(Mem_state)               rg_rd_state       <- mkReg(Idle);
 		Reg#(AXI4_Wr_Addr#(`PADDR,0)) rg_write_packet   <- mkReg(?);
 		Reg#(AXI4_Rd_Addr#(`PADDR,0)) rg_read_packet    <- mkReg(?);
+		Wire#(AXI4_Rd_Addr#(`PADDR,0)) wr_gbuf          <- mkWire();
+		Wire#(AXI4_Rd_Addr#(`PADDR,0)) wr_abuf          <- mkWire();
     Reg#(Bit#(accumbankaddress))  rg_abufbank       <- mkRegU();
     Reg#(Bit#(gbufbankaddress))   rg_gbufbank       <- mkRegU();
     Vector#(sqrtnRow, Reg#(Bit#(gindexaddr))) vec_index <- replicateM(mkConfigReg(0));
@@ -216,8 +220,6 @@ package systolic_top;
 
     //Reg#(Bit#(9))   accumIndex           <- mkReg(0);
     Reg#(Bit#(8))   rg_readburst_counter <- mkReg(0);
-    Reg#(Bool)      gACheck              <- mkReg(False);
-
     /* =========================== Function Definitions ============================== */
      // function Action populate_buffers(Bit#(addr) lv_addr, Bit#(data) lv_data, Bit#(TDiv#(data,8))
      //     wstrb);
@@ -250,7 +252,7 @@ package systolic_top;
         data);
             return BRAMRequestBE{
                                 writeen: wstrb ,
-                                responseOnWrite: False,
+                                responseOnWrite: True,
                                 address   : addr,
                                 datain : data
                               };
@@ -268,7 +270,7 @@ package systolic_top;
       function Tuple2#(Bit#(accumindexaddr), Bit#(accumbankaddress))
                split_address_accbuf(Bit#(`PADDR) addr);
 
-          Bit#(TSub#(`PADDR,2)) alignAddr   = addr[`PADDR-1:4];  //Hardcoded Data value
+          Bit#(TSub#(`PADDR,2)) alignAddr   = addr[`PADDR-1:2];  //Hardcoded Data value
           Bit#(accumbankaddress) accumbank  = alignAddr[accIndex+bufAccum-1:accIndex];
           Bit#(accumindexaddr)   accumindex = alignAddr[accIndex-1:0];
         return tuple2(accumindex,accumbank);
@@ -373,7 +375,7 @@ package systolic_top;
        //gBuffer.b.put(wstrb[1:0], gbufindex, truncate(lv_data));
        for(Integer i = 0; i <= gbufBank ; i=i+1) begin 
          let m = gbufferbank+fromInteger(i);
-        $display($time, "Sending request to gbuf: %h of %dth buffer vec_input: %d", gbufferbank,i,vec_input[m]);
+        $display($time, "Sending request to gbuf: %h of %dth buffer vec_input: %d",gbufferbank,gindex,vec_input[m]);
         gBuffer[m].portB.request.put(makeRequest(True,wstrb[1:0],gindex,lv_data[15+i*16:i*16]));
         vec_input[m] <= vec_input[m]+1;
        end
@@ -432,10 +434,8 @@ package systolic_top;
       let lv_addr = rg_write_packet.awaddr;
       let lv_data = w.wdata;
       let wstrb = w.wstrb;
-      Bit#(accumaddr) accindex  = truncate(lv_addr - fromInteger(`AccumBufStart));
       Bit#(gbufaddr)  gbufindex = truncate(lv_addr - fromInteger(`GBufStart));
       let {gindex, gbufferbank} <- split_address_gbufW.func(lv_addr);
-      let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
 
       //Write Request to AccumBuffer Range
       if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin
@@ -492,69 +492,80 @@ package systolic_top;
     rule rlAXIreadReq(rg_rd_state == Idle);
 			let ar <- pop_o(s_xactor.o_rd_addr);
       rg_read_packet <= ar;
-      //read_req(ar.araddr);
       let lv_addr = ar.araddr;
-      //Bit#(gbufaddr) gIndex = truncate(lv_addr - fromInteger(`GBufStart));
-      //Bit#(accumaddr) accIndex = truncate(lv_addr - fromInteger(`AccumBufStart));
-      let {gindex,gbufbank}  <- split_address_gbufW.func(lv_addr);
-      let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
-      rg_abufbank <= abufbank;
-      rg_gbufbank <= gbufbank;
       if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin 
-          accumBuf[abufbank].portA.request.put(makeRequest(False,0,aindex, ?));
-          gACheck <= True;
+          $display($time, "Request to read from Accumulator");
+          wr_abuf <= ar;
+          rg_rd_state <= HandleABurst;
       end
       else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin
-          gBuffer[gbufbank].portB.request.put(makeRequest(False,0,gindex,?));
-          gACheck <= False;
+          wr_gbuf <= ar;
+          rg_rd_state <= HandleGBurst;
       end
       else begin //Configuration Address Space
       end
-      rg_rd_state <= HandleBurst;
     endrule
 
-    rule rlAXIreadBurst(rg_rd_state == HandleBurst);
-      if(gACheck) begin  //Could be Potentially a buggy code
-       let accumVal <- accumBuf[rg_abufbank].portA.response.get();
-       let rA = AXI4_Rd_Data {rresp: AXI4_OKAY, rdata: extend(accumVal) ,rlast:
-                             rg_readburst_counter==rg_read_packet.arlen, ruser: 0, 
-                             rid:rg_read_packet.arid};
-	    s_xactor.i_rd_data.enq(rA);
-      end
-      else begin
-       let gVal <- gBuffer[rg_gbufbank].portB.response.get();
+    rule rl_GbufReq;
+        $display($time, "\t Rule GBuf Firing");
+        let lv_addr = wr_gbuf.araddr;
+        let {gindex,gbufbank}  <- split_address_gbufW.func(lv_addr);
+        gBuffer[gbufbank].portB.request.put(makeRequest(False,0,gindex,?));
+    endrule
+
+    rule rl_AbufReq;
+        let lv_addr = wr_abuf.araddr;
+        let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
+        $display($time, "\t Rule ABuf Firing lv_addr: %h aindex: %d abufbank: %d ", lv_addr, aindex, abufbank);
+        accumBuf[abufbank].portA.request.put(makeRequest(False,0,aindex,?));
+    endrule
+
+    //These two rules can be composed into one rule, room for optimization
+    //TODO: The logic inside, which is replicated an be composed to save area
+  for(Integer i = 0; i < gbufBank; i=i+1) begin
+    rule rlAXIGreadBurst(rg_rd_state == HandleGBurst);
+       $display($time, "\t HandleGBurst Firing \n");
+       let gVal <- gBuffer[i].portB.response.get();
        let rG = AXI4_Rd_Data {rresp: AXI4_OKAY, rdata: extend(gVal) ,rlast:
                               rg_readburst_counter==rg_read_packet.arlen, ruser: 0, 
                               rid:rg_read_packet.arid};
       s_xactor.i_rd_data.enq(rG);
-      end 
-		  let new_address=burst_address_generator(rg_read_packet.arlen,rg_read_packet.arsize,
-                                              rg_read_packet.arburst,rg_read_packet.araddr);
-
+      let lv_addr = burst_address_generator(rg_read_packet.arlen,rg_read_packet.arsize, rg_read_packet.arburst,rg_read_packet.araddr);
+      let {gindex,gbufbank}  <- split_address_gbufW.func(lv_addr);
+      if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) 
+        gBuffer[gbufbank].portB.request.put(makeRequest(False,0,gindex,?)); 
+      else begin
+        //Send Slave Error
+      end
       if(rg_readburst_counter==rg_read_packet.arlen)begin
 				rg_readburst_counter<=0;
 				rg_rd_state<=Idle;
 			end
-      else begin
-      //read_req(new_address);
-      let lv_addr = new_address;
-      //Bit#(gbufaddr) gIndex = truncate(lv_addr - fromInteger(`GBufStart));
-      //Bit#(accumaddr) accIndex = truncate(lv_addr - fromInteger(`AccumBufStart));
-      let {gindex,gbufbank}  <- split_address_gbufW.func(lv_addr);
-      let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
- 
-      if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin 
-          accumBuf[abufbank].portA.request.put(makeRequest(False,0,aindex, ?));
-          gACheck <= True;
-        end
-        else begin
-          gBuffer[gbufbank].portB.request.put(makeRequest(False,0,gindex,?)); 
-          //Check if portA should be used here
-          gACheck <= False;
-        end
-      end
-       //Not Considering Transfer Size for Now
     endrule
+  end
+
+  for(Integer i = 0; i < vnCol; i=i+1) begin
+    rule rlAXIAreadBurst(rg_rd_state == HandleABurst);
+       $display($time,"\t HandleABurst Rule firing \n");
+       let accumVal <- accumBuf[i].portA.response.get();
+       let rA = AXI4_Rd_Data {rresp: AXI4_OKAY, rdata: extend(accumVal) ,rlast:
+                             rg_readburst_counter==rg_read_packet.arlen, ruser: 0, 
+                             rid:rg_read_packet.arid};
+	    s_xactor.i_rd_data.enq(rA);
+      let lv_addr = burst_address_generator(rg_read_packet.arlen,rg_read_packet.arsize, rg_read_packet.arburst,rg_read_packet.araddr);
+      let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
+      if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) 
+        accumBuf[abufbank].portA.request.put(makeRequest(False,0,aindex, ?));
+      else begin
+        //Send Slave Error
+      end
+      if(rg_readburst_counter==rg_read_packet.arlen)begin
+				rg_readburst_counter<=0;
+				rg_rd_state<=Idle;
+			end
+     endrule
+    end
+
 
     rule set_dims_register(set_trigger_dims);
       //$display($time,"ifmap_rowdims: %d",ifmap_rowdims);
@@ -612,7 +623,6 @@ package systolic_top;
     // end
 
     // Scheme - 2
-    // Employ Neel's scheme and have both of them in place!!! Comment what is not required
        rule recv_rsp_enq_fifo(startBit==1'b1);
          if(fromInteger(i)==0)
            rg_rl_counter <= rg_rl_counter + 1; 
@@ -623,22 +633,29 @@ package systolic_top;
            vec_row_counter[j] <= vec_row_counter[j]+1;
            if(vec_row_counter[j] >= fromInteger(j) && vec_row_counter[j] < vec_end_value[j])
              rowBuf[j].enq(gVal);
-           $display("Systolic vec_row_counter[%d] %d, counter: %d, vec_end_value[%d] %d",j,vec_row_counter[j], j, j,vec_end_value[j]);
+           $display($time,"Systolic vec_row_counter[%d] %d, counter: %d, vec_end_value[%d] %d",j,vec_row_counter[j], j, j,vec_end_value[j]);
          end
        endrule
     end
 
     /* ====================== Loading Value from Accum to Accum Buffer =============== */
-        
+       
+    //Put the for loop outside if you want a specific portion of systolic to operate even when some
+    //other portion is not free. But the problem here is to figure out how to increment the counter.
+
+    for(Integer i = 0; i < vnCol; i=i+1) begin
       rule rl_get_accumulator;
-        rg_acc_counter <= rg_acc_counter+1;
-        Vector#(nCol,Bit#(32)) tmp;
-        for(Integer i = 0; i < vnCol; i=i+1) begin
+          rg_acc_counter <= rg_acc_counter+1;
           let x <- systolic_array.cfifo[i].send_accumbuf_value;
-          tmp[i] = x;
-          accumBuf[i].portB.request.put(makeRequest(True,'1, rg_acc_counter, tmp[i]));                 
-        end
+          $display($time, "Enqueuing Data into Accumulator Bank: %d with Value %d", i, x);
+          accumBuf[i].portB.request.put(makeRequest(True,'1, rg_acc_counter, x));                 
       endrule
+
+      rule rl_get_accumulator_response;
+          let x <- accumBuf[i].portB.response.get();
+          $display($time, "Getting Write Response for %d Value: %d", i, x);
+      endrule
+    end
 
     /* =============================================================================== */
 
