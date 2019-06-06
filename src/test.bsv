@@ -81,8 +81,8 @@ will occupy twice the number of bits.
     cfg.memorySize = `NUM_ROWS;
   
     //BRAM2Port#( Bit#(TLog#(`NUM_ROWS)), Bit#(TMul#(`NUM_COLS, `MUL_WIDTH)) ) weights_bram <- mkBRAM2Server(cfg);
-    RegFile#(Bit#(TLog#(`NUM_ROWS)), Bit#(TMul#(`NUM_COLS, `MUL_WIDTH))) weights_regfile <- mkRegFileFullLoad("./weights_regfile.txt");
-    RegFile#(Bit#(TLog#(`NUM_ROWS)), Bit#(`MUL_WIDTH)) input_regfile <- mkRegFileFullLoad("./input_regfile.txt");
+    RegFile#(Bit#(TLog#(`NUM_ROWS)), Bit#(TMul#(`NUM_COLS, `MUL_WIDTH))) weights_regfile <- mkRegFileFullLoad("./src/weights_regfile.txt");
+    RegFile#(Bit#(TLog#(`NUM_ROWS)), Bit#(`MUL_WIDTH)) input_regfile <- mkRegFileFullLoad("./src/input_regfile.txt");
     RegFile#(Bit#(TLog#(`NUM_COLS)), Bit#(TMul#(2, `MUL_WIDTH))) output_regfile <- mkRegFile(0, fromInteger(`NUM_COLS-1));
     Reg#(Bit#(TLog#(`NUM_ROWS))) rg_weight_address <- mkReg(0);
     Reg#(Bool) rg_done <- mkReg(False);
@@ -149,8 +149,13 @@ will occupy twice the number of bits.
       end
     endrule
 
+    Reg#(Bool) rg_ping <- mkReg(False);
+    rule rl_ping;
+      rg_ping <= !rg_ping;
+    endrule
+
     for(Integer i=0; i<`NUM_ROWS; i=i+1)begin
-      rule rl_put_input(rg_done && !rg_done2 && rg_input==fromInteger(i));
+      rule rl_put_input(rg_ping && rg_done && !rg_done2 && rg_input==fromInteger(i));
         let tym <- $time;
         let input_value = input_regfile.sub(rg_input);
         array[i][0].from_west.put(tagged Valid input_value);
@@ -167,8 +172,13 @@ will occupy twice the number of bits.
       endrule
     end
 
+    Reg#(Bool) rg_pong <- mkReg(False);
+    rule rl_pong;
+      rg_pong <= !rg_pong;
+    endrule
+
     for(Integer i=0; i<`NUM_COLS; i=i+1)begin
-      rule rl_put_acc(rg_done && !rg_done3 && rg_accs == fromInteger(i));
+      rule rl_put_acc(rg_pong && rg_done && !rg_done3 && rg_accs == fromInteger(i));
         array[0][i].acc_from_north.put(0);
         rg_accs <= rg_accs + 1;
         `ifdef VERBOSE
