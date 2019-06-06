@@ -22,9 +22,9 @@ IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISI
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 --------------------------------------------------------------------------------------------------
 
-Author: Neel Gala
-Email id: neelgala@gmail.com
-Details:
+Author: Gokulan Ravi
+Email id: gokulan97@gmail.com
+Details: TestBench to test the MAC Array
 
 --------------------------------------------------------------------------------------------------
 */

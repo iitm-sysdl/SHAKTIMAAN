@@ -79,12 +79,12 @@ package systolic_top;
 	
   typedef enum{Idle,HandleBurst, HandleGBurst, HandleABurst} Mem_state deriving(Bits,Eq);
 
-   // (*synthesize*)
-   // module mksystolic3(Ifc_systolic_top_axi4#(32,64,0,3,3,16,16,2,16));
-   //     let ifc();
-   //     mksystolic_top_axi4 inst(ifc);
-   //     return (ifc);
-   // endmodule
+    (*synthesize*)
+    module mksystolic3(Ifc_systolic_top_axi4#(32,64,0,3,3,16,16,2,16));
+        let ifc();
+        mksystolic_top_axi4 inst(ifc);
+        return (ifc);
+    endmodule
 
   module mksystolic_top_axi4(Ifc_systolic_top_axi4#(addr_width,data_width,user_width,sqrtnRow,sqrtnCol,gbufaddr,accumaddr,nFEntries,mulWidth))
     provisos(
@@ -92,8 +92,7 @@ package systolic_top;
              Add#(b__,2,sqrtnCol),  // Square root of Number of Cols of Array must atleast be 2
              Mul#(sqrtnRow,sqrtnRow,nRow), //The sqrtRow is squared to get the number of rows
              Mul#(sqrtnCol,sqrtnCol,nCol), //The sqrtCol is squared to get the number of cols
-             Add#(d__,16,mulWidth),  //Change every 16 with MulWidth
-             Add#(mulWidth,2,mulWidth2), //mulWidth2 is a parameter which is mulWidth+2 -- Not used
+             Mul#(mulWidth,2,mulWidth2), //mulWidth2 is a parameter which is mulWidth+2 -- Not used
              Add#(c__, accumaddr, 32), // accumaddr is always less than 4GB -- Compiler
              Add#(e__, gbufaddr, 32),  // gbufaddr is always less than 4GB -- Compiler
              Log#(sqrtnRow,gbufbankaddress), 
@@ -108,15 +107,20 @@ package systolic_top;
              //which might lead to loss of performance 
           
              Log#(nCol,accumbankaddress), //The number of accumulator banks is number of cols!
-             Log#(gindexaddr, LogGindex),
-             Add#(gsubindex, 3, gsubindex3),
-             Add#(gindexaddr,TAdd#(gbufbankaddress,gsubindex3),gbufaddr), //check correctness
+             Add#(gindexaddr,TAdd#(gbufbankaddress,2),gbufaddr), //check correctness
+             Add#(h__, mulWidth, TMul#(mulWidth, 2)),
              //Splitting paddr into gbuf bank address, index address
              Add#(accumindexaddr, TAdd#(accumbankaddress,2), accumaddr),
              //Splitting paddr into accum bank address, index address
             // Div#(accumindexadr,nCol, nColcounter),
              Add#(g__, 16, data_width),
-             Add#(f__, 32, data_width)  //This is conflicting with above
+             Add#(f__, 32, data_width),  //This is conflicting with above
+             Add#(d__, mulWidth2, data_width),
+             Add#(i__, mulWidth, data_width),
+             Div#(mulWidth2, 4, j__),
+             Mul#(j__, 4, mulWidth2),
+             Div#(mulWidth, 2, k__),
+             Mul#(k__, 2, mulWidth)
             );
     let vnFEntries = valueOf(nFEntries);
     let vnRow      = valueOf(nRow);
@@ -143,11 +147,11 @@ package systolic_top;
     accumbufcfg.loadFormat = None;
 
     Ifc_systolic#(nRow,nCol,mulWidth)                                  systolic_array    <- mksystolic;  
-    Vector#(nRow, FIFOF#(Bit#(16)))                                    rowBuf            <- replicateM(mkSizedFIFOF(vnFEntries));
-    Vector#(nCol, FIFOF#(Tuple4#(Bit#(16),Bit#(32),Bit#(8),Bit#(2))))  colBuf            <- replicateM(mkSizedFIFOF(vnFEntries)); 
+    Vector#(nRow, FIFOF#(Bit#(mulWidth)))                                    rowBuf            <- replicateM(mkSizedFIFOF(vnFEntries));
+    Vector#(nCol, FIFOF#(Tuple4#(Bit#(mulWidth),Bit#(mulWidth2),Bit#(8),Bit#(2))))  colBuf            <- replicateM(mkSizedFIFOF(vnFEntries)); 
     //The Co-ord Value Bit#(8) is temporarily put here
-    Vector#(sqrtnRow, BRAM2PortBE#(Bit#(gindexaddr),Bit#(16),2))     gBuffer  <- replicateM(mkBRAM2ServerBE(gbufcfg));
-    Vector#(nCol, BRAM2PortBE#(Bit#(accumindexaddr),Bit#(32),4))     accumBuf <- replicateM(mkBRAM2ServerBE(accumbufcfg));
+    Vector#(sqrtnRow, BRAM2PortBE#(Bit#(gindexaddr),Bit#(mulWidth),2))     gBuffer  <- replicateM(mkBRAM2ServerBE(gbufcfg));
+    Vector#(nCol, BRAM2PortBE#(Bit#(accumindexaddr),Bit#(mulWidth2),4))     accumBuf <- replicateM(mkBRAM2ServerBE(accumbufcfg));
 
     //BRAM_DUAL_PORT_BE#(Bit#(gbufaddr), Bit#(16), 2)  gBuffer   <- mkBRAMCore2BE(gBUF,False);
     //BRAM_DUAL_PORT_BE#(Bit#(accumaddr), Bit#(32), 4) accumBuf  <- mkBRAMCore2BE(aCC,False);
@@ -332,7 +336,7 @@ package systolic_top;
      /* =================== Rules to Connect Row Buffers to Arrays ================== */
       for(Integer i = 0; i < vnRow; i=i+1) begin
         rule send_row_buf_value;
-          Maybe#(Bit#(16)) mval = tagged Valid rowBuf[i].first;
+          Maybe#(Bit#(mulWidth)) mval = tagged Valid rowBuf[i].first;
           rowBuf[i].deq;
           systolic_array.rfifo[i].send_rowbuf_value(mval);
         endrule

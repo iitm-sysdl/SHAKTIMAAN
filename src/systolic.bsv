@@ -44,19 +44,19 @@ package systolic;
 	`include "defined_parameters.bsv"
 	import defined_types::*;
 
-  interface Ifc_RFIFO_Connections;
-    method Action send_rowbuf_value(Maybe#(Bit#(16)) value); 
+  interface Ifc_RFIFO_Connections#(numeric type mulWidth);
+    method Action send_rowbuf_value(Maybe#(Bit#(mulWidth)) value); 
   endinterface
 
-  interface Ifc_CFIFO_Connections;
-    method Action send_colbuf_value(Tuple4#(Maybe#(Bit#(16)), Bit#(32), Bit#(8),Bit#(2)) value);
-    method ActionValue#(Bit#(32)) send_accumbuf_value;
+  interface Ifc_CFIFO_Connections#(numeric type mulWidth);
+    method Action send_colbuf_value(Tuple4#(Maybe#(Bit#(mulWidth)), Bit#(TMul#(2,mulWidth)), Bit#(8),Bit#(2)) value);
+    method ActionValue#(Bit#(TMul#(2,mulWidth))) send_accumbuf_value;
   endinterface
 
   interface Ifc_systolic#(numeric type nRow, numeric type nCol,  
                           numeric type mulWidth);
-    interface Vector#(nRow, Ifc_RFIFO_Connections) rfifo;
-    interface Vector#(nCol, Ifc_CFIFO_Connections) cfifo;
+    interface Vector#(nRow, Ifc_RFIFO_Connections#(mulWidth)) rfifo;
+    interface Vector#(nCol, Ifc_CFIFO_Connections#(mulWidth)) cfifo;
   endinterface
 
   //(*synthesize*)
@@ -68,12 +68,13 @@ package systolic;
 
   module mksystolic(Ifc_systolic#(nRow,nCol,mulWidth))
       provisos (
+                 Add#(a__, mulWidth, TMul#(mulWidth, 2))
                );
       let vnRow = valueOf(nRow);
       let vnCol = valueOf(nCol);
       //let vnFEntries = valueOf(nFEntries);
       
-      Ifc_intMul_WS intArray[vnRow][vnCol];
+      Ifc_intMul_WS#(mulWidth) intArray[vnRow][vnCol];
       for(Integer i = 0; i < vnRow; i=i+1) begin
         for(Integer j = 0; j < vnCol; j=j+1) begin
           intArray[i][j] <- mkintMulWS(fromInteger(i),fromInteger(j), vnRow-i);
@@ -102,13 +103,13 @@ package systolic;
      
       /* ================= Making Interface Connections ==============================  */
       /* ============================================================================= */
-        Vector#(nRow, Ifc_RFIFO_Connections) vec_rfifo_ifc;
-        Vector#(nCol, Ifc_CFIFO_Connections) vec_cfifo_ifc;
+        Vector#(nRow, Ifc_RFIFO_Connections#(mulWidth)) vec_rfifo_ifc;
+        Vector#(nCol, Ifc_CFIFO_Connections#(mulWidth)) vec_cfifo_ifc;
 
         for(Integer i = 0; i < vnRow; i=i+1) begin
           vec_rfifo_ifc[i] = (
             interface Ifc_RFIFO_Connections;
-              method Action send_rowbuf_value(Maybe#(Bit#(16)) value);
+              method Action send_rowbuf_value(Maybe#(Bit#(mulWidth)) value);
                   intArray[i][0].from_west.put(value);
               endmethod
             endinterface
@@ -118,14 +119,14 @@ package systolic;
         for(Integer i = 0; i < vnCol; i=i+1) begin
           vec_cfifo_ifc[i] = (
              interface Ifc_CFIFO_Connections;
-               method Action send_colbuf_value(Tuple4#(Maybe#(Bit#(16)), Bit#(32), Bit#(8),Bit#(2)) value);
+               method Action send_colbuf_value(Tuple4#(Maybe#(Bit#(mulWidth)), Bit#(TMul#(2,mulWidth)), Bit#(8),Bit#(2)) value);
                  //Should Decide where this Bit#(8) comes from!! For now Keeping it from Buf
                   match {.mulinput,.accinput,.counter,.val} = value;
                   intArray[0][i].from_north.put(tuple3(mulinput,counter,val));
                   intArray[0][i].acc_from_north.put(accinput); //Put the value sent from the top!!
                endmethod
 
-                method ActionValue#(Bit#(32)) send_accumbuf_value;
+                method ActionValue#(Bit#(TMul#(2,mulWidth))) send_accumbuf_value;
                   let x <- intArray[vnRow-1][i].send_acc_to_south.get;
                   return x; 
                 endmethod
@@ -141,6 +142,10 @@ package systolic;
         interface rfifo = vec_rfifo_ifc;
         interface cfifo = vec_cfifo_ifc;
         /* ================================================================ */
+
+  endmodule
+
+  module mkTb_systolic_regress(Empty);
 
   endmodule
 
