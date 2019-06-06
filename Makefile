@@ -1,5 +1,5 @@
-TOP_MODULE:=mksystolic3
-TOP_FILE:=systolic.bsv
+TOP_MODULE:=mktest
+TOP_FILE:=test.bsv
 HOMEDIR:=./
 TOP_DIR:=./src
 BSVBUILDDIR:=./build/
