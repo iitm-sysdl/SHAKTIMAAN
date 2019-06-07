@@ -1,5 +1,5 @@
-TOP_MODULE:=mktest
-TOP_FILE:=test.bsv
+TOP_MODULE:=mkverifywithbuffer
+TOP_FILE:=verify_with_buffers.bsv
 HOMEDIR:=./
 TOP_DIR:=./src
 BSVBUILDDIR:=./build/

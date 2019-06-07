@@ -29,7 +29,7 @@ Details: TestBench to test the MAC Array
 --------------------------------------------------------------------------------------------------
 */
 
-package test;
+package verify_array;
 
   import intMul_WS::*;
   import Vector::*;
@@ -51,7 +51,10 @@ MUL_WIDTH denotes the number of bits, each of the input/weight is denoted by. Th
 will occupy twice the number of bits.
 */
 
-  module mktest(Empty);
+  module mkverifyarray(Empty);
+    //Module, in which inputs and weights are stored in RegFile.
+    //Weight is populated first, and then input and acc sent, finally outputs being printed
+    //Works correctly, even with random stalls
 
     //The array, initialized
     Ifc_intMul_WS#(`MUL_WIDTH) array[`NUM_ROWS][`NUM_COLS];

@@ -41,8 +41,8 @@ package systolic;
   import  GetPut ::*;
   import  Vector ::*;
   import  FIFOF::*;
-	`include "defined_parameters.bsv"
-	import defined_types::*;
+//	`include "defined_parameters.bsv"
+//	import defined_types::*;
 
   interface Ifc_RFIFO_Connections#(numeric type mulWidth);
     method Action send_rowbuf_value(Maybe#(Bit#(mulWidth)) value); 
@@ -50,6 +50,7 @@ package systolic;
 
   interface Ifc_CFIFO_Connections#(numeric type mulWidth);
     method Action send_colbuf_value(Tuple4#(Maybe#(Bit#(mulWidth)), Bit#(TMul#(2,mulWidth)), Bit#(8),Bit#(2)) value);
+    method Action send_acc_value(Bit#(TMul#(2, mulWidth)) accinput);
     method ActionValue#(Bit#(TMul#(2,mulWidth))) send_accumbuf_value;
   endinterface
 
@@ -123,8 +124,12 @@ package systolic;
                  //Should Decide where this Bit#(8) comes from!! For now Keeping it from Buf
                   match {.mulinput,.accinput,.counter,.val} = value;
                   intArray[0][i].from_north.put(tuple3(mulinput,counter,val));
-                  intArray[0][i].acc_from_north.put(accinput); //Put the value sent from the top!!
+                  //intArray[0][i].acc_from_north.put(accinput); //Put the value sent from the top!!
                endmethod
+
+               method Action send_acc_value(Bit#(TMul#(2, mulWidth)) accinput);
+                  intArray[0][i].acc_from_north.put(accinput);
+                endmethod
 
                 method ActionValue#(Bit#(TMul#(2,mulWidth))) send_accumbuf_value;
                   let x <- intArray[vnRow-1][i].send_acc_to_south.get;
