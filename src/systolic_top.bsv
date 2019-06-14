@@ -79,8 +79,13 @@ package systolic_top;
 	
   typedef enum{Idle,HandleBurst, HandleGBurst, HandleABurst} Mem_state deriving(Bits,Eq);
 
+//  (*synthesize*)
+//  module mktest(Empty);
+//    Ifc_systolic_top_axi4#(32, 64, 0, 3, 3, 16, 16, 2, 16) sys <- mksystolic_top_axi4;
+//  endmodule
+  
     (*synthesize*)
-    module mksystolic3(Ifc_systolic_top_axi4#(32,64,0,3,3,16,16,2,16));
+    module mksystolic3(Ifc_systolic_top_axi4#(32,64,0,2,2,16,16,2,16));
         let ifc();
         mksystolic_top_axi4 inst(ifc);
         return (ifc);
@@ -115,7 +120,7 @@ package systolic_top;
             // Div#(accumindexadr,nCol, nColcounter),
              Add#(g__, 16, data_width),
              Add#(f__, 32, data_width),  //This is conflicting with above
-             Add#(d__, mulWidth2, data_width),
+             Add#(mulWidth2, mulWidth2, data_width),
              Add#(i__, mulWidth, data_width),
              Div#(mulWidth2, 4, j__),
              Mul#(j__, 4, mulWidth2),
@@ -266,6 +271,8 @@ package systolic_top;
                split_address_gbuf(Bit#(`PADDR) addr);
 
           Bit#(TSub#(`PADDR,2)) alignAddr = addr[`PADDR-1:2];  //Hardcoded Data Value
+          //Bit#(gbufbankaddress) gbank = alignAddr[gbufBank-1:0];
+          //Bit#(gindexaddr) gindex = alignAddr[gBufBank+gIndex-1:gbufBank];
           Bit#(gindexaddr)      gindex    = alignAddr[gIndex-1:0];
           Bit#(gbufbankaddress) gbank     = alignAddr[gbufBank+gIndex-1:gIndex];
         return tuple2(gindex,gbank);
@@ -275,8 +282,10 @@ package systolic_top;
                split_address_accbuf(Bit#(`PADDR) addr);
 
           Bit#(TSub#(`PADDR,2)) alignAddr   = addr[`PADDR-1:2];  //Hardcoded Data value
-          Bit#(accumbankaddress) accumbank  = alignAddr[accIndex+bufAccum-1:accIndex];
-          Bit#(accumindexaddr)   accumindex = alignAddr[accIndex-1:0];
+          //Bit#(accumbankaddress) accumbank  = alignAddr[accIndex+bufAccum-1:accIndex];
+          //Bit#(accumindexaddr)   accumindex = alignAddr[accIndex-1:0];
+          Bit#(accumbankaddress) accumbank = alignAddr[bufAccum-1:0];
+          Bit#(accumindexaddr) accumindex = alignAddr[accIndex+bufAccum-1:bufAccum];
         return tuple2(accumindex,accumbank);
       endfunction
 
@@ -522,6 +531,7 @@ package systolic_top;
         let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
         $display($time, "\t Rule ABuf Firing lv_addr: %h aindex: %d abufbank: %d ", lv_addr, aindex, abufbank);
         accumBuf[abufbank].portA.request.put(makeRequest(False,0,aindex,?));
+        accumBuf[abufbank+1].portA.request.put(makeRequest(False,0,aindex,?));
     endrule
 
     //These two rules can be composed into one rule, room for optimization
@@ -548,21 +558,23 @@ package systolic_top;
     endrule
   end
 
-  for(Integer i = 0; i < vnCol; i=i+1) begin
+  for(Integer i = 0; i < vnCol/2; i=i+1) begin
     rule rlAXIAreadBurst(rg_rd_state == HandleABurst);
-       $display($time,"\t HandleABurst Rule firing \n");
-       let accumVal <- accumBuf[i].portA.response.get();
-       let rA = AXI4_Rd_Data {rresp: AXI4_OKAY, rdata: extend(accumVal) ,rlast:
+       let accumVal <- accumBuf[2*i].portA.response.get();
+       let accumVal1 <- accumBuf[2*i+1].portA.response.get();
+       $display($time,"\t HandleABurst Rule %d firing %d %d\n", i, accumVal, accumVal1);
+       let rA = AXI4_Rd_Data {rresp: AXI4_OKAY, rdata: {accumVal, accumVal1} ,rlast:
                              rg_readburst_counter==rg_read_packet.arlen, ruser: 0, 
                              rid:rg_read_packet.arid};
 	    s_xactor.i_rd_data.enq(rA);
-      let lv_addr = burst_address_generator(rg_read_packet.arlen,rg_read_packet.arsize, rg_read_packet.arburst,rg_read_packet.araddr);
-      let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
-      if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) 
-        accumBuf[abufbank].portA.request.put(makeRequest(False,0,aindex, ?));
-      else begin
-        //Send Slave Error
-      end
+      //let lv_addr = burst_address_generator(rg_read_packet.arlen,rg_read_packet.arsize, rg_read_packet.arburst,rg_read_packet.araddr);
+      //let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
+      //$display($time, lv_addr);
+      //if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) 
+      //  accumBuf[abufbank].portA.request.put(makeRequest(False,0,aindex, ?));
+      //else begin
+      //  //Send Slave Error
+      //end
       if(rg_readburst_counter==rg_read_packet.arlen)begin
 				rg_readburst_counter<=0;
 				rg_rd_state<=Idle;
@@ -651,8 +663,8 @@ package systolic_top;
       rule rl_get_accumulator;
           rg_acc_counter <= rg_acc_counter+1;
           let x <- systolic_array.cfifo[i].send_accumbuf_value;
-          $display($time, "Enqueuing Data into Accumulator Bank: %d with Value %d", i, x);
-          accumBuf[i].portB.request.put(makeRequest(True,'1, rg_acc_counter, x));                 
+          $display($time, "Enqueuing Data into Accumulator Bank: index: %d Bank: %d with Value %d",rg_acc_counter, i, x);
+          accumBuf[i].portB.request.put(makeRequest(True,'1, 0, x));                 
       endrule
 
       rule rl_get_accumulator_response;
