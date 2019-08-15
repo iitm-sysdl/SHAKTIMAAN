@@ -1,11 +1,11 @@
-TOP_MODULE:=mkverifywithbuffer
-TOP_FILE:=verify_with_buffers.bsv
+TOP_MODULE:=mksystolic3
+TOP_FILE:=systolic_top.bsv
 HOMEDIR:=./
 TOP_DIR:=./src
 BSVBUILDDIR:=./build/
 VERILOGDIR:=./verilog/
-AXI4:=../../../../repos/c-class/src/uncore/axi4
-FILES:= ./src/:./testbench/:$(AXI4)
+AXI4:=../../uncore/axi4
+FILES:= ./src/:./testbench/:../../core/:$(AXI4)
 BSVINCDIR:= .:%/Prelude:%/Libraries:%/Libraries/BlueNoC:$(FILES)
 FPGA=xc7a100tcsg324-1
 export HOMEDIR=./

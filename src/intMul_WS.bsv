@@ -46,6 +46,7 @@ package intMul_WS;
     interface Get#(Maybe#(Bit#(bWidth))) to_east;
   endinterface
 
+//  (*mutually_exclusive="mult_add_phase, from_west"*)
   module mkintMulWS#(Int#(8) row, Int#(8) col, parameter Integer coord)(Ifc_intMul_WS#(bWidth))
     provisos(
              Mul#(bWidth, 2, twbWidth),

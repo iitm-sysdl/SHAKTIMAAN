@@ -72,7 +72,9 @@ package systolic_top;
 
   interface Ifc_systolic_top_axi4#(numeric type addr_width, numeric type data_width, 
                                    numeric type user_width, numeric type nRow, numeric type nCol, 
-                                   numeric type accumaddr,numeric type gbufaddr,  
+                                   //numeric type accumaddr,numeric type gbufaddr,  
+                                   numeric type accumbanks, numeric type accumentries,
+                                   numeric type gbufbanks, numeric type gbufentries,
                                    numeric type nFEntries,numeric type mulWidth);
     interface AXI4_Slave_IFC#(`PADDR,data_width,0) slave_systolic; //32-bit address? 4 16-bits?
   endinterface
@@ -84,23 +86,35 @@ package systolic_top;
 //    Ifc_systolic_top_axi4#(32, 64, 0, 3, 3, 16, 16, 2, 16) sys <- mksystolic_top_axi4;
 //  endmodule
   
-    (*synthesize*)
-    module mksystolic3(Ifc_systolic_top_axi4#(32,64,0,2,2,16,16,2,16));
-        let ifc();
-        mksystolic_top_axi4 inst(ifc);
-        return (ifc);
-    endmodule
+//    (*synthesize*)
+//    module mksystolic3(Ifc_systolic_top_axi4#(32,64,0,2,2/*16,16,*/,4,1024,2,1024,2,16));
+//        let ifc();
+//        mksystolic_top_axi4 inst(ifc);
+//        return (ifc);
+//    endmodule
 
-  module mksystolic_top_axi4(Ifc_systolic_top_axi4#(addr_width,data_width,user_width,sqrtnRow,sqrtnCol,gbufaddr,accumaddr,nFEntries,mulWidth))
+  (*descending_urgency="rl_send_gbuf_request, rlAXIwrReq, rl_GbufReq"*)
+  (*descending_urgency="rl_send_gbuf_request, rlAXIwrReqBurst, rl_GbufReq"*)
+  (*descending_urgency="rl_get_accumulator, rl_AbufReq"*)
+  //(*descending_urgency="rl_get_accumulator_response, rlAXIAReadBurst"*)
+  //(*descending_urgency="rlAXIGReadBurst, rl_GbufReq"*)
+  module mksystolic_top_axi4(Ifc_systolic_top_axi4#(addr_width,data_width,user_width,sqrtnRow,sqrtnCol,
+    //gbufaddr,accumaddr,
+    accumbanks, accumentries, gbufbanks, gbufentries,
+    nFEntries,mulWidth))
     provisos(
              Add#(a__,2,sqrtnRow),  // Square root of Number of Rows of Array must atleast be 2
              Add#(b__,2,sqrtnCol),  // Square root of Number of Cols of Array must atleast be 2
              Mul#(sqrtnRow,sqrtnRow,nRow), //The sqrtRow is squared to get the number of rows
              Mul#(sqrtnCol,sqrtnCol,nCol), //The sqrtCol is squared to get the number of cols
+             Log#(nCol, weightindexbits),
+             //Commenting the below check for now, should be handled
+             //Exp#(weightindexbits, nCol), // These two to ensure that nCol is a power of 2
              Mul#(mulWidth,2,mulWidth2), //mulWidth2 is a parameter which is mulWidth+2 -- Not used
-             Add#(c__, accumaddr, 32), // accumaddr is always less than 4GB -- Compiler
-             Add#(e__, gbufaddr, 32),  // gbufaddr is always less than 4GB -- Compiler
-             Log#(sqrtnRow,gbufbankaddress), 
+             Div#(mulWidth2, 2, mulWidth),
+             //         Add#(c__, accumaddr, 32), // accumaddr is always less than 4GB -- Compiler
+    //         Add#(e__, gbufaddr, 32),  // gbufaddr is always less than 4GB -- Compiler
+    //         Log#(sqrtnRow,gbufbankaddress), 
              //The number of rowbank bits -- the number of banks required are square root of the
              //systolic array row size in our design. Why? Consider a filter size of 3x3, when 
              //unrolled it takes a column of 9 elements, but the activation inputs have a spatial
@@ -110,66 +124,77 @@ package systolic_top;
              //size statically for some filter size say 3x3 or 5x5 hence across layers if the size 
              //varies which inevitably happens then tiling needs to happen at the software side
              //which might lead to loss of performance 
-          
-             Log#(nCol,accumbankaddress), //The number of accumulator banks is number of cols!
-             Add#(gindexaddr,TAdd#(gbufbankaddress,2),gbufaddr), //check correctness
-             Add#(h__, mulWidth, TMul#(mulWidth, 2)),
-             //Splitting paddr into gbuf bank address, index address
-             Add#(accumindexaddr, TAdd#(accumbankaddress,2), accumaddr),
-             //Splitting paddr into accum bank address, index address
-            // Div#(accumindexadr,nCol, nColcounter),
-             Add#(g__, 16, data_width),
-             Add#(f__, 32, data_width),  //This is conflicting with above
-             Add#(mulWidth2, mulWidth2, data_width),
-             Add#(i__, mulWidth, data_width),
-             Div#(mulWidth2, 4, j__),
-             Mul#(j__, 4, mulWidth2),
-             Div#(mulWidth, 2, k__),
-             Mul#(k__, 2, mulWidth)
+             Log#(accumbanks, accumbankbits),
+             Log#(accumentries, accumindexbits),
+             Log#(gbufbanks, gbufbankbits),
+             Log#(gbufentries, gbufindexbits),
+             //required by bsc
+             Div#(data_width, mulWidth, nwords),
+             Mul#(TDiv#(mulWidth2, 4), 4, mulWidth2),
+             Mul#(TDiv#(mulWidth, 2), 2, mulWidth),
+             Add#(c__, mulWidth, TMul#(mulWidth, 2)),
+             Add#(d__, 8, data_width),
+             Add#(e__, 16, data_width),
+             Add#(f__, mulWidth, data_width),
+             Add#(g__, mulWidth2, data_width)
             );
     let vnFEntries = valueOf(nFEntries);
     let vnRow      = valueOf(nRow);
     let vnCol      = valueOf(nCol);
-    let gBUF       = valueOf(TExp#(gbufaddr));
-    let aCC        = valueOf(TExp#(accumaddr));
-    let gbufBank   = valueOf(gbufbankaddress);
-    let bufAccum   = valueOf(accumbankaddress);
-    let gIndex     = valueOf(gindexaddr);
-    let accIndex   = valueOf(accumindexaddr);
-    let accMem     = valueOf(TExp#(accumindexaddr));
-    let gMem       = valueOf(TExp#(gindexaddr));
+    //let gBUF       = valueOf(TExp#(gbufaddr));
+    //let aCC        = valueOf(TExp#(accumaddr));
+    //let gbufBank   = valueOf(gbufbankaddress);
+    //let bufAccum   = valueOf(accumbankaddress);
+    //let gIndex     = valueOf(gindexaddr);
+    //let accIndex   = valueOf(accumindexaddr);
+    //let accMem     = valueOf(TExp#(accumindexaddr));
+    //let gMem       = valueOf(TExp#(gindexaddr));
+    let numBanksABuf = valueOf(accumbanks);
+    let numEntriesABuf = valueOf(accumentries);
+    let numBanksGBuf = valueOf(gbufbanks);
+    let numEntriesGBuf = valueOf(gbufentries);
+    let numBankBitsABuf = valueOf(accumbankbits);
+    let numIndexBitsABuf = valueOf(accumindexbits);
+    let numBankBitsGBuf = valueOf(gbufbankbits);
+    let numIndexBitsGBuf = valueOf(gbufindexbits);
+    let numIndexBitsWeight = valueOf(weightindexbits);
+
     let sqRow      = valueOf(sqrtnRow);
     let sqCol      = valueOf(sqrtnCol);
 
+    let bitWidth = valueOf(mulWidth);
+    let numWords = valueOf(nwords); // Max. Number of input/weight values received from the bus per cycle
 
     BRAM_Configure gbufcfg = defaultValue;
     BRAM_Configure accumbufcfg = defaultValue;
 
-    gbufcfg.memorySize = gMem;
+    //gbufcfg.memorySize = gMem;
+    gbufcfg.memorySize = numEntriesGBuf;
     gbufcfg.loadFormat = None; //Can be used to load hex if needed 
 
-    accumbufcfg.memorySize = accMem;
+    //accumbufcfg.memorySize = accMem;
+    accumbufcfg.memorySize = numEntriesABuf;
     accumbufcfg.loadFormat = None;
 
-    Ifc_systolic#(nRow,nCol,mulWidth)                                  systolic_array    <- mksystolic;  
-    Vector#(nRow, FIFOF#(Bit#(mulWidth)))                                    rowBuf            <- replicateM(mkSizedFIFOF(vnFEntries));
-    Vector#(nCol, FIFOF#(Tuple4#(Bit#(mulWidth),Bit#(mulWidth2),Bit#(8),Bit#(2))))  colBuf            <- replicateM(mkSizedFIFOF(vnFEntries)); 
+    Ifc_systolic#(nRow,nCol,mulWidth) systolic_array    <- mksystolic;  
+    Vector#(nRow, FIFOF#(Bit#(mulWidth))) rowBuf        <- replicateM(mkSizedFIFOF(vnFEntries));
+    Vector#(nCol, FIFOF#(Tuple4#(Bit#(mulWidth),Bit#(mulWidth2),Bit#(8),Bit#(2)))) colBuf <- replicateM(mkSizedFIFOF(vnFEntries)); 
     //The Co-ord Value Bit#(8) is temporarily put here
-    Vector#(sqrtnRow, BRAM2PortBE#(Bit#(gindexaddr),Bit#(mulWidth),2))     gBuffer  <- replicateM(mkBRAM2ServerBE(gbufcfg));
-    Vector#(nCol, BRAM2PortBE#(Bit#(accumindexaddr),Bit#(mulWidth2),4))     accumBuf <- replicateM(mkBRAM2ServerBE(accumbufcfg));
+    //Vector#(sqrtnRow, BRAM2PortBE#(Bit#(gindexaddr),Bit#(mulWidth),2))  gBuffer  <- replicateM(mkBRAM2ServerBE(gbufcfg));
+    //Vector#(nCol, BRAM2PortBE#(Bit#(accumindexaddr),Bit#(mulWidth2),4)) accumBuf <- replicateM(mkBRAM2ServerBE(accumbufcfg));
+
+    Vector#(gbufbanks, BRAM2PortBE#(Bit#(gbufindexbits), Bit#(mulWidth), 2)) gBuffer  <- replicateM(mkBRAM2ServerBE(gbufcfg));
+    Vector#(accumbanks, BRAM2PortBE#(Bit#(accumindexbits), Bit#(mulWidth2), 4)) aBuffer <- replicateM(mkBRAM2ServerBE(accumbufcfg));
 
     //BRAM_DUAL_PORT_BE#(Bit#(gbufaddr), Bit#(16), 2)  gBuffer   <- mkBRAMCore2BE(gBUF,False);
     //BRAM_DUAL_PORT_BE#(Bit#(accumaddr), Bit#(32), 4) accumBuf  <- mkBRAMCore2BE(aCC,False);
-    AXI4_Slave_Xactor_IFC#(`PADDR,data_width,0)            s_xactor  <- mkAXI4_Slave_Xactor;
+    AXI4_Slave_Xactor_IFC#(`PADDR,data_width,0) s_xactor  <- mkAXI4_Slave_Xactor;
    
-
-
     //The current Accelerator Configuration is simple. The transactions begin by software writing
     //into weight buffers which is followed by the transfer of feature map kernels into the global
     //buffers -- Now the decision that needs to be made here is to know when to start the
     //transactions 
     //Software has visibility into reading 
-
     
     //Configuration Register Space
     Reg#(Bit#(4))  filter_rows       <- mkReg(0);  
@@ -183,23 +208,24 @@ package systolic_top;
     Reg#(Bit#(2))  sysConfig         =  concatReg2(accumWeight, startBit); 
     Reg#(Bit#(8))  rg_weight_counter <- mkReg(0); //Config --Hardcoded to 8 for now
     Reg#(Bool)     set_trigger_dims  <- mkReg(False);
-    Reg#(Bit#(8)) rg_coord_counter <- mkReg(1); //Local counter
-
+    Reg#(Bit#(`PADDR))   input_address <- mkReg(0);
+    Reg#(Maybe#(Bit#(`PADDR))) output_address <- mkReg(tagged Invalid);
+    //Reg#(Bit#(8)) rg_coord_counter <- mkReg(1); //Local counter
+    
+    Vector#(nCol, Reg#(Bit#(8))) rg_coord_counters <- replicateM(mkReg(1));
 
     Vector#(nRow, Reg#(Bit#(8))) vec_row_counter <- replicateM(mkReg(0));
 //  Vector#(nRow, Reg#(Bit#(3))) vec_start_value;
     Vector#(nRow, Reg#(Bit#(8))) vec_end_value   <- replicateM(mkReg(0));
 
-
     //Status Bits
     Reg#(bit) rg_idle    <- mkReg(0);
     Reg#(bit) rg_running <- mkReg(0);
-    Reg#(Bit#(accumindexaddr))  rg_acc_counter <- mkReg(0);
-
+    Reg#(Bit#(accumentries))  rg_acc_counter <- mkReg(0);
 
     //FIFO Loader FSM
     Reg#(Bit#(5)) gen_state         <- mkReg(-1);   //32 states might be overkill
-    Reg#(Bit#(gindexaddr)) rg_event_cntr <- mkReg(0);
+    Reg#(Bit#(gbufentries)) rg_event_cntr <- mkReg(0);
     Reg#(Bit#(nRow)) rg_rl_counter <- mkReg(1);
 
     //Local Registers
@@ -210,11 +236,13 @@ package systolic_top;
 		Reg#(AXI4_Rd_Addr#(`PADDR,0)) rg_read_packet    <- mkReg(?);
 		Wire#(AXI4_Rd_Addr#(`PADDR,0)) wr_gbuf          <- mkWire();
 		Wire#(AXI4_Rd_Addr#(`PADDR,0)) wr_abuf          <- mkWire();
-    Reg#(Bit#(accumbankaddress))  rg_abufbank       <- mkRegU();
-    Reg#(Bit#(gbufbankaddress))   rg_gbufbank       <- mkRegU();
-    Vector#(sqrtnRow, Reg#(Bit#(gindexaddr))) vec_index <- replicateM(mkConfigReg(0));
-    Vector#(sqrtnRow, Reg#(Bit#(gindexaddr))) vec_input <- replicateM(mkConfigReg(-1)); //Have a config to clear
-    Vector#(nRow, Reg#(Bit#(gbufbankaddress))) bank_index <- replicateM(mkReg(0));
+    Reg#(Bit#(accumbankbits))  rg_abufbank       <- mkRegU();
+    Reg#(Bit#(gbufbankbits))   rg_gbufbank       <- mkRegU();
+    Vector#(sqrtnRow, Reg#(Bit#(gbufentries))) vec_index <- replicateM(mkConfigReg(0));
+    Vector#(sqrtnRow, Reg#(Bit#(gbufentries))) vec_input <- replicateM(mkConfigReg(-1)); //Have a config to clear
+    Vector#(nRow, Reg#(Bit#(gbufbankbits))) bank_index <- replicateM(mkReg(0));
+
+    Reg#(Bool) rg_feed_input <- mkReg(False);
 
     //Not sure if this needs to be in place -- TEMPORARY
     //Vector#(nRow, Reg#(Bit#(TExp#(gbufbankaddress)))) vec_bank_counter;
@@ -267,25 +295,17 @@ package systolic_top;
                               };
       endfunction
 
-      function Tuple2#(Bit#(gindexaddr),Bit#(gbufbankaddress)) 
-               split_address_gbuf(Bit#(`PADDR) addr);
-
-          Bit#(TSub#(`PADDR,2)) alignAddr = addr[`PADDR-1:2];  //Hardcoded Data Value
-          //Bit#(gbufbankaddress) gbank = alignAddr[gbufBank-1:0];
-          //Bit#(gindexaddr) gindex = alignAddr[gBufBank+gIndex-1:gbufBank];
-          Bit#(gindexaddr)      gindex    = alignAddr[gIndex-1:0];
-          Bit#(gbufbankaddress) gbank     = alignAddr[gbufBank+gIndex-1:gIndex];
+      function Tuple2#(Bit#(gbufindexbits),Bit#(gbufbankbits)) split_address_gbuf(Bit#(`PADDR) addr);
+        Bit#(TSub#(`PADDR,2)) alignAddr = addr[`PADDR-3:0];
+        Bit#(gbufbankbits) gbank = alignAddr[numBankBitsGBuf-1:0];
+        Bit#(gbufindexbits) gindex = alignAddr[numIndexBitsGBuf+numBankBitsGBuf-1:numBankBitsGBuf];
         return tuple2(gindex,gbank);
       endfunction
 
-      function Tuple2#(Bit#(accumindexaddr), Bit#(accumbankaddress))
-               split_address_accbuf(Bit#(`PADDR) addr);
-
-          Bit#(TSub#(`PADDR,2)) alignAddr   = addr[`PADDR-1:2];  //Hardcoded Data value
-          //Bit#(accumbankaddress) accumbank  = alignAddr[accIndex+bufAccum-1:accIndex];
-          //Bit#(accumindexaddr)   accumindex = alignAddr[accIndex-1:0];
-          Bit#(accumbankaddress) accumbank = alignAddr[bufAccum-1:0];
-          Bit#(accumindexaddr) accumindex = alignAddr[accIndex+bufAccum-1:bufAccum];
+      function Tuple2#(Bit#(accumindexbits), Bit#(accumbankbits)) split_address_accbuf(Bit#(`PADDR) addr);
+        Bit#(TSub#(`PADDR,2)) alignAddr   = addr[`PADDR-1:2];
+        Bit#(accumbankbits) accumbank = alignAddr[numBankBitsABuf-1:0];
+        Bit#(accumindexbits) accumindex = alignAddr[numIndexBitsABuf+numBankBitsABuf-1:numBankBitsABuf];
         return tuple2(accumindex,accumbank);
       endfunction
 
@@ -303,15 +323,19 @@ package systolic_top;
       Reg#(Bit#(16)) ifmap_dims =
       writeSideEffect(concatReg2(ifmap_rowdims,ifmap_coldims),set_trigger_dims._write(True));
 
-      function Action set_systolic(Bit#(`PADDR) addr, Bit#(32) data);
+      function Action set_systolic(Bit#(`PADDR) addr, Bit#(data_width) data);
         action
             case(addr)
+                `FilterDims  : filter_dims <= truncate(data);
                 `IfmapDims   : ifmap_dims <= truncate(data);
                 `sysConfig   : begin 
                                   sysConfig <= data[1:0];
                                   $display("\t setting startbit \n");
+                                  rg_feed_input <= True;
                                end
-                `CoordCount  : rg_coord_counter <= truncate(data);
+                `CoordCount  : for(Integer i=0; i<vnCol; i=i+1)begin
+                                rg_coord_counters[i] <= truncate(data);
+                              end
                 `weightCount : rg_weight_counter <= truncate(data);
             endcase
         endaction
@@ -334,10 +358,10 @@ package systolic_top;
       // =========================================================
       // Function Wrappers
       // =========================================================
-      Wrapper#(Bit#(`PADDR), Tuple2#(Bit#(gindexaddr),Bit#(gbufbankaddress))) split_address_gbufW <-
+      Wrapper#(Bit#(`PADDR), Tuple2#(Bit#(gbufindexbits),Bit#(gbufbankbits))) split_address_gbufW <-
       mkUniqueWrapper(split_address_gbuf);
 
-      Wrapper#(Bit#(`PADDR), Tuple2#(Bit#(accumindexaddr),Bit#(accumbankaddress)))
+      Wrapper#(Bit#(`PADDR), Tuple2#(Bit#(accumindexbits),Bit#(accumbankbits)))
       split_address_accbufW <- mkUniqueWrapper(split_address_accbuf);
 
       // =========================================================
@@ -375,8 +399,8 @@ package systolic_top;
      let wstrb = w.wstrb;
      //Bit#(accumaddr) accindex = truncate(lv_addr - fromInteger(`AccumBufStart));
      //Bit#(gbufaddr) gbufindex = truncate(lv_addr - fromInteger(`GBufStart));
-     let {gindex, gbufferbank} <- split_address_gbufW.func(lv_addr);
-     let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
+     let {gindex, gbufferbank} = split_address_gbuf(lv_addr);
+     //let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
      $display($time, "lv_addr: %h lv_data: %h gindex: %h gbufferbank: %h",lv_addr,lv_data,gindex,gbufferbank);
      //Write Request to AccumBuffer Range
      if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin
@@ -386,36 +410,60 @@ package systolic_top;
      end
      else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin
        //gBuffer.b.put(wstrb[1:0], gbufindex, truncate(lv_data));
+       /*
        for(Integer i = 0; i <= gbufBank ; i=i+1) begin 
          let m = gbufferbank+fromInteger(i);
         $display($time, "Sending request to gbuf: %h of %dth buffer vec_input: %d",gbufferbank,gindex,vec_input[m]);
         gBuffer[m].portB.request.put(makeRequest(True,wstrb[1:0],gindex,lv_data[15+i*16:i*16]));
         vec_input[m] <= vec_input[m]+1;
        end
+       */
+      for(Integer i=0; i<numWords; i=i+1)begin
+        Bit#(TAdd#(gbufbankbits,1)) m = zeroExtend(gbufferbank) + fromInteger(i);
+        Bit#(gbufindexbits) index = gindex;
+        Bit#(gbufbankbits) bank = truncate(m);
+        if(bank < gbufferbank)begin 
+          index = index + 1;
+        end
+        Bit#(mulWidth) data = lv_data[(i+1)*bitWidth-1:i*bitWidth];
+        $display($time, "Sending request to gbuf: %h bank, %h index, value: %d", m, index, data);
+        gBuffer[bank].portB.request.put(makeRequest(True, wstrb[1:0], index, data));
+        //vec_input[m] <= vec_input[m] + 1;
+      end
      end
      else if(lv_addr >= `WeightStart && lv_addr <= `WeightEnd) begin
        Bit#(2) mulW = 0;  //Temporary data value
+       if(accumWeight == 1'b1)begin
+        Bit#(weightindexbits) index = lv_addr[numIndexBitsWeight+1:2];
+         for(Integer i=0; i<numWords; i=i+1)begin
+           Bit#(weightindexbits) m = truncate(index + fromInteger(i));// % fromInteger(vnCol); 
+           colBuf[m].enq(tuple4(lv_data[(i+1)*valueOf(mulWidth)-1:i*valueOf(mulWidth)], 0, rg_coord_counters[m], mulW));
+           //$display($time, "Sending weight %d to column %d till %d", lv_data[(i+1)*mulWidth-1:i*mulWidth], m, rg_coord_counters[m]);
+           $display($time, "Sending weight to column %d till %d", m, rg_coord_counters[m]);
+           rg_coord_counters[m] <= rg_coord_counters[m] + 1;
+         end
+       end
        //Logic to send weight-coordinates to the buffers
-       if(rg_coord_counter != rg_weight_counter)
-         rg_coord_counter <= rg_coord_counter+1;
+       //if(rg_coord_counter != rg_weight_counter)
+       //  rg_coord_counter <= rg_coord_counter+1;
        //else
        //  rg_coord_counter <= 0;
        // Assuming a bus width of 64 for now -- will extend to 512 maybe
        // This is not parameterized for now -- TODO
        //USeless Adders and Muxes
        /*============= To be reviewed code - This is assuming buswidth =====================*/
-       if(accumWeight==1'b1) begin //Loading Weights
-         $display("Vinod: lv_data: %h", lv_data);
-         for(Integer i = 0; i < 4; i=i+1) begin
-           colBuf[gindex+fromInteger(i)].enq(tuple4(lv_data[15+i*16:i*16],0,rg_coord_counter,mulW));
-         end
-       end
-       else begin
-         for(Integer i = 0; i < 2; i=i+1) begin 
-           colBuf[gindex+fromInteger(i)].enq(tuple4(0,lv_data[31+i*32:i*32],rg_coord_counter,mulW));
-           //High value for rg_coord so weights stay
-         end
-       end
+       //if(accumWeight==1'b1) begin //Loading Weights
+       //  $display("Vinod: lv_data: %h", lv_data);
+       //  for(Integer i = 0; i < 4; i=i+1) begin
+       //    colBuf[gindex+fromInteger(i)].enq(tuple4(lv_data[15+i*16:i*16],0,rg_coord_counter,mulW));
+       //  end
+       //end
+       //else begin
+       //  for(Integer i = 0; i < 2; i=i+1) begin 
+       //    colBuf[gindex+fromInteger(i)].enq(tuple4(0,lv_data[31+i*32:i*32],rg_coord_counter,mulW));
+       //    //High value for rg_coord so weights stay
+       //  end
+       //end
        /* ==================================================================================*/
 
        //colBuf[gindex].enq(tuple4(truncateLSB(lv_data),truncate(lv_data),rg_coord_counter,mulW));
@@ -447,8 +495,7 @@ package systolic_top;
       let lv_addr = rg_write_packet.awaddr;
       let lv_data = w.wdata;
       let wstrb = w.wstrb;
-      Bit#(gbufaddr)  gbufindex = truncate(lv_addr - fromInteger(`GBufStart));
-      let {gindex, gbufferbank} <- split_address_gbufW.func(lv_addr);
+      let {gindex, gbufferbank} = split_address_gbuf(lv_addr);
 
       //Write Request to AccumBuffer Range
       if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin
@@ -456,32 +503,48 @@ package systolic_top;
         //Send Slave Error
       end
       else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin
-        for(Integer i = 0; i <= gbufBank ; i=i+1) begin 
-          gBuffer[gbufferbank+fromInteger(i)].portB.request.put(makeRequest(True,wstrb[1:0],gindex,lv_data[15+i*16:i*16]));
+        for(Integer i = 0; i < numWords ; i=i+1) begin
+          Bit#(TAdd#(gbufbankbits, 1)) gbufIn = zeroExtend(gbufferbank)+fromInteger(i);
+          Bit#(gbufbankbits) m = truncate(gbufIn);
+          gBuffer[m].portB.request.put(makeRequest(True,wstrb[1:0],gindex,lv_data[(i+1)*valueOf(mulWidth)-1:i*valueOf(mulWidth)]));
         end
         //gBuffer[gbufbank].portB.request.put(makeRequest(True,wstrb[1:0],gindex,truncate(lv_data)));
       end
       else if(lv_addr >= `WeightStart && lv_addr <= `WeightEnd) begin
         Bit#(2) mulW = 0;  //Temporary data value
+        if(accumWeight == 1'b1)begin
+          Bit#(numIndexBitsWeight) startindex = lv_addr[numIndexBitsWeight+1:2];
+          //Bit#(numIndexBitsWeight) endindex = (startindex + fromInteger(numWords)) % fromInteger(vnCol);
 
+          //if(startindex < endindex)
+          //  for(Integer j=0; j<vnCol; j=j+1)
+          
+          for(Integer i=0; i<numWords; i=i+1)begin
+            Bit#(4) m = (startindex + fromInteger(i));// % fromInteger(vnCol);
+            colBuf[m].enq(tuple4(lv_data[(i+1)*valueOf(mulWidth)-1:i*valueOf(mulWidth)], 0, rg_coord_counters[m], mulW));
+            //$display($time, "Sending weight %d to column %d till %d", lv_data[(i+1)*mulWidth-1:i*mulWidth], m, rg_coord_counters[m]);
+            rg_coord_counters[m] <= rg_coord_counters[m] + 1;
+          end
+        end
+ 
         //Logic to send weight-coordinates to the buffers
-        if(rg_coord_counter != rg_weight_counter)
-          rg_coord_counter <= rg_coord_counter+1;
-        else
-          rg_coord_counter <= 0;
-        
-        //Useless Adders and Muxes -- Come up with more efficient logic -- TODO
-        /*============= To be reviewed code - This is assuming buswidth =====================*/
-        if(accumWeight==1'b1) begin //Loading Weights
-          for(Integer i = 0; i < 4; i=i+1) begin
-            colBuf[gindex+fromInteger(i)].enq(tuple4(lv_data[15+i*16:i*16],0,rg_coord_counter,mulW));
-          end
-        end
-        else begin
-          for(Integer i = 0; i < 2; i=i+1) begin 
-            colBuf[gindex+fromInteger(i)].enq(tuple4(0,lv_data[31+i*32:i*32],20,mulW)); //20 so weights stay
-          end
-        end
+        //if(rg_coord_counter != rg_weight_counter)
+        //  rg_coord_counter <= rg_coord_counter+1;
+        //else
+        //  rg_coord_counter <= 0;
+        //
+        ////Useless Adders and Muxes -- Come up with more efficient logic -- TODO
+        ///*============= To be reviewed code - This is assuming buswidth =====================*/
+        //if(accumWeight==1'b1) begin //Loading Weights
+        //  for(Integer i = 0; i < 4; i=i+1) begin
+        //    colBuf[gindex+fromInteger(i)].enq(tuple4(lv_data[15+i*16:i*16],0,rg_coord_counter,mulW));
+        //  end
+        //end
+        //else begin
+        //  for(Integer i = 0; i < 2; i=i+1) begin 
+        //    colBuf[gindex+fromInteger(i)].enq(tuple4(0,lv_data[31+i*32:i*32],20,mulW)); //20 so weights stay
+        //  end
+        //end
         //colBuf[gindex].enq(tuple4(truncateLSB(lv_data),truncate(lv_data),rg_coord_counter,mulW));     
       end
       /* ==================================================================================*/
@@ -522,66 +585,84 @@ package systolic_top;
     rule rl_GbufReq;
         $display($time, "\t Rule GBuf Firing");
         let lv_addr = wr_gbuf.araddr;
-        let {gindex,gbufbank}  <- split_address_gbufW.func(lv_addr);
-        gBuffer[gbufbank].portB.request.put(makeRequest(False,0,gindex,?));
-    endrule
-
-    rule rl_AbufReq;
-        let lv_addr = wr_abuf.araddr;
-        let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
-        $display($time, "\t Rule ABuf Firing lv_addr: %h aindex: %d abufbank: %d ", lv_addr, aindex, abufbank);
-        accumBuf[abufbank].portA.request.put(makeRequest(False,0,aindex,?));
-        accumBuf[abufbank+1].portA.request.put(makeRequest(False,0,aindex,?));
+        let {gindex,gbufbank} = split_address_gbuf(lv_addr);
+        // Since every read request always sends busWidth number of bits, those many number of bits
+        // should be sent. Hence, to send those many values, those many requests should be sent to
+        // buffers to fetch them.
+        for(Integer i=0; i<numWords; i=i+1)begin
+          Bit#(TAdd#(gbufbankbits,1)) gbufIn = zeroExtend(gbufbank)+fromInteger(i);
+          Bit#(gbufbankbits) m = truncate(gbufIn);
+          gBuffer[m].portB.request.put(makeRequest(False,0,gindex,?));
+        end
     endrule
 
     //These two rules can be composed into one rule, room for optimization
     //TODO: The logic inside, which is replicated an be composed to save area
-  for(Integer i = 0; i < gbufBank; i=i+1) begin
-    rule rlAXIGreadBurst(rg_rd_state == HandleGBurst);
-       $display($time, "\t HandleGBurst Firing \n");
-       let gVal <- gBuffer[i].portB.response.get();
-       let rG = AXI4_Rd_Data {rresp: AXI4_OKAY, rdata: extend(gVal) ,rlast:
-                              rg_readburst_counter==rg_read_packet.arlen, ruser: 0, 
-                              rid:rg_read_packet.arid};
-      s_xactor.i_rd_data.enq(rG);
-      let lv_addr = burst_address_generator(rg_read_packet.arlen,rg_read_packet.arsize, rg_read_packet.arburst,rg_read_packet.araddr);
-      let {gindex,gbufbank}  <- split_address_gbufW.func(lv_addr);
-      if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) 
-        gBuffer[gbufbank].portB.request.put(makeRequest(False,0,gindex,?)); 
-      else begin
-        //Send Slave Error
+
+    rule rlAXIGReadBurst(rg_rd_state == HandleGBurst);
+      let lv_addr = rg_read_packet.araddr;
+      let {gindex, gbufbank} = split_address_gbuf(lv_addr);
+      Bit#(data_width) gVal = 0;
+      for(Integer i=0; i<numWords; i=i+1)begin
+        Bit#(TAdd#(gbufbankbits, 1)) gbufIn = zeroExtend(gbufbank) + fromInteger(i);
+        Bit#(gbufbankbits) m = truncate(gbufIn);
+        let temp <- gBuffer[m].portB.response.get();
+        gVal = ( gVal << valueOf(mulWidth)) | zeroExtend(temp);
       end
-      if(rg_readburst_counter==rg_read_packet.arlen)begin
-				rg_readburst_counter<=0;
-				rg_rd_state<=Idle;
-			end
+      let rG = AXI4_Rd_Data {rresp: AXI4_OKAY, rdata: gVal, rlast:
+      rg_readburst_counter==rg_read_packet.arlen, ruser: 0, rid: rg_read_packet.arid};
+      s_xactor.i_rd_data.enq(rG);
+      if(rg_readburst_counter == rg_read_packet.arlen)begin
+        rg_readburst_counter <= 0;
+        rg_rd_state <= Idle;
+      end
     endrule
-  end
 
-  for(Integer i = 0; i < vnCol/2; i=i+1) begin
-    rule rlAXIAreadBurst(rg_rd_state == HandleABurst);
-       let accumVal <- accumBuf[2*i].portA.response.get();
-       let accumVal1 <- accumBuf[2*i+1].portA.response.get();
-       $display($time,"\t HandleABurst Rule %d firing %d %d\n", i, accumVal, accumVal1);
-       let rA = AXI4_Rd_Data {rresp: AXI4_OKAY, rdata: {accumVal, accumVal1} ,rlast:
-                             rg_readburst_counter==rg_read_packet.arlen, ruser: 0, 
-                             rid:rg_read_packet.arid};
-	    s_xactor.i_rd_data.enq(rA);
-      //let lv_addr = burst_address_generator(rg_read_packet.arlen,rg_read_packet.arsize, rg_read_packet.arburst,rg_read_packet.araddr);
-      //let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
-      //$display($time, lv_addr);
-      //if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) 
-      //  accumBuf[abufbank].portA.request.put(makeRequest(False,0,aindex, ?));
-      //else begin
-      //  //Send Slave Error
-      //end
-      if(rg_readburst_counter==rg_read_packet.arlen)begin
-				rg_readburst_counter<=0;
-				rg_rd_state<=Idle;
-			end
-     endrule
-    end
+  //for(Integer i = 0; i < gbufBank; i=i+1) begin
+  //  rule rlAXIGreadBurst(rg_rd_state == HandleGBurst);
+  //     $display($time, "\t HandleGBurst Firing \n");
+  //     let gVal <- gBuffer[i].portB.response.get();
+  //     let rG = AXI4_Rd_Data {rresp: AXI4_OKAY, rdata: extend(gVal) ,rlast:
+  //                            rg_readburst_counter==rg_read_packet.arlen, ruser: 0, 
+  //                            rid:rg_read_packet.arid};
+  //    s_xactor.i_rd_data.enq(rG);
+  //    let lv_addr = burst_address_generator(rg_read_packet.arlen,rg_read_packet.arsize, rg_read_packet.arburst,rg_read_packet.araddr);
+  //    let {gindex,gbufbank}  <- split_address_gbufW.func(lv_addr);
+  //    if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) 
+  //      gBuffer[gbufbank].portB.request.put(makeRequest(False,0,gindex,?)); 
+  //    else begin
+  //      //Send Slave Error
+  //    end
+  //    if(rg_readburst_counter==rg_read_packet.arlen)begin
+	//			rg_readburst_counter<=0;
+	//			rg_rd_state<=Idle;
+	//		end
+  //  endrule
+  //end
 
+   // for(Integer i = 0; i < vnCol/2; i=i+1) begin
+   // rule rlAXIAreadBurst(rg_rd_state == HandleABurst);
+   //    let accumVal <- accumBuf[2*i].portA.response.get();
+   //    let accumVal1 <- accumBuf[2*i+1].portA.response.get();
+   //    $display($time,"\t HandleABurst Rule %d firing %d %d\n", i, accumVal, accumVal1);
+   //    let rA = AXI4_Rd_Data {rresp: AXI4_OKAY, rdata: {accumVal, accumVal1} ,rlast:
+   //                          rg_readburst_counter==rg_read_packet.arlen, ruser: 0, 
+   //                          rid:rg_read_packet.arid};
+	 //   s_xactor.i_rd_data.enq(rA);
+   //   //let lv_addr = burst_address_generator(rg_read_packet.arlen,rg_read_packet.arsize, rg_read_packet.arburst,rg_read_packet.araddr);
+   //   //let {aindex, abufbank} <- split_address_accbufW.func(lv_addr);
+   //   //$display($time, lv_addr);
+   //   //if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) 
+   //   //  accumBuf[abufbank].portA.request.put(makeRequest(False,0,aindex, ?));
+   //   //else begin
+   //   //  //Send Slave Error
+   //   //end
+   //   if(rg_readburst_counter==rg_read_packet.arlen)begin
+	 // 		rg_readburst_counter<=0;
+	 // 		rg_rd_state<=Idle;
+	 // 	end
+   //  endrule
+   // end
 
     rule set_dims_register(set_trigger_dims);
       //$display($time,"ifmap_rowdims: %d",ifmap_rowdims);
@@ -617,69 +698,179 @@ package systolic_top;
     //  //Fanout of this reg is going to be huge. Can have a vector of reg with lesser size to do this
     //endrule
 
-    // Scheme - 1
-    for(Integer i = 0; i < sqRow; i=i+1) begin
-      rule send_req(startBit==1'b1 && vec_index[i] <= vec_input[i]);
-        $display($time,"Systolic Bank[%d] beginning to read from BRAM vec_index[%d] %d vec_input[%d] %d",i, i,vec_index[i],i,vec_input[i]);
-        gBuffer[i].portA.request.put(makeRequest(False,0,vec_index[i], ?)); 
-        if(rg_rl_counter >= fromInteger(i*sqRow)) begin //i*filter_row
-          vec_index[i] <= vec_index[i]+1;
-        end
+    //FIFO to ensure that the consumer operates on each input element
+    //The producer will produce next only if the consumer has consumed the previous one
+
+    Reg#(Bit#(8)) rg_row <- mkReg(0);
+    Vector#(sqrtnRow, FIFOF#(Tuple2#(Bit#(gbufindexbits), Bit#(gbufbankbits)))) ff_flow_ctrl <- replicateM(mkSizedFIFOF(1));
+    Vector#(sqrtnRow, Reg#(Bit#(8))) rg_cols <- replicateM(mkReg(0));
+
+    function Bool end_of_row;
+      Bool endRow = True;
+      for(Integer i=0; i<sqRow; i=i+1)begin
+        endRow = endRow && (rg_cols[i] == ifmap_coldims-1);
+      end
+      return endRow;
+    endfunction
+
+    for(Integer i=0; i<sqRow; i=i+1)begin
+      rule rl_send_gbuf_request(startBit==1'b1 && rg_feed_input &&
+        rg_cols[i]!=zeroExtend(filter_cols) && rg_row < ifmap_rowdims-zeroExtend(filter_rows)+1);
+        let inp_addr = input_address + (zeroExtend(rg_row)+fromInteger(i)) * zeroExtend(ifmap_coldims) + zeroExtend(rg_cols[i]);
+        let {gindex, gbank} = split_address_gbuf(inp_addr);
+        gBuffer[gbank].portB.request.put(makeRequest(False, 0, gindex, ?));
+        ff_flow_ctrl[i].enq(tuple2(gindex, gbank));
+        $display($time, "Rule %d, Address: %d, Request for %d index sent to bank %d, rg_cols[%d]=%d, sqRow: %d",
+        i, inp_addr, gindex,  gbank, i, rg_cols[i], sqRow);
       endrule
+      
+      rule rl_send_gval_to_array(startBit==1'b1 && rg_feed_input);
+        let gindex = tpl_1(ff_flow_ctrl[i].first);
+        let gbank = tpl_2(ff_flow_ctrl[i].first);
+        ff_flow_ctrl[i].deq;
+        let gVal <- gBuffer[gbank].portB.response.get();
+        let numValues = min(rg_cols[i]+1, min(zeroExtend(filter_cols), ifmap_coldims-rg_cols[i]));
+        let val1 = rg_cols[i]+1;
+        let val2 = filter_cols;
+        let val3 = ifmap_coldims-rg_cols[i];
+        Bit#(8) startIndex;
 
-    ////If the BRAM is not guarded, have a state switch explicitly!!
-    //  rule recv_rsp_enq_fifo(startBit==1'b1);
-    //    let gVal = gBuffer[i].a.read();
-    //    for(Integer j = i*sqRow; j < sqRow*(i+1) ; j=j+1) begin
-    //     if(rg_rl_counter >= fromInteger(j))  //Added now after Discussion with Neel
-    //      rowBuf[j].enq(gVal);
-    //    end
-    //      //Else either enqueue zero or nothing at all
-    //  endrule
-    // end
-
-    // Scheme - 2
-       rule recv_rsp_enq_fifo(startBit==1'b1);
-         if(fromInteger(i)==0)
-           rg_rl_counter <= rg_rl_counter + 1; 
-           //Could be buggy since there could be case in which one of the banks stalls
-         let gVal <- gBuffer[i].portA.response.get();
-         $display($time,"Systolic read from bank %d and feeding inputs to array with val %h",i,gVal);
-         for(Integer j = i*sqRow; j < sqRow*(i+1); j=j+1) begin
-           vec_row_counter[j] <= vec_row_counter[j]+1;
-           if(vec_row_counter[j] >= fromInteger(j) && vec_row_counter[j] < vec_end_value[j])
-             rowBuf[j].enq(gVal);
-           $display($time,"Systolic vec_row_counter[%d] %d, counter: %d, vec_end_value[%d] %d",j,vec_row_counter[j], j, j,vec_end_value[j]);
-         end
-       endrule
+        //The following logic can be optimized to a single if statement
+        //Left as is for understanding purposes
+        if(val1 <= zeroExtend(val2) && val1 <= val3)
+          startIndex = 0;
+        else if(zeroExtend(val2) <= val3 && zeroExtend(val2) <= val1)
+          startIndex = 0;
+        else
+          startIndex = val3;
+        $display("Value %d received from bank %d, startIndex = %d, numValues = %d, val1 = %d, val2 = %d, val3 = %d", gVal, gbank, startIndex, numValues, val1, val2, val3);
+        for(Integer j=0; j<sqRow; j=j+1)begin
+          let jj = fromInteger(j);
+          if(jj >= startIndex && jj < startIndex + numValues)begin
+            systolic_array.rfifo[i*sqRow+jj].send_rowbuf_value(tagged Valid gVal);
+            $display($time, "Value %d from bank %d, index %d, sent to row %d", gVal, gbank, gindex, i*sqRow+jj);
+          end
+        end
+        rg_cols[i] <= rg_cols[i] + 1;
+      endrule
     end
 
+    //rule rl_increment_row(end_of_row);
+    //  rg_row <= rg_row + 1;
+    //  for(Integer i=0; i<sqRow; i=i+1)begin
+    //    rg_cols[i] <= 0;
+    //  end
+    //endrule
+
+    // Scheme - 1
+    //for(Integer i = 0; i < sqRow; i=i+1) begin
+    //  rule send_req(startBit==1'b1 && vec_index[i] <= vec_input[i]);
+    //    //$display($time,"Systolic Bank[%d] beginning to read from BRAM vec_index[%d] %d vec_input[%d] %d",i, i,vec_index[i],i,vec_input[i]);
+    //    gBuffer[i].portA.request.put(makeRequest(False,0,vec_index[i], ?)); 
+    //    if(rg_rl_counter >= fromInteger(i*sqRow)) begin //i*filter_row
+    //      vec_index[i] <= vec_index[i]+1;
+    //    end
+    //  endrule
+
+    //////If the BRAM is not guarded, have a state switch explicitly!!
+    ////  rule recv_rsp_enq_fifo(startBit==1'b1);
+    ////    let gVal = gBuffer[i].a.read();
+    ////    for(Integer j = i*sqRow; j < sqRow*(i+1) ; j=j+1) begin
+    ////     if(rg_rl_counter >= fromInteger(j))  //Added now after Discussion with Neel
+    ////      rowBuf[j].enq(gVal);
+    ////    end
+    ////      //Else either enqueue zero or nothing at all
+    ////  endrule
+    //// end
+
+    //// Scheme - 2
+    //   rule recv_rsp_enq_fifo(startBit==1'b1);
+    //     if(fromInteger(i)==0)
+    //       rg_rl_counter <= rg_rl_counter + 1; 
+    //       //Could be buggy since there could be case in which one of the banks stalls
+    //     let gVal <- gBuffer[i].portA.response.get();
+    //     $display($time,"Systolic read from bank %d and feeding inputs to array with val %h",i,gVal);
+    //     for(Integer j = i*sqRow; j < sqRow*(i+1); j=j+1) begin
+    //       vec_row_counter[j] <= vec_row_counter[j]+1;
+    //       if(vec_row_counter[j] >= fromInteger(j) && vec_row_counter[j] < vec_end_value[j])
+    //         rowBuf[j].enq(gVal);
+    //       $display($time,"Systolic vec_row_counter[%d] %d, counter: %d, vec_end_value[%d] %d",j,vec_row_counter[j], j, j,vec_end_value[j]);
+    //     end
+    //   endrule
+    //end
     /* ====================== Loading Value from Accum to Accum Buffer =============== */
        
     //Put the for loop outside if you want a specific portion of systolic to operate even when some
     //other portion is not free. But the problem here is to figure out how to increment the counter.
 
-    for(Integer i = 0; i < vnCol; i=i+1) begin
-      rule rl_get_accumulator;
-          rg_acc_counter <= rg_acc_counter+1;
-          let x <- systolic_array.cfifo[i].send_accumbuf_value;
-          $display($time, "Enqueuing Data into Accumulator Bank: index: %d Bank: %d with Value %d",rg_acc_counter, i, x);
-          accumBuf[i].portB.request.put(makeRequest(True,'1, 0, x));                 
-      endrule
-
-      rule rl_get_accumulator_response;
-          let x <- accumBuf[i].portB.response.get();
-          $display($time, "Getting Write Response for %d Value: %d", i, x);
-      endrule
+    Rules accumbufrules = emptyRules;
+    for(Integer i=0; i<vnCol; i=i+1)begin
+      Rules rs = (
+        rules
+          rule rl_get_accumulator;
+            let x <- systolic_array.cfifo[i].send_accumbuf_value;
+            $display($time, "Enqueuing Data into Accumulator Bank: index: %d Bank: %d with Value %d",rg_acc_counter, i, x);
+            aBuffer[i].portB.request.put(makeRequest(True,'1, 0, x));                 
+          endrule
+        endrules);
+      accumbufrules = rJoin(accumbufrules, rs);
     end
 
+    Rules rt = (
+    rules
+      rule rl_AbufReq;
+        let lv_addr = wr_abuf.araddr;
+        let {aindex, abufbank} = split_address_accbuf(lv_addr);
+        $display($time, "\t Rule ABuf Firing lv_addr: %h aindex: %d abufbank: %d ", lv_addr, aindex, abufbank);
+        //accumBuf[abufbank].portA.request.put(makeRequest(False,0,aindex,?));
+        //accumBuf[abufbank+1].portA.request.put(makeRequest(False,0,aindex,?));
+        for(Integer i=0; i<numWords/2; i=i+1)begin
+          Bit#(TAdd#(accumbankbits, 1)) gbufIn = zeroExtend(abufbank) + fromInteger(i);
+          Bit#(accumbankbits) m = truncate(gbufIn);
+          aBuffer[m].portB.request.put(makeRequest(False, 0, aindex, ?));
+        end
+      endrule
+    endrules);
+
+    accumbufrules = rJoinDescendingUrgency(accumbufrules, rt);
+    addRules(accumbufrules);
+
+    Rules accumbufresprules = emptyRules;
+    for(Integer i = 0; i < vnCol; i=i+1) begin
+    Rules rl = (
+      rules
+        rule rl_get_accumulator_response;
+          let x <- aBuffer[i].portB.response.get();
+          $display($time, "Getting Write Response for %d Value: %d", i, x);
+        endrule
+      endrules);
+    accumbufresprules = rJoin(accumbufresprules, rl);
+    end
+
+    Rules ru = (
+    rules
+      rule rlAXIAReadBurst(rg_rd_state == HandleABurst);
+        let lv_addr = rg_read_packet.araddr;
+        let {aindex, abufbank} = split_address_accbuf(lv_addr);
+        Bit#(data_width) aVal = 0;
+        for(Integer i=0; i<numWords/2; i=i+1)begin
+          Bit#(accumbankbits) m = truncate(abufbank + fromInteger(i));
+          let temp <- aBuffer[m].portB.response.get();
+          aVal = (aVal << valueOf(mulWidth2)) | zeroExtend(temp);
+        end
+        let rA = AXI4_Rd_Data {rresp: AXI4_OKAY, rdata: aVal, rlast:
+        rg_readburst_counter==rg_read_packet.arlen, ruser: 0, rid: rg_read_packet.arid};
+        s_xactor.i_rd_data.enq(rA);
+        if(rg_readburst_counter==rg_read_packet.arlen)begin
+          rg_readburst_counter <= 0;
+          rg_rd_state <= Idle;
+        end
+      endrule
+    endrules);
+
+    accumbufresprules = rJoinDescendingUrgency(accumbufresprules, ru);
     /* =============================================================================== */
 
   interface slave_systolic =  s_xactor.axi_side;
   endmodule
-
-
 endpackage
-
-
-
