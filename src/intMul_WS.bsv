@@ -57,7 +57,7 @@ package intMul_WS;
   Reg#(Bool)                     weight_valid     <- mkReg(True);
   Reg#(Maybe#(Bit#(bWidth)))     rg_west          <- mkConfigReg(tagged Invalid);
   Reg#(Bit#(2))                  rg_bitWidth      <- mkReg(0);
-  Reg#(Bit#(twbWidth))            input_acc        <- mkConfigReg(0);
+  Reg#(Maybe#(Bit#(twbWidth)))   rg_input_acc        <- mkConfigReg(tagged Invalid);
   Wire#(Bit#(twbWidth))           acc_output       <- mkWire();
   Reg#(Bit#(8))                  rg_coord         <- mkReg(fromInteger(coord));//Stores the y-index of the PE, delimits the flow of weights.
   Reg#(Bit#(8))                  rg_counter       <- mkReg(0);
@@ -68,7 +68,8 @@ package intMul_WS;
   Bool check = (rg_counter >= rg_coord);
    
 
-  rule mult_add_phase(rg_north matches tagged Valid .north &&& rg_west matches tagged Valid .west);
+  rule mult_add_phase(rg_north matches tagged Valid .north &&& rg_west matches tagged Valid .west
+    &&& rg_input_acc matches tagged Valid .input_acc);
     Bit#(1) pp_sign[4];
     Int#(twbWidth) output_mul = extend(unpack(north))*extend(unpack(west)); 
     acc_output <= pack(output_mul + unpack(input_acc));
@@ -91,8 +92,8 @@ package intMul_WS;
 
   interface Put acc_from_north;
     method Action put(Bit#(twbWidth) acc);
-      //$display($time,"N-> Systolic[%d][%d] Receiving acc_input: %d",row,col,acc);
-      input_acc <= acc;
+      $display($time,"N-> Systolic[%d][%d] Receiving acc_input: %d",row,col,acc);
+      rg_input_acc <= tagged Valid acc;
     endmethod
   endinterface
 

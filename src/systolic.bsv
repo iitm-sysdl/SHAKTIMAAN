@@ -124,7 +124,7 @@ package systolic;
                  //Should Decide where this Bit#(8) comes from!! For now Keeping it from Buf
                   match {.mulinput,.accinput,.counter,.val} = value;
                   intArray[0][i].from_north.put(tuple3(mulinput,counter,val));
-                  intArray[0][i].acc_from_north.put(accinput); //Put the value sent from the top!!
+                  //intArray[0][i].acc_from_north.put(accinput); //Put the value sent from the top!!
                endmethod
 
                method Action send_acc_value(Bit#(TMul#(2, mulWidth)) accinput);

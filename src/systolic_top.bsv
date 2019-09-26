@@ -136,7 +136,8 @@ package systolic_top;
              Add#(d__, 8, data_width),
              Add#(e__, 16, data_width),
              Add#(f__, mulWidth, data_width),
-             Add#(g__, mulWidth2, data_width)
+             Add#(g__, mulWidth2, data_width),
+             Add#(h__, 32, data_width)
             );
     let vnFEntries = valueOf(nFEntries);
     let vnRow      = valueOf(nRow);
@@ -337,6 +338,10 @@ package systolic_top;
                                 rg_coord_counters[i] <= truncate(data);
                               end
                 `weightCount : rg_weight_counter <= truncate(data);
+                `InputAddr   : begin
+                                input_address <= truncate(data);
+                                $display($time, "Input address set: %d\n", data);
+                              end
             endcase
         endaction
       endfunction
@@ -713,6 +718,14 @@ package systolic_top;
       return endRow;
     endfunction
 
+    Reg#(Bool) rg_temp <- mkReg(False);
+    rule rl_send_acc_to_array(startBit==1'b1 &&& !rg_temp);
+      for(Integer i=0; i<vnCol; i=i+1)begin
+        systolic_array.cfifo[i].send_acc_value(0);
+      end
+      rg_temp <= True;
+    endrule
+
     for(Integer i=0; i<sqRow; i=i+1)begin
       rule rl_send_gbuf_request(startBit==1'b1 && rg_feed_input &&
         rg_cols[i]!=zeroExtend(filter_cols) && rg_row < ifmap_rowdims-zeroExtend(filter_rows)+1);
@@ -720,6 +733,7 @@ package systolic_top;
         let {gindex, gbank} = split_address_gbuf(inp_addr);
         gBuffer[gbank].portB.request.put(makeRequest(False, 0, gindex, ?));
         ff_flow_ctrl[i].enq(tuple2(gindex, gbank));
+        $display(input_address, rg_row, i, ifmap_coldims, rg_cols[i]);
         $display($time, "Rule %d, Address: %d, Request for %d index sent to bank %d, rg_cols[%d]=%d, sqRow: %d",
         i, inp_addr, gindex,  gbank, i, rg_cols[i], sqRow);
       endrule

@@ -4,6 +4,7 @@
 `define CoordCount    'hB0000004
 `define weightCount   'hB0000006
 `define FilterDims    'hB0000008
+`define InputAddr     'hB000000A
 `define WeightStart   'hB0010000      
 `define WeightEnd     'hB001ffff
 `define AccumBufStart 'hB0200000
