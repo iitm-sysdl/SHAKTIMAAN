@@ -45,12 +45,10 @@ package systolic_top;
   import Semi_FIFOF::*;
   import UniqueWrappers::*;
   import ConfigReg::*;
-	`include "defined_parameters.bsv"
-	import defined_types::*;
   `include "systolic.defines"
 	import axi_addr_generator::*;
   import functions::*;
-
+`define PADDR 32
  /* ========= Exports ============ */
    export Ifc_systolic_top_axi4(..);
    export mksystolic_top_axi4;
@@ -635,6 +633,7 @@ package systolic_top;
       rule rl_AbufReq;
         let lv_addr = wr_abuf.araddr;
         let {aindex, abufbank} = split_address_accbuf(lv_addr);
+        rg_readburst_counter <= 1;
         $display($time, "\t Rule ABuf Firing lv_addr: %h aindex: %d abufbank: %d ", lv_addr, aindex, abufbank);
         for(Integer i=0; i<numWords/2; i=i+1)begin
           Bit#(TAdd#(accumbankbits, 1)) gbufIn = zeroExtend(abufbank) + fromInteger(i);
@@ -661,23 +660,49 @@ package systolic_top;
 
     Rules ru = (
     rules
-      rule rlAXIAReadBurst(rg_rd_state == HandleABurst);
+      rule rlAXIAReadBurst(rg_rd_state == HandleABurst && rg_readburst_counter != 0);
         let lv_addr = rg_read_packet.araddr;
         let {aindex, abufbank} = split_address_accbuf(lv_addr);
+        
+        //Read data from acc buffers
         Bit#(data_width) aVal = 0;
         for(Integer i=0; i<numWords/2; i=i+1)begin
           Bit#(accumbankbits) m = truncate(abufbank + fromInteger(i));
           let temp <- aBuffer[m].portB.response.get();
           aVal = (aVal << valueOf(mulWidth2)) | zeroExtend(temp);
         end
+        
+        //Prepare AXI response
         let rA = AXI4_Rd_Data {rresp: AXI4_OKAY, rdata: aVal, rlast:
         rg_readburst_counter==rg_read_packet.arlen, ruser: 0, rid: rg_read_packet.arid};
+        
+        //Send AXI response
         s_xactor.i_rd_data.enq(rA);
+        
+        //If last beat in response, end transaction
         if(rg_readburst_counter==rg_read_packet.arlen)begin
           rg_readburst_counter <= 0;
           rg_rd_state <= Idle;
         end
+        else begin
+          rg_readburst_counter <= rg_readburst_counter + 1;//Increment readburst counter
+          
+          //Send new request for next burst
+          let new_addr = burst_address_generator(rg_read_packet.arlen, rg_read_packet.arsize,
+                          rg_read_packet.arburst, rg_read_packet.araddr);
+          let {newaindex, newabufbank} = split_address_accbuf(new_addr);
+          
+          $display($time, "\t Rule ABuf Firing lv_addr: %h aindex: %d abufbank: %d ", lv_addr, aindex, abufbank);
+          
+          for(Integer i=0; i<numWords/2; i=i+1)begin
+            Bit#(TAdd#(accumbankbits, 1)) gbufIn = zeroExtend(newabufbank) + fromInteger(i);
+            Bit#(accumbankbits) m = truncate(gbufIn);
+            aBuffer[m].portB.request.put(makeRequest(False, 0, newaindex, ?));
+          end
+          rg_read_packet.araddr <= new_addr;
+        end
       endrule
+
     endrules);
 
     accumbufresprules = rJoinDescendingUrgency(accumbufresprules, ru);
