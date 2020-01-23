@@ -1,0 +1,35 @@
+stages:
+    - build
+    - release
+
+systolic:
+    stage: build
+    except:
+      - schedules
+    variables:
+        GIT_SUBMODULE_STRATEGY: recursive
+    script:
+      - source /tools/setup.sh
+      - cd modules_fp
+      - make generate_verilog TOP_MODULE=mksystolic2 TOP_FILE=systolic.bsv VERILOGDIR=mksystolic2 TOP_DIR=./
+      - make clean
+      - make generate_verilog TOP_MODULE=mksystolic3 TOP_FILE=systolic_top.bsv VERILOGDIR=mksystolic3 TOP_DIR=./
+      - make clean
+      - make release REL_DIR=/scratch/gitlab-builds/releases/systolic
+    only:
+        - master
+    tags:
+        - core-runner
+
+release:
+    stage: release
+    script:
+        - python3 /scratch/version-extract.py
+    only:
+        refs:
+            - master
+    tags:
+        - core-runner
+    except:
+      - schedules
+
