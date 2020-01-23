@@ -19,7 +19,7 @@ systolic:
     only:
         - master
     tags:
-        - core-runner
+        - shakti-runner
 
 release:
     stage: release
@@ -29,7 +29,7 @@ release:
         refs:
             - master
     tags:
-        - core-runner
+        - shakti-runner
     except:
       - schedules
 
