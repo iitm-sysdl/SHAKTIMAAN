@@ -41,14 +41,16 @@ package systolic_top;
   import  FIFOF::*;
   import BRAMCore :: *;
   import BRAM ::*;
-	import BUtils::*;
+  import BUtils::*;
   import Semi_FIFOF::*;
   import UniqueWrappers::*;
   import ConfigReg::*;
+  `include "defined_parameters.bsv"
+  import defined_types::*;
   `include "systolic.defines"
-	import axi_addr_generator::*;
+  import axi_addr_generator::*;
   import functions::*;
-`define PADDR 32
+
  /* ========= Exports ============ */
    export Ifc_systolic_top_axi4(..);
    export mksystolic_top_axi4;
@@ -68,32 +70,16 @@ package systolic_top;
   // size like 7x7 or 8x8 since it becomes hard to handle WS dataflow with arbitrary systolic array
   // size! It's not difficult to give that support though! 
 
-  interface Ifc_systolic_top_axi4#(numeric type addr_width, numeric type data_width, 
+   interface Ifc_systolic_top_axi4#(numeric type addr_width, numeric type data_width, 
                                    numeric type user_width, numeric type nRow, numeric type nCol, 
                                    numeric type accumbanks, numeric type accumentries,
                                    numeric type gbufbanks, numeric type gbufentries,
                                    numeric type nFEntries,numeric type mulWidth);
-    interface AXI4_Slave_IFC#(`PADDR,data_width,0) slave_systolic; //32-bit address? 4 16-bits?
+   interface AXI4_Master_IFC#(addr_width, data_width, user_width) master;
+   interface AXI4_Slave_IFC#(`PADDR,data_width,0) slave; //32-bit address? 4 16-bits?
   endinterface
-	
-  typedef enum{Idle,HandleBurst, HandleGBurst, HandleABurst} Mem_state deriving(Bits,Eq);
 
-//  (*synthesize*)
-//  module mktest(Empty);
-//    Ifc_systolic_top_axi4#(32, 64, 0, 3, 3, 16, 16, 2, 16) sys <- mksystolic_top_axi4;
-//  endmodule
-  
-//    (*synthesize*)
-//    module mksystolic3(Ifc_systolic_top_axi4#(32,64,0,2,2/*16,16,*/,4,1024,2,1024,2,16));
-//        let ifc();
-//        mksystolic_top_axi4 inst(ifc);
-//        return (ifc);
-//    endmodule
-
-  (*descending_urgency="rl_send_gbuf_request, rlAXIwrReq, rl_GbufReq"*)
-  (*descending_urgency="rl_send_gbuf_request, rlAXIwrReqBurst, rl_GbufReq"*)
-  (*descending_urgency="rl_get_accumulator, rl_AbufReq"*)
-  module mksystolic_top_axi4(Ifc_systolic_top_axi4#(addr_width,data_width,user_width,sqrtnRow,sqrtnCol,
+    module mksystolic_top_axi4(Ifc_systolic_top_axi4#(addr_width,data_width,user_width,sqrtnRow,sqrtnCol,
     accumbanks, accumentries, gbufbanks, gbufentries,
     nFEntries,mulWidth))
     provisos(
@@ -171,14 +157,10 @@ package systolic_top;
 
     //BRAM_DUAL_PORT_BE#(Bit#(gbufaddr), Bit#(16), 2)  gBuffer   <- mkBRAMCore2BE(gBUF,False);
     //BRAM_DUAL_PORT_BE#(Bit#(accumaddr), Bit#(32), 4) accumBuf  <- mkBRAMCore2BE(aCC,False);
+
+    AXI4_Master_Xactor_IFC #(addr_width, data_width, 0) m_xactor <- mkAXI4_Master_Xactor;  
     AXI4_Slave_Xactor_IFC#(`PADDR,data_width,0) s_xactor  <- mkAXI4_Slave_Xactor;
-   
-    //The current Accelerator Configuration is simple. The transactions begin by software writing
-    //into weight buffers which is followed by the transfer of feature map kernels into the global
-    //buffers -- Now the decision that needs to be made here is to know when to start the
-    //transactions 
-    //Software has visibility into reading 
-    
+
     //Configuration Register Space
     Reg#(Bit#(4))  filter_rows       <- mkReg(0);  
     Reg#(Bit#(4))  filter_cols       <- mkReg(0);
@@ -191,84 +173,57 @@ package systolic_top;
     Reg#(Bit#(2))  sysConfig         =  concatReg2(accumWeight, startBit); 
     Reg#(Bit#(8))  rg_weight_counter <- mkReg(0); //Config --Hardcoded to 8 for now
     Reg#(Bool)     set_trigger_dims  <- mkReg(False);
-    Reg#(Bit#(`PADDR))   input_address <- mkReg(0);
-    Reg#(Maybe#(Bit#(`PADDR))) output_address <- mkReg(tagged Invalid);
-    //Reg#(Bit#(8)) rg_coord_counter <- mkReg(1); //Local counter
-    
-    Vector#(nCol, Reg#(Bit#(8))) rg_coord_counters <- replicateM(mkReg(1));
 
-    Vector#(nRow, Reg#(Bit#(8))) vec_row_counter <- replicateM(mkReg(0));
-//  Vector#(nRow, Reg#(Bit#(3))) vec_start_value;
-    Vector#(nRow, Reg#(Bit#(8))) vec_end_value   <- replicateM(mkReg(0));
+    //DMA config Registers
 
-    //Status Bits
-    Reg#(bit) rg_idle    <- mkReg(0);
-    Reg#(bit) rg_running <- mkReg(0);
-    Reg#(Bit#(accumentries))  rg_acc_counter <- mkReg(0);
+    //Mem to Systolic
+    Reg#(Bit#(`PADDR)) input_address <- mkReg(0);  //start address of either gbuf or weight
+    Reg#(Bit#(`PADDR)) mem_rdaddr <- mkReg(0);  // memory read address register
+    Reg#(Bit#(32)) mem_sys_cr <- mkConfigReg(0);  //mem to systolic config register, definition still incomplete, kept it as 32bits for now
+    Reg#(Bit#(16)) mem_sys_cntr <- mkConfigReg(0); //no. of bursts to be transferred
+    //Systolic to Mem
+    Reg#(Bit#(`PADDR)) output_address <- mkReg(0);  //start address of accumbuf
+    Reg#(Bit#(`PADDR)) mem_wraddr <- mkReg(0);  // memory write address register
+    Reg#(Bit#(32)) sys_mem_cr <- mkConfigReg(0);  //systolic to mem config register
+    Reg#(Bit#(16)) sys_mem_cntr <- mkConfigReg(0); //no. of bursts to be transferred
 
-    //FIFO Loader FSM
-    Reg#(Bit#(5)) gen_state         <- mkReg(-1);   //32 states might be overkill
-    Reg#(Bit#(gbufentries)) rg_event_cntr <- mkReg(0);
-    Reg#(Bit#(nRow)) rg_rl_counter <- mkReg(1);
+    //Local registers
+    Reg#(Bool) rg_is_memsyscntr_zero[2] <- mkCReg(2,True);
+    Reg#(Bool) rg_is_sysmemcntr_zero[2] <- mkCReg(2,True);
 
-    //Local Registers
-    Reg#(Bit#(4))                 row_counter       <- mkReg(0);
-    Reg#(Mem_state)               rg_wr_state       <- mkReg(Idle);
-    Reg#(Mem_state)               rg_rd_state       <- mkReg(Idle);
-		Reg#(AXI4_Wr_Addr#(`PADDR,0)) rg_write_packet   <- mkReg(?);
-		Reg#(AXI4_Rd_Addr#(`PADDR,0)) rg_read_packet    <- mkReg(?);
-		Wire#(AXI4_Rd_Addr#(`PADDR,0)) wr_gbuf          <- mkWire();
-		Wire#(AXI4_Rd_Addr#(`PADDR,0)) wr_abuf          <- mkWire();
-    Reg#(Bit#(accumbankbits))  rg_abufbank       <- mkRegU();
-    Reg#(Bit#(gbufbankbits))   rg_gbufbank       <- mkRegU();
-    Vector#(sqrtnRow, Reg#(Bit#(gbufentries))) vec_index <- replicateM(mkConfigReg(0));
-    Vector#(sqrtnRow, Reg#(Bit#(gbufentries))) vec_input <- replicateM(mkConfigReg(-1)); //Have a config to clear
-    Vector#(nRow, Reg#(Bit#(gbufbankbits))) bank_index <- replicateM(mkReg(0));
+    Reg#(Bit#(addr_width)) rg_inp_addr <- mkConfigReg(0);   //Local globalbuf or weight address register - start address
+    Reg#(Bit#(addr_width)) rg_mem_rdaddr <- mkConfigReg(0); //local memory read address register - start address
+    Reg#(Bit#(addr_width)) rg_out_addr <- mkConfigReg(0);   //Local accumbuf address register - start address
+    Reg#(Bit#(addr_width)) rg_mem_wraddr <- mkConfigReg(0); //local memory write address register - start address
 
-    Reg#(Bool) rg_feed_input <- mkReg(False);
+    Reg#(Bit#(8)) rg_sys_wrburst_cnt <- mkReg(0);
+    Reg#(Bit#(8)) rg_mem_wrburst_cnt <- mkReg(0);
 
-    //Not sure if this needs to be in place -- TEMPORARY
-    //Vector#(nRow, Reg#(Bit#(TExp#(gbufbankaddress)))) vec_bank_counter;
-    //for(Integer i = 0; i < sqRow; i=i+1) begin
-    //  vec_bank_counter[i] <- mkReg(fromInteger(i*vnRow));
-    //end
 
-    //Should there be a Master interface with bigger busWidth? -- This enables Systolic to access
-    //Memory directly!!! Should that power be given?
-    //Assuming a Memory Map for 10 Configuration Registers --- 0 to 'h24
-    //Assuming a Memory Map for 10KB from 'h28 to 
+    Reg#(Bit#(addr_width)) rg_syswrite_addr <- mkReg(0); //registers to store incremental burst addresses
+    Reg#(Bit#(addr_width)) rg_sysread_addr <- mkReg(0);  //registers to store incremental burst addresses
 
-    //Reg#(Bit#(9))   accumIndex           <- mkReg(0);
-    Reg#(Bit#(8))   rg_readburst_counter <- mkReg(0);
-    /* =========================== Function Definitions ============================== */
-     // function Action populate_buffers(Bit#(addr) lv_addr, Bit#(data) lv_data, Bit#(TDiv#(data,8))
-     //     wstrb);
-     //     let accindex  = lv_addr - fromInteger(`AccumBufStart);
-     //     let gbufindex = lv_addr - fromInteger(`GBufStart);
+    Reg#(Bool) rg_finish_memwrite[2] <- mkCReg(2,True);
 
-     //     //Write Request to AccumBuffer Range
-     //     if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin
-     //       accumBuf.b.put(wstrb[3:0],accindex,truncate(lv_data));
-     //     end
-     //     else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin
-     //       gBuffer.b.put(wstrb[1:0], gbufindex, truncate(lv_data));
-     //     end
 
-     //     //Logic to write into Configuration Address Space
-     // endfunction
 
-      //function Action read_req(Bit#(addr) lv_addr);
-      //  if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin 
-      //    accumBuf.a.put(0,lv_addr - fromInteger(`AccumBufStart) , ?);
-      //    gACheck <= True;
-      //  end
-      //  else begin
-      //    gBuffer.b.put(0,lv_addr - fromInteger(`GBufStart),?);
-      //    gACheck <= False;
-      //  end
-      //endfunction
 
-      function BRAMRequestBE#(Bit#(a), Bit#(d), n) makeRequest (Bool write,Bit#(n) wstrb,Bit#(a) addr, Bit#(d)
+
+
+
+
+
+
+    // We also want to pass the destination address for each read over
+    // to the write "side", along with some other metadata.
+    // The depth of this fifo limits the number of outstanding reads
+    // which may be pending before the write.  The maximum outstanding
+    // reads depends on the overall latency of the read requests.
+    FIFOF#(Bit#(addr_width)) destAddrFs_sys <- mkSizedFIFOF(2) ;  //memory to systolic
+    FIFOF#(Bit#(addr_width)) destAddrFs_mem <- mkSizedFIFOF(2) ;  // systolic to memory
+
+
+    function BRAMRequestBE#(Bit#(a), Bit#(d), n) makeRequest (Bool write,Bit#(n) wstrb,Bit#(a) addr, Bit#(d)
         data);
             return BRAMRequestBE{
                                 writeen: wstrb ,
@@ -318,12 +273,47 @@ package systolic_top;
                                end
                 `CoordCount  : for(Integer i=0; i<vnCol; i=i+1)begin
                                 rg_coord_counters[i] <= truncate(data);
-                              end
+                                end
                 `weightCount : rg_weight_counter <= truncate(data);
                 `InputAddr   : begin
                                 input_address <= truncate(data);
                                 $display($time, "Input address set: %d\n", data);
-                              end
+                                end
+                `OutputAddr   : begin
+                                output_address <= truncate(data);
+                                end
+                `MemReadAddr : begin
+                                mem_rdaddr <= truncate(data);
+                                end
+                `MemtoSysCfg   : begin
+                                  //if(data[0]== 1) begin  //going to enable the transfer
+                                    //if(mem_sys_cr[0]) begin  // transfer is not already going on
+                                      mem_sys_cr <= truncate(data);
+                                      rg_inp_addr <= input_address;
+                                      rg_mem_rdaddr <= mem_rdaddr;
+                                    //end
+                                  end
+                                end
+                `MemtoSysCntr   : begin
+                                    mem_sys_cntr <= truncate(data);
+                                    $display($time, "MemtoSys Cntr set: %d\n", data);
+                                  end
+                `SystoMemCfg   : begin
+                                  //if(data[0] == 1) begin  //going to enable the transfer
+                                    //if(sys_mem_cr[0] == 1) begin  // transfer is not already going on
+                                      sys_mem_cr <= truncate(data);
+                                      rg_out_addr <= output_address;
+                                      rg_mem_wraddr <= mem_wraddr;
+                                    end
+                                  end
+                                end
+                `MemWriteAddr  : begin
+                                  mem_wraddr <= truncate(data);
+                                 end
+                `SystoMemCntr   : begin
+                                  sys_mem_cntr <= truncate(data);
+                                  $display($time, "SystoMem Cntr set: %d\n", data);
+                                  end          
             endcase
         endaction
       endfunction
@@ -375,165 +365,190 @@ package systolic_top;
       end
     /* ============================================================================== */
 
-    /* ===================== Logic to populate the Global/Acc Buffers =============== */
+    /* ===========================AXI - Logic to write to Configure Registers ==================================== */
 
-    rule rlAXIwrReq(rg_wr_state == Idle);
+    rule rlAXIwrConfig;
+
      let aw <- pop_o(s_xactor.o_wr_addr);
      let w  <- pop_o(s_xactor.o_wr_data);
-     //populate_buffers(aw.awaddr,w.wdata,w.wstrb);
      let lv_addr = aw.awaddr;
      let lv_data = w.wdata;
-     let wstrb = w.wstrb;
-     let {gindex, gbufferbank} = split_address_gbuf(lv_addr);
-     $display($time, "lv_addr: %h lv_data: %h gindex: %h gbufferbank: %h",lv_addr,lv_data,gindex,gbufferbank);
-     //Write Request to AccumBuffer Range
-     if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin
-       //This one is not used for now, but needs to be implemented
-       //accumBuf.b.put(wstrb[3:0],accindex,truncate(lv_data));
-       //accumBuf[abufbank].b.put(wstrb[3:0],aindex,truncate(lv_data));
-       //Send Slave Error
-     end
-     else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd)begin
-       for(Integer i=0; i<numWords; i=i+1)begin
-         Bit#(TAdd#(gbufbankbits,1)) m = zeroExtend(gbufferbank) + fromInteger(i);
-         Bit#(gbufindexbits) index = gindex;
-         Bit#(gbufbankbits) bank = truncate(m);
-         if(bank < gbufferbank)begin 
-           index = index + 1;
-         end
-         Bit#(mulWidth) data = lv_data[(i+1)*bitWidth-1:i*bitWidth];
-         $display($time, "Sending request to gbuf: %h bank, %h index, value: %d", m, index, data);
-         gBuffer[bank].portB.request.put(makeRequest(True, wstrb[1:0], index, data));
-       end
-     end
-     else if(lv_addr >= `WeightStart && lv_addr <= `WeightEnd) begin
-       Bit#(2) mulW = 0;  //Temporary data value
-       if(accumWeight == 1'b1)begin
-        Bit#(weightindexbits) index = lv_addr[numIndexBitsWeight+1:2];
-         for(Integer i=0; i<numWords; i=i+1)begin
-           Bit#(weightindexbits) m = truncate(index + fromInteger(i));// % fromInteger(vnCol); 
-           colBuf[m].enq(tuple4(lv_data[(i+1)*valueOf(mulWidth)-1:i*valueOf(mulWidth)], 0, rg_coord_counters[m], mulW));
-           //$display($time, "Sending weight %d to column %d till %d", lv_data[(i+1)*mulWidth-1:i*mulWidth], m, rg_coord_counters[m]);
-           $display($time, "Sending weight to column %d till %d", m, rg_coord_counters[m]);
-           rg_coord_counters[m] <= rg_coord_counters[m] + 1;
-         end
-       end
-     end
-     else begin //Configuration Address Space
-       $display($time, "\t Setting Config Address \n");
-       set_systolic(lv_addr, truncate(lv_data));
-     end
-
+     
+     $display($time, "\t Setting Config Address \n");
+     set_systolic(lv_addr, truncate(lv_data));
+     
      let resp = AXI4_Wr_Resp {bresp: AXI4_OKAY, buser: aw.awuser, bid:aw.awid};
-     if(aw.awlen != 0) begin 
-       rg_wr_state <= HandleBurst;
-		   let new_address=burst_address_generator(aw.awlen,aw.awsize,aw.awburst,aw.awaddr);
-       aw.awaddr = new_address;
-       rg_write_packet <= aw;
-     end
-     else begin
-		  	s_xactor.i_wr_resp.enq (resp);
-     end
+     s_xactor.i_wr_resp.enq (resp);
+
+    endrule
+    /* ==================================================================================================== */
+
+    function Bit#(16) fn_decr_cndtr(Bit#(16) cndtr, Bit#(2) tsize, Bit#(`Burst_length_bits) bsize);
+    Bit#(17) lv_to_sub= (zeroExtend(bsize)+1) << tsize;
+    Bit#(17) lv_result= {1'b0,cndtr}-lv_to_sub;
+    if(lv_result[16]==1)    //underflow. Can happen in burst mode when the bytes to be transferred is not an exact multiple of the burst length x burst size.
+      return 0;
+        else
+        return lv_result[15:0];
+    endfunction
+
+    // This function increments the source or destination address depending on
+    // the size of the transfer.
+    // Note that though STM's DMA defines tsize=2'b11 as reserved, we use it to
+    // perform a 64-bit data transfer.
+    function Bit#(addr_width) fn_incr_address(Bit#(addr_width) addr, Bit#(2) tsize, Bit#(`Burst_length_bits) bsize) provisos(Add#(addr_width,1, a),
+                        Add#(z__, 8, a));
+      Bit#(a) lv_to_add= (zeroExtend(bsize)+1) << tsize;
+      Bit#(a) lv_result= {1'b0,addr}+lv_to_add;
+      return truncate(lv_result);
+    endfunction
+
+    /* =================================AXI - Logic to read from Memory and write to Systolic ============================== */
+  
+    rule rl_memcntr_is_zero;
+      rg_is_memsyscntr_zero[0] <= (mem_sys_cntr == 0);
+    endrule 
+
+    rule rl_startMemRead (!rg_is_memsyscntr_zero[0]//no of bytes remaining to transfer is not 0
+                          && mem_sys_cr[0] == 1);
+        let lv_mem_sys_cr = mem_sys_cr;
+        Bit#(addr_width) lv_araddr = rg_mem_rdaddr; //set the address to read from
+        Bit#(2) lv_arsize = 2'b11; //set the transfer size -- fixing to 8 bytes
+        Bit#(1) lv_burst_type = lv_mem_sys_cr[7]; //0: Fixed, 1: INCR which is consistent with that of AXI4
+        Bit#(8) lv_burst = lv_mem_sys_cr[15:8];  //burst length
+
+        if(lv_mem_sys_cr[6]==1)  //peripheral increment mode is on
+          rg_inp_addr<= fn_incr_address(rg_inp_addr, lv_arsize, mem_sys_cr[15:8]);
+        if(lv_mem_sys_cr[7]==1)  //memory increment mode is on
+          rg_mem_rdaddr<= fn_incr_address(rg_mem_rdaddr, lv_arsize, mem_sys_cr[15:8]);
+
+        $display($time,"\tSystolic starting read from memory address %h", lv_araddr);
+
+        destAddrFs_sys.enq(rg_inp_addr); //Enqueue the write address
+
+        // Create a read request, and enqueue it
+        // Since there can be multiple pending requests, either read or
+        // writes, we use the arid field to mark these.
+        let read_request = AXI4_Rd_Addr {araddr: lv_araddr, 
+                         arid: {4'b0101}, arlen: lv_burst,
+                         arsize: zeroExtend(lv_arsize), arburst: zeroExtend(lv_burst_type), //arburst: 00-FIXED 01-INCR 10-WRAP
+                         aruser: 0 };  //0101 --random id to mark the requests
+          
+        m_xactor.i_rd_addr.enq(read_request);
+        $display("Sending a read request with araddr: %h arid: 001 arlen: %h arsize: %h arburst: %h",lv_araddr,lv_burst,lv_arsize,lv_burst_type); 
+
+       // currentReadRs[chanNum][0]<= currentReadRs[chanNum][0] + 1;
+        mem_sys_cntr <= fn_decr_cndtr(mem_sys_cntr, lv_arsize, mem_sys_cntr[15:8]); //Request for one burst is complete
+
     endrule
 
-    rule rlAXIwrReqBurst(rg_wr_state == HandleBurst);
-      let w <- pop_o(s_xactor.o_wr_data);
-      let resp = AXI4_Wr_Resp {bresp: AXI4_OKAY, buser: rg_write_packet.awuser, bid:rg_write_packet.awid};
+    rule rl_startSystolicWrite(m_xactor.o_rd_data.first.rid == {4'b0101} && m_xactor.o_rd_data.first.rresp==AXI4_OKAY
+                                && rg_sys_wrburst_cnt == 0)
 
-      let lv_addr = rg_write_packet.awaddr;
-      let lv_data = w.wdata;
-      let wstrb = w.wstrb;
-      let {gindex, gbufferbank} = split_address_gbuf(lv_addr);
+        let resp <- pop_o(m_xactor.o_rd_data);
+        let lv_mem_sys_cr = mem_sys_cr;
+        let lv_addr = destAddrFs_sys.first;
+        let lv_data = resp.rdata;
+        let lv_burst_type = lv_mem_sys_cr[6];   //burst type of systolic
+        let lv_awsize = 2'b11; //set the transfer size -- fixing to 8 bytes
+        Bit#(8) lv_burst_len = lv_mem_sys_cr[15:8];
+        let {gindex, gbufferbank} = split_address_gbuf(lv_addr);
+        //$display($time, "lv_addr: %h lv_data: %h gindex: %h gbufferbank: %h",lv_addr,lv_data,gindex,gbufferbank);
 
-      //Write Request to AccumBuffer Range
-      if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin
-        //accumBuf[abufbank].b.put(wstrb[3:0],aindex,truncate(lv_data));
-        //Send Slave Error
-      end
-      else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin
-        for(Integer i = 0; i < numWords ; i=i+1) begin
-          Bit#(TAdd#(gbufbankbits, 1)) gbufIn = zeroExtend(gbufferbank)+fromInteger(i);
-          Bit#(gbufbankbits) m = truncate(gbufIn);
-          gBuffer[m].portB.request.put(makeRequest(True,wstrb[1:0],gindex,lv_data[(i+1)*valueOf(mulWidth)-1:i*valueOf(mulWidth)]));
+         if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd)begin
+           for(Integer i=0; i<numWords; i=i+1)begin
+             Bit#(TAdd#(gbufbankbits,1)) m = zeroExtend(gbufferbank) + fromInteger(i);
+             Bit#(gbufindexbits) index = gindex;
+             Bit#(gbufbankbits) bank = truncate(m);
+             if(bank < gbufferbank)begin 
+               index = index + 1;
+             end
+             Bit#(mulWidth) data = lv_data[(i+1)*bitWidth-1:i*bitWidth];
+             $display($time, "Sending request to gbuf: %h bank, %h index, value: %d", m, index, data);
+             gBuffer[bank].portB.request.put(makeRequest(True, 1'b1 , index, data));
+           end
+         end
+         else if(lv_addr >= `WeightStart && lv_addr <= `WeightEnd) begin
+           Bit#(2) mulW = 0;  //Temporary data value
+           if(accumWeight == 1'b1)begin
+            Bit#(weightindexbits) index = lv_addr[numIndexBitsWeight+1:2];
+             for(Integer i=0; i<numWords; i=i+1)begin
+               Bit#(weightindexbits) m = truncate(index + fromInteger(i));// % fromInteger(vnCol); 
+               colBuf[m].enq(tuple4(lv_data[(i+1)*valueOf(mulWidth)-1:i*valueOf(mulWidth)], 0, rg_coord_counters[m], mulW));
+               //$display($time, "Sending weight %d to column %d till %d", lv_data[(i+1)*mulWidth-1:i*mulWidth], m, rg_coord_counters[m]);
+               $display($time, "Sending weight to column %d till %d", m, rg_coord_counters[m]);
+               rg_coord_counters[m] <= rg_coord_counters[m] + 1;
+             end
+           end
+         end
+
+        if(lv_burst_len>0) begin 
+          rg_sys_wrburst_cnt<=rg_sys_wrburst_cnt + 1;  //// this will fire the next rule when doing a write in burst mode.
+          let new_address=burst_address_generator(lv_burst_len,lv_awsize,lv_burst_type,lv_addr);
+          rg_syswrite_addr <= new_address;
+        // $display("Starting burst mode write....");
         end
-      end
-      else if(lv_addr >= `WeightStart && lv_addr <= `WeightEnd) begin
-        Bit#(2) mulW = 0;  //Temporary data value
-        if(accumWeight == 1'b1)begin
-          Bit#(numIndexBitsWeight) startindex = lv_addr[numIndexBitsWeight+1:2];
-          for(Integer i=0; i<numWords; i=i+1)begin
-            Bit#(4) m = (startindex + fromInteger(i));// % fromInteger(vnCol);
-            colBuf[m].enq(tuple4(lv_data[(i+1)*valueOf(mulWidth)-1:i*valueOf(mulWidth)], 0, rg_coord_counters[m], mulW));
-            rg_coord_counters[m] <= rg_coord_counters[m] + 1;
+
+        destAddrFs_sys.deq;  //dequeing this FIFO will cause startRead to fire.
+        $display ($time,"\t startWrite addr: %h data: %h", lv_addr,resp.rdata);
+
+    endrule
+
+    rule rl_systolicWriteBurst (m_xactor.o_rd_data.first.rid == {4'b0101} && m_xactor.o_rd_data.first.rresp==AXI4_OKAY
+                                && rg_sys_wrburst_cnt != 0);
+
+        Bool lv_last = (rg_sys_wrburst_cnt == mem_sys_cr[15:8]) //burst length in config reg
+
+        let resp <- pop_o(m_xactor.o_rd_data);
+
+        let lv_mem_sys_cr = mem_sys_cr;
+        let lv_addr = rg_syswrite_addr;
+        let lv_data = resp.rdata;
+        let lv_burst_type = lv_mem_sys_cr[6];   //burst type of systolic
+        let lv_awsize = 2'b11;
+        Bit#(8) lv_burst_len = lv_mem_sys_cr[15:8];
+
+        let {gindex, gbufferbank} = split_address_gbuf(lv_addr);
+
+        else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin //write to gbuf
+          for(Integer i = 0; i < numWords ; i=i+1) begin
+            Bit#(TAdd#(gbufbankbits, 1)) gbufIn = zeroExtend(gbufferbank)+fromInteger(i);
+            Bit#(gbufbankbits) m = truncate(gbufIn);
+            gBuffer[m].portB.request.put(makeRequest(True,'b1,gindex,lv_data[(i+1)*valueOf(mulWidth)-1:i*valueOf(mulWidth)]));
           end
         end
-      end
-      
-      let new_address=burst_address_generator(rg_write_packet.awlen,rg_write_packet.awsize,
-                                              rg_write_packet.awburst,rg_write_packet.awaddr);
-      rg_write_packet.awaddr<=new_address;
-      if(w.wlast) begin
-        rg_wr_state <= Idle;
-        s_xactor.i_wr_resp.enq(resp);
-      end
-    endrule
-
-    /* ============================================================================= */
-    /* =================== Logic to read the Values of Buffers ===================== */
-    //Actually there is no utility to read the GlobalIndex actually but providing the hardware
-    //anyway
-    rule rlAXIreadReq(rg_rd_state == Idle);
-			let ar <- pop_o(s_xactor.o_rd_addr);
-      rg_read_packet <= ar;
-      let lv_addr = ar.araddr;
-      if(lv_addr >= `AccumBufStart && lv_addr <= `AccumBufEnd) begin 
-          $display($time, "Request to read from Accumulator");
-          wr_abuf <= ar;
-          rg_rd_state <= HandleABurst;
-      end
-      else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin
-          wr_gbuf <= ar;
-          rg_rd_state <= HandleGBurst;
-      end
-      else begin //Configuration Address Space
-      end
-    endrule
-
-    rule rl_GbufReq;
-        $display($time, "\t Rule GBuf Firing");
-        let lv_addr = wr_gbuf.araddr;
-        let {gindex,gbufbank} = split_address_gbuf(lv_addr);
-        // Since every read request always sends busWidth number of bits, those many number of bits
-        // should be sent. Hence, to send those many values, those many requests should be sent to
-        // buffers to fetch them.
-        for(Integer i=0; i<numWords; i=i+1)begin
-          Bit#(TAdd#(gbufbankbits,1)) gbufIn = zeroExtend(gbufbank)+fromInteger(i);
-          Bit#(gbufbankbits) m = truncate(gbufIn);
-          gBuffer[m].portB.request.put(makeRequest(False,0,gindex,?));
+        else if(lv_addr >= `WeightStart && lv_addr <= `WeightEnd) begin //write to weight fifos
+          Bit#(2) mulW = 0;  //Temporary data value
+          if(accumWeight == 1'b1)begin
+            Bit#(numIndexBitsWeight) startindex = lv_addr[numIndexBitsWeight+1:2];
+            for(Integer i=0; i<numWords; i=i+1)begin
+              Bit#(4) m = (startindex + fromInteger(i));// % fromInteger(vnCol);
+              colBuf[m].enq(tuple4(lv_data[(i+1)*valueOf(mulWidth)-1:i*valueOf(mulWidth)], 0, rg_coord_counters[m], mulW));
+              rg_coord_counters[m] <= rg_coord_counters[m] + 1;
+            end
+          end
         end
+        
+        let new_address=burst_address_generator(lv_burst_len,lv_awsize,lv_burst_type,lv_addr);
+        rg_syswrite_addr <=new_address;
+
+        if(lv_last)begin
+          $display("\tLast data received..."); // last beat of the current burst
+          rg_sys_wrburst_cnt<=0;  // rl_startSystolicWrite will fire next for next set of burst 
+          if(rg_is_memsyscntr_zero) begin
+            $display("\tMemory to systolic transfer done\n");  //last beat of last burst
+          end
+        end
+        else begin
+          rg_sys_wrburst_cnt<=rg_sys_wrburst_cnt + 1;
+        end
+
     endrule
 
-    //These two rules can be composed into one rule, room for optimization
-    //TODO: The logic inside, which is replicated an be composed to save area
 
-    rule rlAXIGReadBurst(rg_rd_state == HandleGBurst);
-      let lv_addr = rg_read_packet.araddr;
-      let {gindex, gbufbank} = split_address_gbuf(lv_addr);
-      Bit#(data_width) gVal = 0;
-      for(Integer i=0; i<numWords; i=i+1)begin
-        Bit#(TAdd#(gbufbankbits, 1)) gbufIn = zeroExtend(gbufbank) + fromInteger(i);
-        Bit#(gbufbankbits) m = truncate(gbufIn);
-        let temp <- gBuffer[m].portB.response.get();
-        gVal = ( gVal << valueOf(mulWidth)) | zeroExtend(temp);
-      end
-      let rG = AXI4_Rd_Data {rresp: AXI4_OKAY, rdata: gVal, rlast:
-      rg_readburst_counter==rg_read_packet.arlen, ruser: 0, rid: rg_read_packet.arid};
-      s_xactor.i_rd_data.enq(rG);
-      if(rg_readburst_counter == rg_read_packet.arlen)begin
-        rg_readburst_counter <= 0;
-        rg_rd_state <= Idle;
-      end
-    endrule
+    /* ==================================================================================================== */
+
+    /* ======================Sending values from gbuf and weights to fifos and starting systolic operation==============*/
 
     rule set_dims_register(set_trigger_dims);
       for(Integer i = 0; i < vnRow; i=i+1) begin
@@ -567,11 +582,11 @@ package systolic_top;
       //Request for input activation value sent to global buffers
       rule rl_send_gbuf_request(startBit==1'b1 && rg_feed_input &&
         rg_cols[i]!=zeroExtend(filter_cols) && rg_row < ifmap_rowdims-zeroExtend(filter_rows)+1);
-        let inp_addr = input_address + (zeroExtend(rg_row)+fromInteger(i)) * zeroExtend(ifmap_coldims) + zeroExtend(rg_cols[i]);
+        let inp_addr = gbuf_startaddr + (zeroExtend(rg_row)+fromInteger(i)) * zeroExtend(ifmap_coldims) + zeroExtend(rg_cols[i]);
         let {gindex, gbank} = split_address_gbuf(inp_addr);
         gBuffer[gbank].portB.request.put(makeRequest(False, 0, gindex, ?));
         ff_flow_ctrl[i].enq(tuple2(gindex, gbank));
-        $display(input_address, rg_row, i, ifmap_coldims, rg_cols[i]);
+        $display(gbuf_startaddr, rg_row, i, ifmap_coldims, rg_cols[i]);
         $display($time, "Rule %d, Address: %d, Request for %d index sent to bank %d, rg_cols[%d]=%d, sqRow: %d",
         i, inp_addr, gindex,  gbank, i, rg_cols[i], sqRow);
       endrule
@@ -608,12 +623,17 @@ package systolic_top;
       endrule
     end
 
-   /* ====================== Loading Value from Accum to Accum Buffer =============== */
-       
+    /* =====================AXI - Logic to read from Systolic and write to Memory ============================= */
+
+    rule rl_syscntr_is_zero;
+      rg_is_sysmemcntr_zero[0] <= (sys_mem_cntr == 0);
+    endrule 
+
     //Put the for loop outside if you want a specific portion of systolic to operate even when some
     //other portion is not free. But the problem here is to figure out how to increment the counter.
 
-    Rules accumbufrules = emptyRules;
+    Rules accumbufrules = emptyRules; //set to rules which send request to accumbuffer
+
     for(Integer i=0; i<vnCol; i=i+1)begin
       Rules rs = (
         rules
@@ -626,30 +646,52 @@ package systolic_top;
         endrules);
       accumbufrules = rJoin(accumbufrules, rs);
     end
-
+    
     Rules rt = (
-    rules
-      //Rule to reply to the master when request to read from accumulator buffer is received
-      rule rl_AbufReq;
-        let lv_addr = wr_abuf.araddr;
-        let {aindex, abufbank} = split_address_accbuf(lv_addr);
-        rg_readburst_counter <= 1;
-        $display($time, "\t Rule ABuf Firing lv_addr: %h aindex: %d abufbank: %d ", lv_addr, aindex, abufbank);
+    rules  
+    //rule to start read from the accum buffer
+    rule rl_startSystolicRead (!rg_is_sysmemcntr_zero[0] && sys_mem_cr[0] == 1); //no. of bytes to transfer is not zero
+
+        let lv_sys_mem_cr = sys_mem_cr;
+        Bit#(addr_width) lv_araddr = rg_out_addr; //set the address to read from
+        Bit#(2) lv_arsize = 2'b11; //set the transfer size -- fixing to 8 bytes
+        Bit#(1) lv_burst_type = lv_sys_mem_cr[6]; //0: Fixed, 1: INCR which is consistent with that of AXI4
+        Bit#(8) lv_burst = lv_sys_mem_cr[15:8];  //burst length
+
+        if(lv_sys_mem_cr[6]==1)  //peripheral increment mode is on
+          rg_out_addr<= fn_incr_address(rg_out_addr, lv_arsize, sys_mem_cr[15:8]);
+        if(lv_mem_sys_cr[7]==1)  //memory increment mode is on
+          rg_mem_wraddr<= fn_incr_address(rg_mem_wraddr, lv_arsize, sys_mem_cr[15:8]);
+
+        $display($time,"\tMemory starting read from accumbuff address %h",chanNum, lv_araddr);
+
+        destAddrFs_mem.enq(rg_mem_wraddr);
+
+        //Send read request for the first beat
+        let {aindex, abufbank} = split_address_accbuf(lv_araddr);
+        //$display($time, "\t Rule ABuf Firing lv_addr: %h aindex: %d abufbank: %d ", lv_addr, aindex, abufbank);
         for(Integer i=0; i<numWords/2; i=i+1)begin
           Bit#(TAdd#(accumbankbits, 1)) gbufIn = zeroExtend(abufbank) + fromInteger(i);
           Bit#(accumbankbits) m = truncate(gbufIn);
           aBuffer[m].portB.request.put(makeRequest(False, 0, aindex, ?));
         end
-      endrule
+
+        rg_sysread_addr <= rg_out_addr;
+
+        sys_mem_cntr <= fn_decr_cndtr(sys_mem_cntr, lv_arsize, sys_mem_cntr[15:8]); 
+
+    endrule
     endrules);
 
     accumbufrules = rJoinDescendingUrgency(accumbufrules, rt);
     addRules(accumbufrules);
 
-    Rules accumbufresprules = emptyRules;
+    Rules accumbufresprules = emptyRules; // set of rules that get response from accumbuffer
+
     for(Integer i = 0; i < vnCol; i=i+1) begin
     Rules rl = (
       rules
+        //rule to get write response from accumbuffer -- is this necessary? -- Mohan
         rule rl_get_accumulator_response;
           let x <- aBuffer[i].portB.response.get();
           $display($time, "Getting Write Response for %d Value: %d", i, x);
@@ -660,53 +702,132 @@ package systolic_top;
 
     Rules ru = (
     rules
-      rule rlAXIAReadBurst(rg_rd_state == HandleABurst && rg_readburst_counter != 0);
-        let lv_addr = rg_read_packet.araddr;
-        let {aindex, abufbank} = split_address_accbuf(lv_addr);
-        
-        //Read data from acc buffers
+    // rule to get read response from accumbuf and start writing to mem
+    rule rl_startMemWrite (rg_mem_wrburst_cnt == 0 && rg_finish_memwrite[1] == True);  //sending first beat to memory
+
+        let {aindex, abufbank} = split_address_accbuf(rg_sysread_addr);
+
+        //Read data from accum buffers
         Bit#(data_width) aVal = 0;
         for(Integer i=0; i<numWords/2; i=i+1)begin
           Bit#(accumbankbits) m = truncate(abufbank + fromInteger(i));
           let temp <- aBuffer[m].portB.response.get();
-          aVal = (aVal << valueOf(mulWidth2)) | zeroExtend(temp);
+          aVal = (aVal << valueOf(mulWidth2)) | zeroExtend(temp);  // contains the required data
         end
-        
-        //Prepare AXI response
-        let rA = AXI4_Rd_Data {rresp: AXI4_OKAY, rdata: aVal, rlast:
-        rg_readburst_counter==rg_read_packet.arlen, ruser: 0, rid: rg_read_packet.arid};
-        
-        //Send AXI response
-        s_xactor.i_rd_data.enq(rA);
-        
-        //If last beat in response, end transaction
-        if(rg_readburst_counter==rg_read_packet.arlen)begin
-          rg_readburst_counter <= 0;
-          rg_rd_state <= Idle;
-        end
-        else begin
-          rg_readburst_counter <= rg_readburst_counter + 1;//Increment readburst counter
-          
+
+        let lv_awaddr = destAddrFs_mem.first;
+        let lv_sys_mem_cr = sys_mem_cr;
+        Bit#(2) lv_tsize = 2'b11; //set the transfer size -- fixing to 8 bytes
+        Bit#(1) lv_burst_type = lv_sys_mem_cr[7]; //0: Fixed, 1: INCR which is consistent with that of AXI4
+        Bit#(8) lv_burst_len = lv_sys_mem_cr[15:8];  //burst length
+
+        //write_strobe -- needs to be defined
+        Bool lv_last = True;
+
+        if(lv_burst_len != 0) begin
+          lv_last = False;
+          rg_mem_wrburst_cnt <= rg_mem_wrburst_cnt + 1;
+
           //Send new request for next burst
-          let new_addr = burst_address_generator(rg_read_packet.arlen, rg_read_packet.arsize,
-                          rg_read_packet.arburst, rg_read_packet.araddr);
+          let new_addr = burst_address_generator(lv_burst_len, lv_tsize,
+                          lv_sys_mem_cr[6], rg_sysread_addr);
           let {newaindex, newabufbank} = split_address_accbuf(new_addr);
-          
-          $display($time, "\t Rule ABuf Firing lv_addr: %h aindex: %d abufbank: %d ", lv_addr, aindex, abufbank);
-          
+                  
           for(Integer i=0; i<numWords/2; i=i+1)begin
             Bit#(TAdd#(accumbankbits, 1)) gbufIn = zeroExtend(newabufbank) + fromInteger(i);
             Bit#(accumbankbits) m = truncate(gbufIn);
             aBuffer[m].portB.request.put(makeRequest(False, 0, newaindex, ?));
           end
-          rg_read_packet.araddr <= new_addr;
+          rg_sysread_addr <= new_addr;
         end
-      endrule
+
+        let write_data = AXI4_Wr_Data { wdata: aVal, wstrb: write_strobe, wlast: lv_last, wid: 4'b0011};
+        let write_addr = AXI4_Wr_Addr { awaddr: lv_awaddr, awuser: 0, awlen: lv_burst_len,
+                          awsize: zeroExtend(lv_tsize), awburst: zeroExtend(lv_burst_type), awid: {4'b0011 };
+
+        // enqueue the request.
+        m_xactor.i_wr_data.enq(write_data);
+        m_xactor.i_wr_addr.enq(write_addr);
+
+        destAddrFs_mem.deq;  //dequeing this FIFO will cause startSystolicRead to fire
+
+        rg_finish_memwrite[1] <= False;
+
+    endrule
+
+    //rule to send burst data from accumbuf to memory
+    rule rl_Memwriteburst (rg_mem_wrburst_cnt != 0); // start burst write to memory
+
+        let {aindex, abufbank} = split_address_accbuf(rg_sysread_addr);
+
+        let lv_sys_mem_cr = sys_mem_cr;
+        Bool lv_last == (rg_mem_wrburst_cnt == lv_sys_mem_cr[15:8]);
+
+        //Read data from accum buffers
+        Bit#(data_width) aVal = 0;
+        for(Integer i=0; i<numWords/2; i=i+1)begin
+          Bit#(accumbankbits) m = truncate(abufbank + fromInteger(i));
+          let temp <- aBuffer[m].portB.response.get();
+          aVal = (aVal << valueOf(mulWidth2)) | zeroExtend(temp);  // contains the required data
+        end
+
+        Bit#(2) lv_tsize = 2'b11; //set the transfer size -- fixing to 8 bytes
+        Bit#(1) lv_burst_type = lv_sys_mem_cr[7]; //0: Fixed, 1: INCR which is consistent with that of AXI4
+        Bit#(8) lv_burst_len = lv_sys_mem_cr[15:8];  //burst length
+
+        //write_strobe -- yet to be defined
+
+        let write_data = AXI4_Wr_Data { wdata: aVal, wstrb: write_strobe, wlast: lv_last, wid: 4'b0011};
+
+        m_xactor.i_wr_data.enq(write_data);
+
+        if(lv_last) begin
+           $display("\tLast data sent..."); // last beat of the current burst
+          rg_mem_wrburst_cnt <= 0; // rl_startMemwrite for next burst will fire
+        end
+        else begin
+          rg_mem_wrburst_cnt <= rg_mem_wrburst_cnt + 1;`
+
+          //Send new request for next burst
+          let new_addr = burst_address_generator(lv_burst_len, lv_tsize, lv_sys_mem_cr[6], rg_sysread_addr);
+          let {newaindex, newabufbank} = split_address_accbuf(new_addr);
+                  
+          for(Integer i=0; i<numWords/2; i=i+1)begin
+            Bit#(TAdd#(accumbankbits, 1)) gbufIn = zeroExtend(newabufbank) + fromInteger(i);
+            Bit#(accumbankbits) m = truncate(gbufIn);
+            aBuffer[m].portB.request.put(makeRequest(False, 0, newaindex, ?));
+          end
+          rg_sysread_addr <= new_addr;
+        end
+
+    endrule
+
+    rule rl_finishMemwrite((m_xactor.o_wr_resp.first.bid == 4'b0011) &&
+        (m_xactor.o_wr_resp.first.bresp==AXI4_OKAY));
+
+        let x<- pop_o(m_xactor.o_wr_resp) ;      // take the response data and finish
+        $display ("Finished burst mem write, remaining bytes = %0d",sys_mem_cntr);
+        rg_finish_memwrite[0] <= True;
+
+    endrule
 
     endrules);
 
     accumbufresprules = rJoinDescendingUrgency(accumbufresprules, ru);
 
-  interface slave_systolic =  s_xactor.axi_side;
-  endmodule
+    /* ========================================================================================= */
+
+    endmodule
+
 endpackage
+
+
+
+
+
+
+
+
+
+
+
