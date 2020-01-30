@@ -10,11 +10,11 @@ systolic:
         GIT_SUBMODULE_STRATEGY: recursive
     script:
       - source /tools/setup.sh
-      - make generate_verilog TOP_MODULE=mksystolic2 TOP_FILE=src/systolic.bsv VERILOGDIR=mksystolic2 TOP_DIR=./
-      - make clean
-      - make generate_verilog TOP_MODULE=mksystolic3 TOP_FILE=src/systolic_top.bsv VERILOGDIR=mksystolic3 TOP_DIR=./
+      - ./manager.sh update_deps
+      - make generate_verilog TOP_MODULE=mksystolic_top TOP_FILE=src/systolic_template.bsv VERILOGDIR=mksystolic_top TOP_DIR=./
       - make clean
       - make release REL_DIR=/scratch/gitlab-builds/releases/systolic
+      - ./manager.sh nuke
     only:
         - master
     tags:
@@ -31,4 +31,3 @@ release:
         - shakti-runner
     except:
       - schedules
-

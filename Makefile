@@ -4,8 +4,11 @@ HOMEDIR:=./
 TOP_DIR:=./src
 BSVBUILDDIR:=./build/
 VERILOGDIR:=./verilog/
-AXI4:=../../uncore/axi4
-FILES:= ./src/:./testbench/:../../core/:$(AXI4)
+AXI4:=./fabrics/axi4
+BRIDGES:=./fabrics/bridges
+COMMON_BSV:=./common_bsv
+COMMON_VERILOG:=./common_verilog
+FILES:= ./src/:$(AXI4):$(BRIDGES):$(COMMON_BSV):$(COMMON_VERILOG)
 BSVINCDIR:= .:%/Prelude:%/Libraries:%/Libraries/BlueNoC:$(FILES)
 FPGA=xc7a100tcsg324-1
 export HOMEDIR=./
@@ -54,4 +57,13 @@ clean:
 
 .PHONY: full_clean
 full_clean: clean
-	rm -rf verilog fpga
+	rm -rf verilog fpga mk*
+
+.PHONY: restore
+restore: full_clean
+
+.PHONY: release 
+release:
+	rm -rf $(REL_DIR)
+	mkdir -p $(REL_DIR)
+	mv mk* $(REL_DIR)
