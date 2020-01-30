@@ -190,8 +190,8 @@ package systolic_top;
     Reg#(Bit#(16)) sys_mem_cntr <- mkConfigReg(0); //no. of bytes to be transferred
 
     //Local registers
-    Reg#(Bool) rg_is_memsyscntr_zero[2] <- mkCReg(2,True);
-    Reg#(Bool) rg_is_sysmemcntr_zero[2] <- mkCReg(2,True);
+    Reg#(Bool) rg_is_memsyscntr_zero <- mkReg(True); //is no. of bytes to be transferred zero
+    Reg#(Bool) rg_is_sysmemcntr_zero <- mkReg(True); //is no. of bytes to be transferred zero
 
     Reg#(Bit#(addr_width)) rg_inp_addr <- mkConfigReg(0);   //Local globalbuf or weight address register - start address
     Reg#(Bit#(addr_width)) rg_mem_rdaddr <- mkConfigReg(0); //local memory read address register - start address
@@ -213,10 +213,9 @@ package systolic_top;
     Reg#(Bool) rg_is_sys_readingbuf1 <- mkReg(False);  //status register to indicate systolic is reading from Gbuf1
     Reg#(Bool) rg_is_sys_readingbuf2 <- mkReg(False);  //status register to indicate systolic is reading from Gbuf2
  
-    Reg#(Bit#(1)) rg_current_gbuf <- mkReg(0); //register to indicate the buffer for which the next axi readreq to be generated
+    Reg#(Bit#(1)) rg_current_gbuf <- mkReg(0); //register to indicate for which buffer the next axi readreq to be generated
     Reg#(Bit#(1)) rg_sys_rdGbuf <- mkReg(0); //register to indicate systolic from which buffer to read 
     
-
 
 
     // We also want to pass the destination address for each read over
@@ -298,7 +297,7 @@ package systolic_top;
                                       rg_inp_addr <= input_address;
                                       rg_mem_rdaddr <= mem_rdaddr;
                                     //end
-                                  end
+                                  //end
                                 end
                 `MemtoSysCntr   : begin
                                     mem_sys_cntr <= truncate(data);
@@ -310,8 +309,8 @@ package systolic_top;
                                       sys_mem_cr <= truncate(data);
                                       rg_out_addr <= output_address;
                                       rg_mem_wraddr <= mem_wraddr;
-                                    end
-                                  end
+                                    //end
+                                  //end
                                 end
                 `MemWriteAddr  : begin
                                   mem_wraddr <= truncate(data);
@@ -412,12 +411,12 @@ package systolic_top;
     /* =================================AXI - Logic to read from Memory and write to Systolic ============================== */
   
     rule rl_memcntr_is_zero;
-      rg_is_memsyscntr_zero[0] <= (mem_sys_cntr == 0);
+      rg_is_memsyscntr_zero <= (mem_sys_cntr == 0);
     endrule 
 
-    rule rl_startMemRead (!rg_is_memsyscntr_zero[0]//no of bytes remaining to transfer is not 0
+    rule rl_startMemRead (!rg_is_memsyscntr_zero//no of bytes remaining to transfer is not 0
                           && mem_sys_cr[0] == 1 &&
-                          ((rg_current_gbuf == 0 && !rg_sys_readingbuf1) || (rg_current_gbuf == 1 && !rg_sys_readingbuf2))
+                          ((rg_current_gbuf == 0 && !rg_is_sys_readingbuf1) || (rg_current_gbuf == 1 && !rg_is_sys_readingbuf2))
                           );
         let lv_mem_sys_cr = mem_sys_cr;
         Bit#(addr_width) lv_araddr = rg_mem_rdaddr; //set the address to read from
@@ -571,6 +570,7 @@ package systolic_top;
           rg_sys_wrburst_cnt<=0;  // rl_startSystolicWrite will fire next for next set of burst
           if(rg_is_memsyscntr_zero) begin // AXI done with gbuf
             $display("\tMemory to systolic transfer done\n");  //last beat of last burst
+            mem_sys_cr[0] <= 0; // disable the transfer
             rg_is_AXIwritingGbuf1 <= False;
             rg_is_AXIwritingGbuf2 <= False;
           end
@@ -712,7 +712,7 @@ package systolic_top;
     /* =====================AXI - Logic to read from Systolic and write to Memory ============================= */
 
     rule rl_syscntr_is_zero;
-      rg_is_sysmemcntr_zero[0] <= (sys_mem_cntr == 0);
+      rg_is_sysmemcntr_zero <= (sys_mem_cntr == 0);
     endrule 
 
     //Put the for loop outside if you want a specific portion of systolic to operate even when some
@@ -736,7 +736,7 @@ package systolic_top;
     Rules rt = (
     rules  
     //rule to start read from the accum buffer
-    rule rl_startSystolicRead (!rg_is_sysmemcntr_zero[0] && sys_mem_cr[0] == 1); //no. of bytes to transfer is not zero
+    rule rl_startSystolicRead (!rg_is_sysmemcntr_zero && sys_mem_cr[0] == 1); //no. of bytes to transfer is not zero
 
         let lv_sys_mem_cr = sys_mem_cr;
         Bit#(addr_width) lv_araddr = rg_out_addr; //set the address to read from
@@ -807,7 +807,6 @@ package systolic_top;
         Bit#(1) lv_burst_type = lv_sys_mem_cr[7]; //0: Fixed, 1: INCR which is consistent with that of AXI4
         Bit#(8) lv_burst_len = lv_sys_mem_cr[15:8];  //burst length
 
-        //write_strobe -- needs to be defined
         Bool lv_last = True;
 
         if(lv_burst_len != 0) begin
@@ -827,7 +826,7 @@ package systolic_top;
           rg_sysread_addr <= new_addr;
         end
 
-        let write_data = AXI4_Wr_Data { wdata: aVal, wstrb: write_strobe, wlast: lv_last, wid: 4'b0011};
+        let write_data = AXI4_Wr_Data { wdata: aVal, wstrb: 8'd255, wlast: lv_last, wid: 4'b0011};
         let write_addr = AXI4_Wr_Addr { awaddr: lv_awaddr, awuser: 0, awlen: lv_burst_len,
                           awsize: zeroExtend(lv_tsize), awburst: zeroExtend(lv_burst_type), awid: {4'b0011 };
 
@@ -863,7 +862,7 @@ package systolic_top;
 
         //write_strobe -- yet to be defined
 
-        let write_data = AXI4_Wr_Data { wdata: aVal, wstrb: write_strobe, wlast: lv_last, wid: 4'b0011};
+        let write_data = AXI4_Wr_Data { wdata: aVal, wstrb: 8'd255, wlast: lv_last, wid: 4'b0011};
 
         m_xactor.i_wr_data.enq(write_data);
 
@@ -894,6 +893,7 @@ package systolic_top;
         let x<- pop_o(m_xactor.o_wr_resp) ;      // take the response data and finish
         $display ("Finished burst mem write, remaining bytes = %0d",sys_mem_cntr);
         rg_finish_memwrite[0] <= True;
+        if(rg_is_sysmemcntr_zero) sys_mem_cr[0]<= 0;
 
     endrule
 
