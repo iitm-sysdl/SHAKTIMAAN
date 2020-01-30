@@ -45,12 +45,10 @@ package systolic_top;
   import Semi_FIFOF::*;
   import UniqueWrappers::*;
   import ConfigReg::*;
-	`include "defined_parameters.bsv"
-	import defined_types::*;
   `include "systolic.defines"
 	import axi_addr_generator::*;
   import functions::*;
-
+  `define PADDR 32
  /* ========= Exports ============ */
    export Ifc_systolic_top_axi4(..);
    export mksystolic_top_axi4;
