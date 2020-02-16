@@ -1,13 +1,24 @@
 // slave_bound: ??
-`define IfmapDims     'hB0000000
-`define sysConfig     'hB0000002
-`define CoordCount    'hB0000004
-`define weightCount   'hB0000006
-`define FilterDims    'hB0000008
-`define InputAddr     'hB000000A
-`define WeightStart   'hB0010000      
-`define WeightEnd     'hB001ffff
-`define AccumBufStart 'hB0200000
-`define AccumBufEnd   'hB02fffff
-`define GBufStart     'hB0030000
-`define GBufEnd       'hB003ffff
+`define IfmapDims     'h0B000000
+`define sysConfig     'h0B000002
+`define CoordCount    'h0B000004
+`define weightCount   'h0B000006
+`define FilterDims    'h0B000008
+`define gbuf_rdaddr   'h0B00000A
+`define WeightStart   'h0B010000      
+`define WeightEnd     'h0B01ffff
+`define AccumBufStart 'h0B200000
+`define AccumBufEnd   'h0B2fffff
+`define GBufStart     'h0B030000
+`define GBufEnd       'h0B03ffff
+
+`define InputAddr	  'h0B000010
+`define OutputAddr	  'h0B000014
+`define MemReadAddr	  'h0B000018
+`define MemtoSysCfg	  'h0B00001C
+`define MemtoSysCntr  'h0B000020
+`define SystoMemCfg   'h0B000024
+`define MemWriteAddr  'h0B000028
+`define SystoMemCntr  'h0B00002C
+`define Status        'h0B000034
+

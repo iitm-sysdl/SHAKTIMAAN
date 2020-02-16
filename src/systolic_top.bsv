@@ -45,8 +45,8 @@ package systolic_top;
   import Semi_FIFOF::*;
   import UniqueWrappers::*;
   import ConfigReg::*;
-  `include "defined_parameters.bsv"
-  import defined_types::*;
+  //`include "defined_parameters.bsv"
+  //import defined_types::*;
   `include "systolic.defines"
   import axi_addr_generator::*;
   import functions::*;
@@ -54,6 +54,10 @@ package systolic_top;
  /* ========= Exports ============ */
    export Ifc_systolic_top_axi4(..);
    export mksystolic_top_axi4;
+   
+   `define PADDR 32
+   `define Burst_length_bits 8
+
 
   // Parameterized Interface which takes in number of rows/cols of Systolic array as input -- it
   // is capable of handling non-square systolic arrays but for simplicity of first cut design its
@@ -75,8 +79,11 @@ package systolic_top;
                                    numeric type accumbanks, numeric type accumentries,
                                    numeric type gbufbanks, numeric type gbufentries,
                                    numeric type nFEntries,numeric type mulWidth);
-   interface AXI4_Master_IFC#(addr_width, data_width, user_width) master;
-   interface AXI4_Slave_IFC#(`PADDR,data_width,0) slave; //32-bit address? 4 16-bits?
+   interface AXI4_Master_IFC#(addr_width, data_width, 0) master;
+   interface AXI4_Slave_IFC#(addr_width,data_width,0) slave; //32-bit address? 4 16-bits?
+   method Bit#(1) intrrptGBufferFull;
+   method Bit#(1) intrrptaccumBufferFull; 
+   method Bit#(1) intrrptcomputationDone; //When will you ever know this?
   endinterface
 
     module mksystolic_top_axi4(Ifc_systolic_top_axi4#(addr_width,data_width,user_width,sqrtnRow,sqrtnCol,
@@ -107,6 +114,7 @@ package systolic_top;
              Log#(gbufentries, gbufindexbits),
              //required by bsc
              Div#(data_width, mulWidth, nwords),
+             Div#(data_width, 8, wstrblen),
              Mul#(TDiv#(mulWidth2, 4), 4, mulWidth2),
              Mul#(TDiv#(mulWidth, 2), 2, mulWidth),
              Add#(c__, mulWidth, TMul#(mulWidth, 2)),
@@ -114,7 +122,12 @@ package systolic_top;
              Add#(e__, 16, data_width),
              Add#(f__, mulWidth, data_width),
              Add#(g__, mulWidth2, data_width),
-             Add#(h__, 32, data_width)
+             Add#(h__, 32, data_width),
+             Add#(i__, 8, addr_width),
+             Add#(j__, addr_width, data_width),
+             Add#(l__, 8, TAdd#(addr_width, 1)),
+             Add#(addr_width, 1, k__),
+             Add#(m__, 8, k__)
             );
     let vnFEntries = valueOf(nFEntries);
     let vnRow      = valueOf(nRow);
@@ -135,6 +148,9 @@ package systolic_top;
 
     let bitWidth = valueOf(mulWidth);
     let numWords = valueOf(nwords); // Max. Number of input/weight values received from the bus per cycle
+    let wstrbit = valueOf(wstrblen);
+
+
 
     BRAM_Configure gbufcfg = defaultValue;
     BRAM_Configure accumbufcfg = defaultValue;
@@ -155,13 +171,19 @@ package systolic_top;
     Vector#(gbufbanks, BRAM2PortBE#(Bit#(gbufindexbits), Bit#(mulWidth), 2)) gBuffer1  <- replicateM(mkBRAM2ServerBE(gbufcfg));
     Vector#(gbufbanks, BRAM2PortBE#(Bit#(gbufindexbits), Bit#(mulWidth), 2)) gBuffer2  <- replicateM(mkBRAM2ServerBE(gbufcfg)); //buffer2 for double buffering
 
+    Vector#(2,Vector#(gbufbanks, BRAM2PortBE#(Bit#(gbufindexbits), Bit#(mulWidth), 2))) gBuffer;
+    for(Integer i =0; i<2; i=i+1) begin
+      gBuffer[i] <- replicateM(mkBRAM2ServerBE(gbufcfg));
+    end
+
+
     Vector#(accumbanks, BRAM2PortBE#(Bit#(accumindexbits), Bit#(mulWidth2), 4)) aBuffer <- replicateM(mkBRAM2ServerBE(accumbufcfg));
 
     //BRAM_DUAL_PORT_BE#(Bit#(gbufaddr), Bit#(16), 2)  gBuffer   <- mkBRAMCore2BE(gBUF,False);
     //BRAM_DUAL_PORT_BE#(Bit#(accumaddr), Bit#(32), 4) accumBuf  <- mkBRAMCore2BE(aCC,False);
 
     AXI4_Master_Xactor_IFC #(addr_width, data_width, 0) m_xactor <- mkAXI4_Master_Xactor;  
-    AXI4_Slave_Xactor_IFC#(`PADDR,data_width,0) s_xactor  <- mkAXI4_Slave_Xactor;
+    AXI4_Slave_Xactor_IFC#(addr_width,data_width,0) s_xactor  <- mkAXI4_Slave_Xactor;
 
     //Configuration Register Space
     Reg#(Bit#(4))  filter_rows       <- mkReg(0);  
@@ -175,21 +197,45 @@ package systolic_top;
     Reg#(Bit#(2))  sysConfig         =  concatReg2(accumWeight, startBit); 
     Reg#(Bit#(8))  rg_weight_counter <- mkReg(0); //Config --Hardcoded to 8 for now
     Reg#(Bool)     set_trigger_dims  <- mkReg(False);
+    Reg#(Bit#(addr_width)) gbuf_startaddr <- mkReg(0); // starting address of gbuf for systolic to read from
+    Reg#(bit)      rg_gbuffer_full   <- mkReg(0);
+    Reg#(bit)      rg_accumbuf_full  <- mkReg(0);
+    Reg#(bit)      rg_operation_done <- mkReg(0);
+    Reg#(Bit#(13)) rg_dummy_status   <- mkReg(0); //Dummy status register to fix compilation. Change it later
+    Reg#(Bit#(16))  rg_status         =  concatReg4(rg_dummy_status, rg_gbuffer_full, rg_accumbuf_full, rg_operation_done); //Can be used for polling. TODO: Extend this to send other status flags such as busy, etc.
+
+    Vector#(nCol, Reg#(Bit#(8))) rg_coord_counters <- replicateM(mkReg(1));
+
+    Vector#(nRow, Reg#(Bit#(8))) vec_row_counter <- replicateM(mkReg(0));
+    //Vector#(nRow, Reg#(Bit#(3))) vec_start_value;
+    Vector#(nRow, Reg#(Bit#(8))) vec_end_value   <- replicateM(mkReg(0));
+
+    Reg#(Bit#(accumentries))  rg_acc_counter <- mkReg(0);
+
 
     //DMA config Registers
 
     //Mem to Systolic
-    Reg#(Bit#(`PADDR)) input_address <- mkReg(0);  //start address of either gbuf or weight
-    Reg#(Bit#(`PADDR)) mem_rdaddr <- mkReg(0);  // memory read address register
+    Reg#(Bit#(addr_width)) input_address <- mkReg(0);  //start address of either gbuf or weight
+    Reg#(Bit#(addr_width)) mem_rdaddr <- mkReg(0);  // memory read address register
     Reg#(Bit#(32)) mem_sys_cr <- mkConfigReg(0);  //mem to systolic config register, definition still incomplete, kept it as 32bits for now
     Reg#(Bit#(16)) mem_sys_cntr <- mkConfigReg(0); //no. of bytes to be transferred
     //Systolic to Mem
-    Reg#(Bit#(`PADDR)) output_address <- mkReg(0);  //start address of accumbuf
-    Reg#(Bit#(`PADDR)) mem_wraddr <- mkReg(0);  // memory write address register
+    Reg#(Bit#(addr_width)) output_address <- mkReg(0);  //start address of accumbuf
+    Reg#(Bit#(addr_width)) mem_wraddr <- mkReg(0);  // memory write address register
     Reg#(Bit#(32)) sys_mem_cr <- mkConfigReg(0);  //systolic to mem config register
     Reg#(Bit#(16)) sys_mem_cntr <- mkConfigReg(0); //no. of bytes to be transferred
 
     //Local registers
+
+    Reg#(Bool) rg_feed_input <- mkReg(False);
+    //Reg#(Bit#(32)) rg_dummy <- mkReg(0);
+    //rule rl_dummy;
+    //  $display($time, "value of dummy reg: %d", rg_dummy);
+    //  rg_dummy <= rg_dummy + 1;
+    //endrule
+
+
     Reg#(Bool) rg_is_memsyscntr_zero <- mkReg(True); //is no. of bytes to be transferred zero
     Reg#(Bool) rg_is_sysmemcntr_zero <- mkReg(True); //is no. of bytes to be transferred zero
 
@@ -208,10 +254,10 @@ package systolic_top;
     Reg#(Bool) rg_finish_memwrite[2] <- mkCReg(2,True);
 
     Reg#(Bool) rg_axiswitch_gbuf <- mkReg(False); //register to indicate current buffer is full and generate readreq for next buffer
-    Reg#(Bool) rg_is_AXIwritingGbuf1 <- mkReg(False); //status register to indicate memory is writing to Gbuf1 currently
-    Reg#(Bool) rg_is_AXIwritingGbuf2 <- mkReg(False);  //status register to indicate memory is writing to Gbuf2 currently
-    Reg#(Bool) rg_is_sys_readingbuf1 <- mkReg(False);  //status register to indicate systolic is reading from Gbuf1
-    Reg#(Bool) rg_is_sys_readingbuf2 <- mkReg(False);  //status register to indicate systolic is reading from Gbuf2
+    Reg#(Bool) rg_is_AXIwritingGbuf1 <- mkConfigReg(False); //status register to indicate memory is writing to Gbuf1 currently
+    Reg#(Bool) rg_is_AXIwritingGbuf2 <- mkConfigReg(False);  //status register to indicate memory is writing to Gbuf2 currently
+    Reg#(Bool) rg_is_sys_readingbuf1 <- mkConfigReg(False);  //status register to indicate systolic is reading from Gbuf1
+    Reg#(Bool) rg_is_sys_readingbuf2 <- mkConfigReg(False);  //status register to indicate systolic is reading from Gbuf2
  
     Reg#(Bit#(1)) rg_current_gbuf <- mkReg(0); //register to indicate for which buffer the next axi readreq to be generated
     Reg#(Bit#(1)) rg_sys_rdGbuf <- mkReg(0); //register to indicate systolic from which buffer to read 
@@ -223,7 +269,7 @@ package systolic_top;
     // The depth of this fifo limits the number of outstanding reads
     // which may be pending before the write.  The maximum outstanding
     // reads depends on the overall latency of the read requests.
-    FIFOF#(Bit#(addr_width) destAddrFs_sys <- mkSizedFIFOF(2) ;  //memory to systolic -- dest_addr 
+    FIFOF#(Bit#(addr_width)) destAddrFs_sys <- mkSizedFIFOF(2) ;  //memory to systolic -- dest_addr 
     FIFOF#(Tuple3#(Bit#(8),Bit#(1),Bool)) burstlen_Fifo <- mkSizedFIFOF(2); // memory to systolic -- burst length
     FIFOF#(Bit#(addr_width)) destAddrFs_mem <- mkSizedFIFOF(2) ;  // systolic to memory
 
@@ -238,14 +284,14 @@ package systolic_top;
                               };
       endfunction
 
-      function Tuple2#(Bit#(gbufindexbits),Bit#(gbufbankbits)) split_address_gbuf(Bit#(`PADDR) addr);
+      function Tuple2#(Bit#(gbufindexbits),Bit#(gbufbankbits)) split_address_gbuf(Bit#(addr_width) addr);
         Bit#(TSub#(`PADDR,2)) alignAddr = addr[`PADDR-3:0];
         Bit#(gbufbankbits) gbank = alignAddr[numBankBitsGBuf-1:0];
         Bit#(gbufindexbits) gindex = alignAddr[numIndexBitsGBuf+numBankBitsGBuf-1:numBankBitsGBuf];
         return tuple2(gindex,gbank);
       endfunction
 
-      function Tuple2#(Bit#(accumindexbits), Bit#(accumbankbits)) split_address_accbuf(Bit#(`PADDR) addr);
+      function Tuple2#(Bit#(accumindexbits), Bit#(accumbankbits)) split_address_accbuf(Bit#(addr_width) addr);
         Bit#(TSub#(`PADDR,2)) alignAddr   = addr[`PADDR-1:2];
         Bit#(accumbankbits) accumbank = alignAddr[numBankBitsABuf-1:0];
         Bit#(accumindexbits) accumindex = alignAddr[numIndexBitsABuf+numBankBitsABuf-1:numBankBitsABuf];
@@ -266,7 +312,7 @@ package systolic_top;
       Reg#(Bit#(16)) ifmap_dims =
       writeSideEffect(concatReg2(ifmap_rowdims,ifmap_coldims),set_trigger_dims._write(True));
 
-      function Action set_systolic(Bit#(`PADDR) addr, Bit#(data_width) data);
+      function Action set_systolic(Bit#(addr_width) addr, Bit#(data_width) data);
         action
             case(addr)
                 `FilterDims  : filter_dims <= truncate(data);
@@ -280,9 +326,10 @@ package systolic_top;
                                 rg_coord_counters[i] <= truncate(data);
                                 end
                 `weightCount : rg_weight_counter <= truncate(data);
+                `gbuf_rdaddr : gbuf_startaddr <= truncate(data);
                 `InputAddr   : begin
                                 input_address <= truncate(data);
-                                $display($time, "Input address set: %d\n", data);
+                                $display($time, "Input address set: %h\n", data);
                                 end
                 `OutputAddr   : begin
                                 output_address <= truncate(data);
@@ -296,12 +343,13 @@ package systolic_top;
                                       mem_sys_cr <= truncate(data);
                                       rg_inp_addr <= input_address;
                                       rg_mem_rdaddr <= mem_rdaddr;
+                                      $display($time, "MemtoSys Cfg set: %h\n", data);
                                     //end
                                   //end
                                 end
                 `MemtoSysCntr   : begin
                                     mem_sys_cntr <= truncate(data);
-                                    $display($time, "MemtoSys Cntr set: %d\n", data);
+                                    $display($time, "MemtoSys Cntr set: %h\n", data);
                                   end
                 `SystoMemCfg   : begin
                                   //if(data[0] == 1) begin  //going to enable the transfer
@@ -323,10 +371,11 @@ package systolic_top;
         endaction
       endfunction
 
-      function Bit#(16) get_systolic(Bit#(`PADDR) addr);
+      function Bit#(16) get_systolic(Bit#(addr_width) addr);
         Reg#(Bit#(16)) register =  (
                 case(addr)
                   `IfmapDims  : ifmap_dims;
+                  `Status     : rg_status; //TODO Fix this extend later by adding a lot of status hooks
                   //`CoordCount : rg_coord_counter;
                   //`startBit  : startBit;
                    default   : readOnlyReg(16'b0);
@@ -340,10 +389,10 @@ package systolic_top;
       // =========================================================
       // Function Wrappers
       // =========================================================
-      Wrapper#(Bit#(`PADDR), Tuple2#(Bit#(gbufindexbits),Bit#(gbufbankbits))) split_address_gbufW <-
+      Wrapper#(Bit#(addr_width), Tuple2#(Bit#(gbufindexbits),Bit#(gbufbankbits))) split_address_gbufW <-
       mkUniqueWrapper(split_address_gbuf);
 
-      Wrapper#(Bit#(`PADDR), Tuple2#(Bit#(accumindexbits),Bit#(accumbankbits)))
+      Wrapper#(Bit#(addr_width), Tuple2#(Bit#(accumindexbits),Bit#(accumbankbits)))
       split_address_accbufW <- mkUniqueWrapper(split_address_accbuf);
 
       // =========================================================
@@ -372,6 +421,8 @@ package systolic_top;
 
     /* ===========================AXI - Logic to write to Configure Registers ==================================== */
 
+
+
     rule rlAXIwrConfig;
 
      let aw <- pop_o(s_xactor.o_wr_addr);
@@ -379,7 +430,7 @@ package systolic_top;
      let lv_addr = aw.awaddr;
      let lv_data = w.wdata;
      
-     $display($time, "\t Setting Config Address \n");
+     $display($time, "\t Setting Config Address %h %h", lv_addr, lv_data);
      set_systolic(lv_addr, truncate(lv_data));
      
      let resp = AXI4_Wr_Resp {bresp: AXI4_OKAY, buser: aw.awuser, bid:aw.awid};
@@ -388,7 +439,7 @@ package systolic_top;
     endrule
     /* ==================================================================================================== */
 
-    function Bit#(16) fn_decr_cndtr(Bit#(16) cndtr, Bit#(2) tsize, Bit#(`Burst_length_bits) bsize);
+    function Bit#(16) fn_decr_cndtr(Bit#(16) cndtr, Bit#(3) tsize, Bit#(`Burst_length_bits) bsize);
     Bit#(17) lv_to_sub= (zeroExtend(bsize)+1) << tsize;
     Bit#(17) lv_result= {1'b0,cndtr}-lv_to_sub;
     if(lv_result[16]==1)    //underflow. Can happen in burst mode when the bytes to be transferred is not an exact multiple of the burst length x burst size.
@@ -401,7 +452,7 @@ package systolic_top;
     // the size of the transfer.
     // Note that though STM's DMA defines tsize=2'b11 as reserved, we use it to
     // perform a 64-bit data transfer.
-    function Bit#(addr_width) fn_incr_address(Bit#(addr_width) addr, Bit#(2) tsize, Bit#(`Burst_length_bits) bsize) provisos(Add#(addr_width,1, a),
+    function Bit#(addr_width) fn_incr_address(Bit#(addr_width) addr, Bit#(3) tsize, Bit#(`Burst_length_bits) bsize) provisos(Add#(addr_width,1, a),
                         Add#(z__, 8, a));
       Bit#(a) lv_to_add= (zeroExtend(bsize)+1) << tsize;
       Bit#(a) lv_result= {1'b0,addr}+lv_to_add;
@@ -414,18 +465,22 @@ package systolic_top;
       rg_is_memsyscntr_zero <= (mem_sys_cntr == 0);
     endrule 
 
-    rule rl_startMemRead (!rg_is_memsyscntr_zero//no of bytes remaining to transfer is not 0
+    rule rl_startMemRead (!(mem_sys_cntr == 0)//no of bytes remaining to transfer is not 0
                           && mem_sys_cr[0] == 1 &&
                           ((rg_current_gbuf == 0 && !rg_is_sys_readingbuf1) || (rg_current_gbuf == 1 && !rg_is_sys_readingbuf2))
                           );
         let lv_mem_sys_cr = mem_sys_cr;
         Bit#(addr_width) lv_araddr = rg_mem_rdaddr; //set the address to read from
-        Bit#(2) lv_arsize = 2'b11; //set the transfer size -- fixing to 8 bytes
+        Bit#(3) lv_arsize = 3'b011; //set the transfer size -- fixing to 8 bytes
         Bit#(1) lv_burst_type = lv_mem_sys_cr[7]; //0: Fixed, 1: INCR which is consistent with that of AXI4
 
-        Bit#(8) lv_burst_len = min(8'd255, mem_sys_cntr/8,(`GBufEnd - rg_inp_addr)/8); //min(Axi capacity,Size of transfer, End of current buffer)
+        Bit#(8) lv_axicapacity = 8'd255;
+        Bit#(8) lv_sizeoftransfer = truncate((mem_sys_cntr >> 3) - 1); //divide by 8
+        Bit#(8) lv_bufcapacity = truncate(((`GBufEnd - rg_inp_addr) >> 3) - 1); 
 
-        if(lv_burst_len == (`GBufEnd - rg_inp_addr)/8) begin //current buffer full 
+        Bit#(8) lv_burst_len = min(8'd255,min(lv_sizeoftransfer,lv_bufcapacity)); //min(Axi capacity,Size of transfer, End of current buffer)
+
+        if(lv_burst_len == lv_bufcapacity) begin //current buffer full 
           rg_inp_addr <= `GBufStart;
           rg_axiswitch_gbuf <= True;
           rg_current_gbuf <= ~rg_current_gbuf;  // switch to next buffer
@@ -439,27 +494,29 @@ package systolic_top;
         $display($time,"\tSystolic starting read from memory address %h", lv_araddr);
 
         destAddrFs_sys.enq(rg_inp_addr); //Enqueue the write address
-        burstlen_Fifo.enq(Tuple3(lv_burst_len,rg_current_gbuf,rg_axiswitch_gbuf)); //Enqueue the burst length and current buf to send request
+        burstlen_Fifo.enq(tuple3(lv_burst_len,rg_current_gbuf,rg_axiswitch_gbuf)); //Enqueue the burst length and current buf to send request
 
-        if(rg_current_gbuf == 0) begin
-          rg_is_AXIwrGbuf1 <= True;
-          rg_is_AXIwrGbuf2 <= False;
+        /*if(rg_current_gbuf == 0) begin
+          rg_is_AXIwritingGbuf1 <= True;
+          rg_is_AXIwritingGbuf2 <= False;
         end
         else begin
-          rg_is_AXIwrGbuf1 <= False;
-          rg_is_AXIwrGbuf2 <= True;
-        end
+          rg_is_AXIwritingGbuf1 <= False;
+          rg_is_AXIwritingGbuf2 <= True;
+        end*/
+        rg_is_AXIwritingGbuf1 <= (rg_current_gbuf == 0);  //status registers
+        rg_is_AXIwritingGbuf2 <= (rg_current_gbuf == 1);
 
         // Create a read request, and enqueue it
         // Since there can be multiple pending requests, either read or
         // writes, we use the arid field to mark these.
         let read_request = AXI4_Rd_Addr {araddr: lv_araddr, 
-                         arid: {4'b0101}, arlen: lv_burst,
+                         arid: {4'b0101}, arlen: lv_burst_len,
                          arsize: zeroExtend(lv_arsize), arburst: zeroExtend(lv_burst_type), //arburst: 00-FIXED 01-INCR 10-WRAP
                          aruser: 0 };  //0101 --random id to mark the requests
           
         m_xactor.i_rd_addr.enq(read_request);
-        $display("Sending a read request with araddr: %h arid: 001 arlen: %h arsize: %h arburst: %h",lv_araddr,lv_burst,lv_arsize,lv_burst_type); 
+        $display("Sending a memory read request with araddr: %h arid: 001 arlen: %h arsize: %h arburst: %h",lv_araddr,lv_burst_len,lv_arsize,lv_burst_type); 
 
        // currentReadRs[chanNum][0]<= currentReadRs[chanNum][0] + 1;
         mem_sys_cntr <= fn_decr_cndtr(mem_sys_cntr, lv_arsize, lv_burst_len); //Request for one burst is complete
@@ -467,7 +524,7 @@ package systolic_top;
     endrule
 
     rule rl_startSystolicWrite(m_xactor.o_rd_data.first.rid == {4'b0101} && m_xactor.o_rd_data.first.rresp==AXI4_OKAY
-                                && rg_sys_wrburst_cnt == 0)
+                                && rg_sys_wrburst_cnt == 0);
 
         let resp <- pop_o(m_xactor.o_rd_data);
         let lv_mem_sys_cr = mem_sys_cr;
@@ -476,7 +533,7 @@ package systolic_top;
         let lv_current_gbuf = tpl_2(burstlen_Fifo.first);
         let lv_data = resp.rdata;
         let lv_burst_type = lv_mem_sys_cr[6];   //burst type of systolic
-        let lv_awsize = 2'b11; //set the transfer size -- fixing to 8 bytes
+        let lv_awsize = 3'b011; //set the transfer size -- fixing to 8 bytes
         let {gindex, gbufferbank} = split_address_gbuf(lv_addr);
         //$display($time, "lv_addr: %h lv_data: %h gindex: %h gbufferbank: %h",lv_addr,lv_data,gindex,gbufferbank);
 
@@ -490,10 +547,11 @@ package systolic_top;
              end
              Bit#(mulWidth) data = lv_data[(i+1)*bitWidth-1:i*bitWidth];
              $display($time, "Sending request to gbuf %d: %h bank, %h index, value: %d", lv_current_gbuf ,m, index, data);
-             if(lv_current_gbuf == 0) 
-                gBuffer1[bank].portB.request.put(makeRequest(True, 1'b1 , index, data));
+             /*if(lv_current_gbuf == 0) 
+                gBuffer1[bank].portB.request.put(makeRequest(True, 'b1 , index, data));
              else 
-                gBuffer2[bank].portB.request.put(makeRequest(True, 1'b1 , index, data));
+                gBuffer2[bank].portB.request.put(makeRequest(True, 'b1 , index, data));*/
+              gBuffer[lv_current_gbuf][bank].portB.request.put(makeRequest(True, 'b1 , index, data));
            end
          end
          else if(lv_addr >= `WeightStart && lv_addr <= `WeightEnd) begin
@@ -512,7 +570,7 @@ package systolic_top;
 
         if(lv_burst_len>0) begin 
           rg_sys_wrburst_cnt<=rg_sys_wrburst_cnt + 1;  //// this will fire the next rule when doing a write in burst mode.
-          let new_address=burst_address_generator(lv_burst_len,lv_awsize,lv_burst_type,lv_addr);
+          let new_address=burst_address_generator(lv_burst_len,lv_awsize,{1'b0,lv_burst_type},lv_addr);
           rg_syswrite_addr <= new_address;
         // $display("Starting burst mode write....");
         end
@@ -533,21 +591,22 @@ package systolic_top;
         let lv_addr = rg_syswrite_addr;
         let lv_data = resp.rdata;
         let lv_burst_type = lv_mem_sys_cr[6];   //burst type of systolic
-        let lv_awsize = 2'b11;
+        let lv_awsize = 3'b011;
         Bit#(8) lv_burst_len = tpl_1(burstlen_Fifo.first);
         let lv_current_gbuf = tpl_2(burstlen_Fifo.first);
         let lv_axiswitch_gbuf = tpl_3(burstlen_Fifo.first);
 
         let {gindex, gbufferbank} = split_address_gbuf(lv_addr);
 
-        else if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin //write to gbuf
+        if(lv_addr >= `GBufStart && lv_addr <= `GBufEnd) begin //write to gbuf
           for(Integer i = 0; i < numWords ; i=i+1) begin
             Bit#(TAdd#(gbufbankbits, 1)) gbufIn = zeroExtend(gbufferbank)+fromInteger(i);
             Bit#(gbufbankbits) m = truncate(gbufIn);
-            if(lv_current_gbuf == 0) 
+            /*if(lv_current_gbuf == 0) 
                 gBuffer1[m].portB.request.put(makeRequest(True,'b1,gindex,lv_data[(i+1)*valueOf(mulWidth)-1:i*valueOf(mulWidth)]));
              else 
-                gBuffer2[m].portB.request.put(makeRequest(True,'b1,gindex,lv_data[(i+1)*valueOf(mulWidth)-1:i*valueOf(mulWidth)]));
+                gBuffer2[m].portB.request.put(makeRequest(True,'b1,gindex,lv_data[(i+1)*valueOf(mulWidth)-1:i*valueOf(mulWidth)]));*/
+            gBuffer[lv_current_gbuf][m].portB.request.put(makeRequest(True,'b1,gindex,lv_data[(i+1)*valueOf(mulWidth)-1:i*valueOf(mulWidth)]));         
           end
         end
         else if(lv_addr >= `WeightStart && lv_addr <= `WeightEnd) begin //write to weight fifos
@@ -562,7 +621,7 @@ package systolic_top;
           end
         end
         
-        let new_address=burst_address_generator(lv_burst_len,lv_awsize,lv_burst_type,lv_addr);
+        let new_address=burst_address_generator(lv_burst_len,lv_awsize,{1'b0,lv_burst_type},lv_addr);
         rg_syswrite_addr <=new_address;
 
         if(lv_last)begin   // last beat of the current burst
@@ -633,24 +692,25 @@ package systolic_top;
 
           Bit#(1) bb = fromInteger(b);
 
-          if(b==0) rg_is_sys_readingbuf1 <= True; //status register to inform axi that systolic is reading this buffer
+          if(bb==0) rg_is_sys_readingbuf1 <= True; //status register to inform axi that systolic is reading this buffer
           else rg_is_sys_readingbuf2 <= True; //status register to inform axi that systolic is reading this buffer
 
-          let inp_addr = (gbuf_startaddr + (zeroExtend(rg_row)+fromInteger(i)) * zeroExtend(ifmap_coldims) + zeroExtend(rg_cols[i]))%`SizeofGbuf;
+          let inp_addr = (gbuf_startaddr + (zeroExtend(rg_row)+fromInteger(i)) * zeroExtend(ifmap_coldims) + zeroExtend(rg_cols[i]))%(`GBufEnd+1);
           let next_addr = inp_addr + 1; //ignored stride and padding for now
 
           if(inp_addr <= `GBufEnd && next_addr > `GBufEnd) begin //Time to switch the buffer
             rg_sys_rdGbuf <= ~bb;
           end
-          else  // continue reading from the same buffer
+          else begin// continue reading from the same buffer
              rg_sys_rdGbuf <= bb;     
           end
 
           let {gindex, gbank} = split_address_gbuf(inp_addr);
-          if(bb==0)
+          /*if(bb==0)
             gBuffer1[gbank].portB.request.put(makeRequest(False, 0, gindex, ?));
           else
-            gBuffer2[gbank].portB.request.put(makeRequest(False, 0, gindex, ?));
+            gBuffer2[gbank].portB.request.put(makeRequest(False, 0, gindex, ?));*/
+          gBuffer[bb][gbank].portB.request.put(makeRequest(False, 0, gindex, ?));
 
           ff_flow_ctrl[i].enq(tuple3(gindex, gbank, inp_addr));
           $display(gbuf_startaddr, rg_row, i, ifmap_coldims, rg_cols[i]);
@@ -675,10 +735,11 @@ package systolic_top;
             else rg_sys_readingbuf2 <= 1;
           end*/
           ff_flow_ctrl[i].deq;
-          if(bb==0)
+          /*if(bb==0)
             let gVal <- gBuffer1[gbank].portB.response.get();
           else
-            let gVal <- gBuffer2[gbank].portB.response.get();
+            let gVal <- gBuffer2[gbank].portB.response.get();*/
+          let gVal <- gBuffer[bb][gbank].portB.response.get();
 
           let numValues = min(rg_cols[i]+1, min(zeroExtend(filter_cols), ifmap_coldims-rg_cols[i]));
           let val1 = rg_cols[i]+1;
@@ -725,6 +786,11 @@ package systolic_top;
         rules
           //Rule to get acc value at the end of computation and store in accumulator buffer
           rule rl_get_accumulator;
+            if(i==0) begin 
+              rg_acc_counter <= rg_acc_counter + 1;
+              if(rg_acc_counter == fromInteger(numIndexBitsABuf))
+                rg_accumbuf_full <= 1;
+            end
             let x <- systolic_array.cfifo[i].send_accumbuf_value;
             $display($time, "Enqueuing Data into Accumulator Bank: index: %d Bank: %d with Value %d",rg_acc_counter, i, x);
             aBuffer[i].portB.request.put(makeRequest(True,'1, 0, x));                 
@@ -740,16 +806,16 @@ package systolic_top;
 
         let lv_sys_mem_cr = sys_mem_cr;
         Bit#(addr_width) lv_araddr = rg_out_addr; //set the address to read from
-        Bit#(2) lv_arsize = 2'b11; //set the transfer size -- fixing to 8 bytes
+        Bit#(3) lv_arsize = 3'b011; //set the transfer size -- fixing to 8 bytes
         Bit#(1) lv_burst_type = lv_sys_mem_cr[6]; //0: Fixed, 1: INCR which is consistent with that of AXI4
         Bit#(8) lv_burst = lv_sys_mem_cr[15:8];  //burst length
 
         if(lv_sys_mem_cr[6]==1)  //peripheral increment mode is on
           rg_out_addr<= fn_incr_address(rg_out_addr, lv_arsize, sys_mem_cr[15:8]);
-        if(lv_mem_sys_cr[7]==1)  //memory increment mode is on
+        if(lv_sys_mem_cr[7]==1)  //memory increment mode is on
           rg_mem_wraddr<= fn_incr_address(rg_mem_wraddr, lv_arsize, sys_mem_cr[15:8]);
 
-        $display($time,"\tMemory starting read from accumbuff address %h",chanNum, lv_araddr);
+        $display($time,"\tMemory starting read from accumbuff address %h", lv_araddr);
 
         destAddrFs_mem.enq(rg_mem_wraddr);
 
@@ -803,7 +869,7 @@ package systolic_top;
 
         let lv_awaddr = destAddrFs_mem.first;
         let lv_sys_mem_cr = sys_mem_cr;
-        Bit#(2) lv_tsize = 2'b11; //set the transfer size -- fixing to 8 bytes
+        Bit#(3) lv_tsize = 3'b011; //set the transfer size -- fixing to 8 bytes
         Bit#(1) lv_burst_type = lv_sys_mem_cr[7]; //0: Fixed, 1: INCR which is consistent with that of AXI4
         Bit#(8) lv_burst_len = lv_sys_mem_cr[15:8];  //burst length
 
@@ -815,7 +881,7 @@ package systolic_top;
 
           //Send new request for next burst
           let new_addr = burst_address_generator(lv_burst_len, lv_tsize,
-                          lv_sys_mem_cr[6], rg_sysread_addr);
+                          {1'b0,lv_sys_mem_cr[6]}, rg_sysread_addr);
           let {newaindex, newabufbank} = split_address_accbuf(new_addr);
                   
           for(Integer i=0; i<numWords/2; i=i+1)begin
@@ -826,9 +892,10 @@ package systolic_top;
           rg_sysread_addr <= new_addr;
         end
 
-        let write_data = AXI4_Wr_Data { wdata: aVal, wstrb: 8'd255, wlast: lv_last, wid: 4'b0011};
+        Bit#(wstrbit) lv_wstrb = fromInteger(-1);
+        let write_data = AXI4_Wr_Data { wdata: aVal, wstrb: lv_wstrb, wlast: lv_last, wid: 4'b0011};
         let write_addr = AXI4_Wr_Addr { awaddr: lv_awaddr, awuser: 0, awlen: lv_burst_len,
-                          awsize: zeroExtend(lv_tsize), awburst: zeroExtend(lv_burst_type), awid: {4'b0011 };
+                          awsize: zeroExtend(lv_tsize), awburst: zeroExtend(lv_burst_type), awid: 4'b0011 };
 
         // enqueue the request.
         m_xactor.i_wr_data.enq(write_data);
@@ -846,7 +913,7 @@ package systolic_top;
         let {aindex, abufbank} = split_address_accbuf(rg_sysread_addr);
 
         let lv_sys_mem_cr = sys_mem_cr;
-        Bool lv_last == (rg_mem_wrburst_cnt == lv_sys_mem_cr[15:8]);
+        Bool lv_last = (rg_mem_wrburst_cnt == lv_sys_mem_cr[15:8]);
 
         //Read data from accum buffers
         Bit#(data_width) aVal = 0;
@@ -856,13 +923,13 @@ package systolic_top;
           aVal = (aVal << valueOf(mulWidth2)) | zeroExtend(temp);  // contains the required data
         end
 
-        Bit#(2) lv_tsize = 2'b11; //set the transfer size -- fixing to 8 bytes
+        Bit#(3) lv_tsize = 3'b011; //set the transfer size -- fixing to 8 bytes
         Bit#(1) lv_burst_type = lv_sys_mem_cr[7]; //0: Fixed, 1: INCR which is consistent with that of AXI4
         Bit#(8) lv_burst_len = lv_sys_mem_cr[15:8];  //burst length
 
-        //write_strobe -- yet to be defined
+        Bit#(wstrbit) lv_wstrb = fromInteger(-1);
 
-        let write_data = AXI4_Wr_Data { wdata: aVal, wstrb: 8'd255, wlast: lv_last, wid: 4'b0011};
+        let write_data = AXI4_Wr_Data { wdata: aVal, wstrb: lv_wstrb, wlast: lv_last, wid: 4'b0011};
 
         m_xactor.i_wr_data.enq(write_data);
 
@@ -871,10 +938,10 @@ package systolic_top;
           rg_mem_wrburst_cnt <= 0; // rl_startMemwrite for next burst will fire
         end
         else begin
-          rg_mem_wrburst_cnt <= rg_mem_wrburst_cnt + 1;`
+          rg_mem_wrburst_cnt <= rg_mem_wrburst_cnt + 1;
 
           //Send new request for next burst
-          let new_addr = burst_address_generator(lv_burst_len, lv_tsize, lv_sys_mem_cr[6], rg_sysread_addr);
+          let new_addr = burst_address_generator(lv_burst_len, lv_tsize, {1'b0,lv_sys_mem_cr[6]}, rg_sysread_addr);
           let {newaindex, newabufbank} = split_address_accbuf(new_addr);
                   
           for(Integer i=0; i<numWords/2; i=i+1)begin
@@ -901,19 +968,14 @@ package systolic_top;
 
     accumbufresprules = rJoinDescendingUrgency(accumbufresprules, ru);
 
+
     /* ========================================================================================= */
 
+    interface slave = s_xactor.axi_side;
+    interface master = m_xactor.axi_side;
+    method Bit#(1) intrrptaccumBufferFull = rg_accumbuf_full;
+    method Bit#(1) intrrptGBufferFull = rg_gbuffer_full; 
+    method Bit#(1) intrrptcomputationDone = rg_operation_done;
+
     endmodule
-
 endpackage
-
-
-
-
-
-
-
-
-
-
-
