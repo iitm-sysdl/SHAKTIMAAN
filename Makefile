@@ -4,11 +4,10 @@ HOMEDIR:=./
 TOP_DIR:=./src
 BSVBUILDDIR:=./build/
 VERILOGDIR:=./verilog/
-AXI4:=./fabrics/axi4
-BRIDGES:=./fabrics/bridges
-COMMON_BSV:=./common_bsv
-COMMON_VERILOG:=./common_verilog
-FILES:= ./src/:$(AXI4):$(BRIDGES):$(COMMON_BSV):$(COMMON_VERILOG)
+AXI4:=../fabrics/axi4
+BRIDGES:=../fabrics/bridges
+COMMON_BSV:=../common_bsv
+FILES:= ./src/:$(AXI4):$(BRIDGES):$(COMMON_BSV)
 BSVINCDIR:= .:%/Prelude:%/Libraries:%/Libraries/BlueNoC:$(FILES)
 FPGA=xc7a100tcsg324-1
 export HOMEDIR=./
@@ -36,8 +35,8 @@ generate_verilog:
 	@mkdir -p $(BSVBUILDDIR); 
 	@mkdir -p $(VERILOGDIR); 
 	@bsc -u -verilog -elab -vdir $(VERILOGDIR) -bdir $(BSVBUILDDIR) -info-dir $(BSVBUILDDIR)\
-  $(define_macros) -D verilog=True $(BSVCOMPILEOPTS) -verilog-filter ${BLUESPECDIR}/bin/basicinout\
-  -p $(BSVINCDIR) -g $(TOP_MODULE) $(TOP_DIR)/$(TOP_FILE)  || (echo "BSC COMPILE ERROR"; exit 1) 
+  $(define_macros) -D verilog=True -D VERBOSITY=0 $(BSVCOMPILEOPTS) -p $(BSVINCDIR) -g $(TOP_MODULE) $(TOP_DIR)/$(TOP_FILE)\
+  || (echo "BSC COMPILE ERROR"; exit 1) 
 
 .PHONY: simulate
 simulate:
