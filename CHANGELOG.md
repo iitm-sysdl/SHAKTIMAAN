@@ -2,6 +2,10 @@
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2020-03-09
+### Added
+- Microarchitecture diagram
+
 ## [0.1.1] - 2020-02-18
 ### Added
 - Design Document
