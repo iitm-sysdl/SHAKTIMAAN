@@ -5,14 +5,7 @@
 `define weightCount   'h0B000006
 `define FilterDims    'h0B000008
 `define gbuf_rdaddr   'h0B00000A
-`define WeightStart   'h0B010000      
-`define WeightEnd     'h0B01ffff
-`define AccumBufStart 'h0B200000
-`define AccumBufEnd   'h0B2fffff
-`define GBufStart     'h0B030000
-`define GBufEnd       'h0B03ffff
-
-`define InputAddr	  'h0B000010
+`define InputAddr	    'h0B000010
 `define OutputAddr	  'h0B000014
 `define MemReadAddr	  'h0B000018
 `define MemtoSysCfg	  'h0B00001C
@@ -20,5 +13,15 @@
 `define SystoMemCfg   'h0B000024
 `define MemWriteAddr  'h0B000028
 `define SystoMemCntr  'h0B00002C
-`define Status        'h0B000034
+`define Status        'h0B000030
+
+
+`define WeightStart   'h0B010000      
+`define WeightEnd     'h0B01ffff
+`define AccumBufStart 'h0B200000
+`define AccumBufEnd   'h0B2fffff
+`define GBufStart     'h0B030000
+`define GBufEnd       'h0B03ffff
+
+
 
