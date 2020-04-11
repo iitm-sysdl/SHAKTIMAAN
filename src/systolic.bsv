@@ -41,6 +41,8 @@ package systolic;
   import  GetPut ::*;
   import  Vector ::*;
   import  FIFOF::*;
+//	`include "defined_parameters.bsv"
+//	import defined_types::*;
 
   interface Ifc_RFIFO_Connections#(numeric type mulWidth);
     method Action send_rowbuf_value(Maybe#(Bit#(mulWidth)) value); 
