@@ -30,10 +30,10 @@ Pseudo-Code
 
   while true do
     sendFetchReq(resetPC)
-    resetPC ≤ resetPC+4
+    resetPC <= resetPC+4
     while true do
       if recvFetchResp.valid() then
-        inst ≤ recvFetchResp().inst
+        inst <= recvFetchResp().inst
         break
       end if
     end while
