@@ -68,6 +68,10 @@ check-mr-compliance:
 docs:
     stage: docs
     script:
+        - export PATH="/home/gitlab-runner/.pyenv/bin:$PATH"
+        - eval "$(pyenv init -)"
+        - eval "$(pyenv virtualenv-init -)"
+        - pyenv activate venv
         - cd docs
         - make latexpdf
         - cd ..
