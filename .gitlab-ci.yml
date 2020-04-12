@@ -73,6 +73,7 @@ docs:
         - eval "$(pyenv virtualenv-init -)"
         - pyenv activate venv
         - cd docs
+        - pip install -r requirements.txt
         - make latexpdf
         - cd ..
         - mv docs/build/latex/dnn_accelerator.pdf .
