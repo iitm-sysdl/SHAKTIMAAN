@@ -64,3 +64,22 @@ check-mr-compliance:
     tags:
         - shakti-runner
 
+docs:
+    stage: docs
+    script:
+        - cd docs
+        - make latexpdf
+        - cd ..
+        - mv docs/build/latex/dnn_accelerator.pdf .
+    only:
+        refs:
+            - docs
+    artifacts:
+      name: dnn_accelerator.pdf
+      paths:
+        - ./dnn_accelerator.pdf
+    tags:
+        - shakti-runner
+    except:
+      - schedules
+
