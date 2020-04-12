@@ -1,4 +1,5 @@
 stages:
+    - pre-merge
     - build
     - release
 
@@ -23,7 +24,7 @@ systolic:
 release:
     stage: release
     script:
-        - python3 /scratch/version-extract.py
+        - python3 /scratch/version-extract-rst.py
     only:
         refs:
             - master
@@ -31,3 +32,35 @@ release:
         - shakti-runner
     except:
       - schedules
+
+check-mr-compliance:
+    stage: pre-merge
+    except: 
+        - schedules
+    script:
+        - export NEWVER=$(grep -P "^\[.*?\]" CHANGELOG.rst -m1 | awk '{print $1}' | sed 's/[][]//g');
+        - export CURVER=$(git describe --tags| cut -f1 -d"-")
+        - echo $NEWVER
+        - echo $CURVER        
+        - CURVER=${CURVER//./ }
+        - NEWVER=${NEWVER//./ }
+        - curpatch=$(echo $CURVER | awk '{print $3}')
+        - curminor=$(echo $CURVER | awk '{print $2}')
+        - curmajor=$(echo $CURVER | awk '{print $1}')
+        - newpatch=$(echo $NEWVER | awk '{print $3}')
+        - newminor=$(echo $NEWVER | awk '{print $2}')
+        - newmajor=$(echo $NEWVER | awk '{print $1}')
+        - if [ $newmajor = $curmajor ] && [ $newminor = $curminor ] && [ $newpatch -gt $curpatch ]; then echo "Patch Update Accepted OK"; exit 0; fi
+        - if [ $newmajor = $curmajor ] && [ $newminor = $curminor ] && [ $newpatch -le $curpatch ]; then echo "Revise Patch Atleast!"; exit 1; fi
+        - if [ $newmajor = $curmajor ] && [ $newminor -gt $curminor ] && [ $newpatch = 0 ]; then echo "Minor Update Accepted OK!"; exit 0; fi
+        - if [ $newmajor = $curmajor ] && [ $newminor -gt $curminor ] && [ $newpatch != 0 ]; then echo "For Minor changes the patches should be 0"; exit 1; fi
+        - if [ $newmajor = $curmajor ] && [ $newminor -lt $curminor ]; then echo "Minor version should greater than previuos"; exit 1; fi
+        - if [ $newmajor -gt $curmajor ] && [ $newminor = 0 ] && [ $newpatch = 0 ]; then echo "Major Updated Accepted OK"; exit 0; fi
+        - echo  "For Major updates Minor and Patches should be 0"
+        - exit 1
+
+    only:
+        - merge_requests
+    tags:
+        - shakti-runner
+

@@ -17,10 +17,10 @@ import sys
 import re
 #from mermaid import *
 
-#def get_version():
-#    changelog = open('../../CHANGELOG.rst','r').read()
-#    x = re.findall(r'\[(.*?)\]',changelog)[0]
-#    return str(x)
+def get_version():
+    changelog = open('../../CHANGELOG.rst','r').read()
+    x = re.findall(r'\[(.*?)\]',changelog)[0]
+    return str(x)
 
 sys.path.insert(0, os.path.abspath('../..'))
 sys.setrecursionlimit(1500)
@@ -33,7 +33,7 @@ project = u'DNN Accelerator'
 copyright = 'IIT Madras, InCore Semiconductors'
 author = ''
 
-version = "0.0.1"
+version = get_version()
 # The full version, including alpha/beta/rc tags
 release =  'beta-'+version
 

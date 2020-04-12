@@ -5,6 +5,8 @@ DNN Accelerator
 .. toctree::
    :glob:
    :maxdepth: 2
+   :numbered:
+
 
    intro
    motivation
