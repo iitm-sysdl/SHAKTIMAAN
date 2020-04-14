@@ -49,8 +49,8 @@ Tensor ALU instruction Fields:
 6. Immediate value(8)
 7. Is continuous(1)
 8. Continuous extent(8) - continuous number of operations (R*S)
-9. Loop extent 0(8) - Total Vector operations in 2D (E*F), where E and F are decided based on
-operation specific dimensions (Sx, Sy, R and S)
+9. Loop extent 0(8) - Total Vector operations in 2D (E*F), where E and F are decided based on 
+   operation specific dimensions (Sx, Sy, R and S)
 10. Loop extent 1(8) - Total number of 2D matrix operations (N*C)
  
 Inputs to the Module
@@ -74,11 +74,71 @@ Pseudo - Code
 
 3. Vector generation logic
 
-	Assumption : Matrix is stored in N*C*H*W format
+	 Assumption : Matrix is stored in N*C*H*W format
 
-  a. Get data from output buffer for vector operation
-  b. Store the output vector to output buffer
-  c. Calculate address based on the op-code for next vector operation and repeats for ‘loop count 1’ times
+	 vector1[n]; vector2[n]; output[n]; address[i]; mask[i];
+
+.. code:: cpp
+
+    for(le1=0; le1<LE1; le1++)
+      curr_address_1 = base_address_1 + le1*H*W*mem_stride_1
+      curr_address_2 = base_address_2 + le1*H*W*mem_stride_2
+      curr_address_out = out_address + le1*E*F*mem_stride_out
+      row_count = 0
+      col_count = 0
+      for(le0=0; le0<LE0; le0+n)
+        curr_address_1 = curr_address_1 + (le0*n + Sy)*mem_stride_1
+        curr_address_2 = curr_address_2 + (le0*n + Sy)*mem_stride_2
+        curr_address_out = curr_address_out + (le0*n)*mem_stride_out
+        for(i=0; i<n; i++)
+          if(is Immediate)
+            vector2[i] = immediate value
+          else if(is continuous)
+            vector2[i] = output
+          else	
+            vector2[i] = load_mem(curr_address_2)
+          if(is Matrix based)
+            if(col_count + S <= W)
+              if(row_count + R <= H)
+                vector1[i] = load_mem(curr_address_1)
+                address[i] = curr_address_1
+                col_count = col_count + Sy
+                mask[i] = 1
+              else
+                i = n
+            else
+              if(row_count + R <= H)
+                curr_address_1 = base_address_1 + le1*H*W*row_count*mem_stride_1 
+                vector1[i] = load_mem(curr_address_1)
+                address[i] = curr_address_1
+                row_count = row_count + 1
+                col_count = 0
+                mask[i] = 1
+              else
+                i = n
+          else
+            vector1[i] = load_mem(curr_address_1)
+            mask[i] = 1
+          curr_address_1 = curr_address_1 + (Sy*mem_stride_1)
+          curr_address_2 = curr_address_2 + (Sy*mem_stride_2)
+        output = vectorALU(vector1, vector2, ALU_operand, immmediate, mask)
+        s = 1
+        if(is continuous)
+          for(cc=1; cc<CC; cc++)
+            vector2 = output
+            for(i=0;i<n;i++)
+              vector1[i] = load_mem(address[i]+s*mem_stride_1)
+              if(s == S-1)
+                address[i] = address[i] + W*mem_stride_1
+            output = vectorALU(vector1, vector2, ALU_operand, immediate, mask)
+            if(s == S-1)
+              s=0
+            else
+              s=s+1
+        for(i=0; i<n; i++)
+          if(mask[i] == 1)
+            store_mem(curr_address_out+(i*mem_stride_out),output)
+          mask[i] = 0
 
 To Be Resolved
 ^^^^^^^^^^^^^^
