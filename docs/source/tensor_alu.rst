@@ -78,6 +78,8 @@ Pseudo - Code
 
 	vector1[n]; vector2[n]; output[n]; address[i]; mask[i];
 
+	.. code:: cpp
+
 	for(le1=0; le1<LE1; le1++) {
 		curr_address_1 = base_address_1 + H*W*mem_stride_1;
 		curr_address_2 = base_address_2 + H*W*mem_stride_2;
