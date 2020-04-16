@@ -34,6 +34,9 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
     Vector#(nCol, Wire#(Bit#(aluWidth2))) wr_vec_operand <- replicateM(mkWire());
     Vector#(nCol, Wire#(Bit#(aluWidth2))) wr_vec_operand_out <- replicateM(mkWire());
 
+    Reg#(Dim1) rg_stride_counter <- mkReg(0);
+    Reg#(Dim1) rg_window_counter <- mkReg(0);
+
     Ifc_vectorALU#(aluWidth, nCol) vectorALU <- mkvectorALU();
 
     //Both operand 1 and operand 2 will be in the same set of banks, creating conflicts
@@ -53,7 +56,7 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
     endrule
  
     //Start of i+1th row in a window
-    rule update_extents(rg_counter == extend(rg_aluPacket.loop_extent) && rg_stride_counter <= window_size);
+    rule update_extents(rg_counter == extend(rg_aluPacket.loop_extent) && rg_stride_counter < window_size);
        let op1_base = rg_aluPacket.address_operand + output_X_stride; 
        let opsend = op1_base;
        wr_send_req <= opsend;
@@ -63,21 +66,40 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
     endrule
     
     //Start of i+1th window -- define cond
-    rule update_window(rg_stride_counter == window_size && cond);
+    rule update_window(rg_counter == extend(rg_aluPacket.loop_extent) && rg_stride_counter == window_size 
+          && rg_window_counter < window_loop_extent);
       let op1_base = rg_baseaddr_copy + window_X_stride;
       rg_aluPacket.address_operand <= op1_base;
-      rg_baseaddr_copy <= op1_base; 
+      rg_baseaddr_copy <= op1_base;
       rg_stride_counter <= 0; 
       rg_counter <= 0;
       wr_send_req <= opsend;
     endrule
 
     //Start of i+1th row in the output
-    rule update_row(cond2);
+    rule update_row(rg_counter == extend(rg_aluPacket.loop_extent) && rg_stride_counter == window_size
+          && rg_window_counter == rg_aluPacket.window_loop_extent && rg_output_counter < rg_aluPacket.output_loop_extent));
+      let op1_base = rg_baseaddr_copy + rg_aluPacket.output_Y_stride;
+      wr_send_req <= op1_base;
+      rg_aluPacket.address_operand <= op1_base;
+      rg_counter <= 0;
+      rg_stride_counter <= 0;
+      rg_window_counter <= 0;
+    endrule
+
+    rule end_instruction(rg_counter == extend(rg_aluPacket.loop_extent) && rg_stride_counter == window_size
+          && rg_window_counter == rg_aluPacket.window_loop_extent && rg_output_counter == rg_aluPacket.output_loop_extent);
+          rg_counter <= 0;
+          rg_stride_counter <= 0;
+          rg_window_counter <= 0;
+          rg_output_counter <= 0;
+          rg_aluPacket <= tagged Invalid;
+          //TODO: Send appropriate tokens to dependency module
     endrule
 
     //Someone should make this tagged invalid somewhere right?
-    //TODO - figure out where to make this tagged Invalid -- some last bit should be given
+    //TODO - figure out where to make this tagged Invalid -- some last bit should be given - taken care in the above rule
+
     method Action getParams(ALU_params params);
         rg_aluPacket <= tagged Valid params;
         rg_baseaddr_copy <= params.address_operand;
