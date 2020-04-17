@@ -46,17 +46,35 @@ typedef enum {
 } ALU_Opcode;
 
 typedef struct {
+  DRAM_address dram_address;
+  SRAM_address sram_address;
+  Dim1 x_size, y_size, z_size;
+  Dim1 z_stride, y_stride;
+  Bool is_reset;
+} Mem_params;
+
+typedef Mem_params Load_params;
+typedef Mem_params Store_params;
+
+typedef struct {
+  SRAM_address input_address;
+  SRAM_address output_address;
+  SRAM_address weight_address;
+  Dim1 in_fmap_height, in_fmap_width;
+  Dim2 stride_h, stride_w;
+  Dim2 pad_left, pad_right, pad_top, pad_bottom;
+  Bool preload_output;
+} Compute_params;
+
+typedef struct {
     ALU_Opcode alu_opcode;
-    SRAM_address address_operand;
-    SRAM_address address_output;
-    Dim1 window_loop_extent;
-    Dim1 output_loop_extent;
-    Dim1 window_size;
-    Dim1 window_X_stride, window_Y_stride;
-    Dim1 output_X_stride, output_Y_stride;
-    //Dim1 input_element_stride, output_element_stride;
-    //Dim1 input_stride, output_stride;
-    Bit#(1) use_immediate;
+    SRAM_address input_address;
+    SRAM_address output_address;
+    Dim1 output_height, output_width; // OH', OW'
+    Dim2 window_height, window_width; // R, S
+    Dim1 mem_stride_OW, mem_stride_R, mem_stride_S; // S_OW, S_R, S_S
+    Dim2 stride_h, stride_w; //Sx, Sy
+    Bool use_immediate;
 } ALU_params;
 
 endpackage

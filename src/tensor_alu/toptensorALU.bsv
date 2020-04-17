@@ -13,7 +13,41 @@ import Vector::*;
 //1. Each ALU instruction is aligned to the vector width. If there are C channels and Vector length
 // is VLEN, where C >> VLEN. Compiler will generate C/VLEN ALU instructions to perform the task. 
 
+/*
+  Each ALU instruction performs the following pseudocode.
+  A 3D slice of feature map is read as input, and another 3D slice of feature map is generated as output.
 
+  PSEUDOCODE:
+  --------------------------------
+  # input: base address of input, output: base address of output
+  
+  basecopy = input
+  for i = 1 to OH
+      for j = 1 to OW
+          out = 0
+          for k = 1 to R
+              for l = 1 to S
+                  out = alu_op(out, *input)
+              endfor
+              input += mem_stride_S
+          endfor
+          input += mem_stride_R
+          *output = out
+          output += 1
+      endfor
+      input += mem_stride_OW
+  endfor
+
+  --------------------------------
+*/
+
+/* TODO
+  1. Stride fields in the ISA needs to be standardised
+    1.1 Updating input address
+  2. Updating output address
+  3. Writing back output address to SRAM
+  ...
+*/
 interface Ifc_toptensorALU#(numeric type aluWidth, numeric type nCol);
     method Action getParams(ALU_params params);
     method SRAM_address send_req_op;
@@ -26,83 +60,97 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
     );
 
     Reg#(Maybe#(ALU_params)) rg_aluPacket <- mkReg(tagged Invalid);
-    Reg#(TAdd#(Dim1,1)) rg_counter <- mkReg(0);
     Reg#(SRAM_address) rg_baseaddr_copy <- mkReg(0);
+    
     Wire#(Tuple2#(SRAM_address, SRAM_address)) wr_send_req <- mkWire();
-    // Reg#(SRAM_address) rg_op2_address <- 
+    
     Vector#(nCol, Reg#(Bit#(aluWidth2))) vec_operand_out <- replicateM(mkReg(0));
     Vector#(nCol, Wire#(Bit#(aluWidth2))) wr_vec_operand <- replicateM(mkWire());
     Vector#(nCol, Wire#(Bit#(aluWidth2))) wr_vec_operand_out <- replicateM(mkWire());
 
-    Reg#(Dim1) rg_stride_counter <- mkReg(0);
-    Reg#(Dim1) rg_window_counter <- mkReg(0);
+    Reg#(Dim1) rg_i_var <- mkReg(0);
+    Reg#(Dim1) rg_j_var <- mkReg(0);
+    Reg#(Dim1) rg_k_var <- mkReg(0);
+    Reg#(Dim1) rg_l_var <- mkReg(0);
 
     Ifc_vectorALU#(aluWidth, nCol) vectorALU <- mkvectorALU();
 
-    //Both operand 1 and operand 2 will be in the same set of banks, creating conflicts
-    //Hence sending one request at a time, using a ping-pong 1-bit token 
-    rule send_req(rg_aluPacket matches tagged Valid .rgalu &&& rg_counter < extend(rgalu.loop_extent));
-        let op1_base = rgalu.address_operand;
-        let opsend  = op1_base+rg_counter;
-        rg_counter <= rg_counter+1;
+    //Innermost loop, for l = 1 to S, l < R
+    rule rl_send_req(rg_aluPacket matches tagged Valid .rgalu &&& 
+                  rg_l_var < extend(rgalu.window_width));
+        let op1_base = rgalu.input_address;
+        let opsend  = op1_base+rg_l_var;
+        rg_l_var <= rg_l_var+1;
         wr_send_req <= opsend;
     endrule
   
-    rule perform_computation;
+    // out = op(out, in)
+    rule rl_perform_computation(rg_aluPacket matches tagged Valid .rgalu);
         for(Integer i = 0; i < nCol; i=i+1) begin
-            let x <- vectorALU.sendcolValue[i].sendoperands(vec_operand_out[i], wr_vec_operand[i], rg_aluPacket.alu_opcode);
+            let x <- vectorALU.sendcolValue[i].sendoperands(vec_operand_out[i], wr_vec_operand[i], rgalu.alu_opcode);
             vec_operand_out[i] <= x;
         end
     endrule
  
-    //Start of i+1th row in a window
-    rule update_extents(rg_counter == extend(rg_aluPacket.loop_extent) && rg_stride_counter < window_size);
-       let op1_base = rg_aluPacket.address_operand + output_X_stride; 
+    //3rd nested loop, l = S, input_address = input_address + stride_S, k = k + 1
+    rule rl_end_loop_l(rg_aluPacket matches tagged Valid .rgalu &&& 
+                        rg_l_var == rgalu.window_width &&&
+                        rg_j_var < rgalu.window_height);
+       let op1_base = rg_aluPacket.input_address + rgalu.mem_stride_S; 
        let opsend = op1_base;
        wr_send_req <= opsend;
-       rg_aluPacket.address_operand <= op1_base;
-       rg_stride_counter <= rg_stride_counter + 1; 
-       rg_counter <= 0; 
+       rg_aluPacket.input_address <= op1_base; // TODO: updating Maybe#
+       rg_k_var <= rg_k_var + 1; // k = k + 1
+       rg_l_var <= 0; // l = 0
     endrule
     
-    //Start of i+1th window -- define cond
-    rule update_window(rg_counter == extend(rg_aluPacket.loop_extent) && rg_stride_counter == window_size 
-          && rg_window_counter < window_loop_extent);
-      let op1_base = rg_baseaddr_copy + window_X_stride;
-      rg_aluPacket.address_operand <= op1_base;
+    //2nd nested loop, k = R, l = S, input_address = base_copy + stride_R, j = j + 1
+    rule rl_end_loop_k(rg_aluPacket matches tagged Valid .rgalu &&& 
+                       rg_l_var == rgalu.window_width &&& 
+                       rg_k_var == rgalu.window_height &&& 
+                       rg_j_var < rgalu.output_width);
+      let op1_base = rg_baseaddr_copy + rgalu.mem_stride_R;
+      rg_aluPacket.input_address <= op1_base; // TODO: updating Maybe#
       rg_baseaddr_copy <= op1_base;
-      rg_stride_counter <= 0; 
-      rg_counter <= 0;
+      rg_j_var <= rg_j_var + 1;
+      rg_k_var <= 0; 
+      rg_l_var <= 0;
       wr_send_req <= opsend;
     endrule
 
-    //Start of i+1th row in the output
-    rule update_row(rg_counter == extend(rg_aluPacket.loop_extent) && rg_stride_counter == window_size
-          && rg_window_counter == rg_aluPacket.window_loop_extent && rg_output_counter < rg_aluPacket.output_loop_extent));
-      let op1_base = rg_baseaddr_copy + rg_aluPacket.output_Y_stride;
+    //Outermost loop, j = OW, k = R, l = S, input_address = base_copy + stride_OW, i = i + 1
+    rule rl_end_loop_j(rg_aluPacket matches tagged Valid .rgalu &&& 
+                    rg_l_var == rgalu.window_width &&&
+                    rg_k_var == rgalu.window_height &&&
+                    rg_j_var == rgalu.output_width &&& 
+                    rg_i_var < rgalu.output_height);
+
+      let op1_base = rg_baseaddr_copy + rgalu.mem_stride_OW;
       wr_send_req <= op1_base;
-      rg_aluPacket.address_operand <= op1_base;
-      rg_counter <= 0;
-      rg_stride_counter <= 0;
-      rg_window_counter <= 0;
+      rg_aluPacket.input_address <= op1_base; 
+      rg_i_var <= rg_i_var + 1;
+      rg_l_var <= 0;
+      rg_k_var <= 0;
+      rg_j_var <= 0;
     endrule
 
-    rule end_instruction(rg_counter == extend(rg_aluPacket.loop_extent) && rg_stride_counter == window_size
-          && rg_window_counter == rg_aluPacket.window_loop_extent && rg_output_counter == rg_aluPacket.output_loop_extent);
-          rg_counter <= 0;
-          rg_stride_counter <= 0;
-          rg_window_counter <= 0;
-          rg_output_counter <= 0;
+    //End of pseudocode, send tokens to dependency module if applicable
+    rule rl_end_loop_i(rg_aluPacket matches tagged Valid .rgalu &&& 
+                         rg_l_var == rgalu.window_width &&& 
+                         rg_k_var == rgalu.window_height &&&
+                         rg_j_var == rgalu.output_width &&& 
+                         rg_i_var == rgalu.output_height);
+          rg_l_var <= 0;
+          rg_k_var <= 0;
+          rg_j_var <= 0;
+          rg_i_var <= 0;
           rg_aluPacket <= tagged Invalid;
           //TODO: Send appropriate tokens to dependency module
     endrule
 
-    //Someone should make this tagged invalid somewhere right?
-    //TODO - figure out where to make this tagged Invalid -- some last bit should be given - taken care in the above rule
-
     method Action getParams(ALU_params params);
         rg_aluPacket <= tagged Valid params;
-        rg_baseaddr_copy <= params.address_operand;
+        rg_baseaddr_copy <= params.input_address;
     endmethod
 
     method Tuple2#(Bool, Maybe#(SRAM_address)) send_req_op;
