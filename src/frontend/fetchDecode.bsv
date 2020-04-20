@@ -219,12 +219,12 @@ endmodule
 
 module mkTB(Empty);
   //In this module, instantiate the AXI Fabric - connect the tb with the fetch decode and test
-  Reg#(Bit#(20)) clock_val <- mkReg(0);
+  Reg#(Bit#(20)) rg_clock_val <- mkReg(0);
 
   //instantiating modules
   Ifc_fetchDecode fetchDecode <- mkfetchDecode;
   Ifc_slave dram <- mkslave;
-  Reg#(Bit#(20)) max_clock <- mkReg(200);
+  Reg#(Bit#(20)) rg_max_clock <- mkReg(200);
 
   //connect Frontend master and dram slave
   mkConnection(fetchDecode.master, dram.slave);
@@ -232,15 +232,15 @@ module mkTB(Empty);
   mkConnection(dram.fetch_master, fetchDecode.fetch_slave);
 
 
-  rule rl_clock(clock_val < max_clock);
-    clock_val <= clock_val + 1 ;
+  rule rl_clock(rg_clock_val < rg_max_clock);
+    rg_clock_val <= rg_clock_val + 1 ;
   endrule
 
-  rule rl_finish(clock_val == max_clock);
+  rule rl_finish(rg_clock_val == rg_max_clock);
     $finish;
   endrule
 
-  rule rl_print_50_cyc(clock_val%50==0);
+  rule rl_print_50_cyc(rg_clock_val%50==0);
     //$display("fetch decode TB getting triggered!");
   endrule
 
