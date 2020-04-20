@@ -46,3 +46,18 @@ Pseudo-Code
       tmpGemmQueue.enq(inst)
     end if
   end while == 0
+  
+
+Verification
+^^^^^^^^^^^
+* (Asignee - Rishabh Jain)
+* Create a dummy module which connects with the AXI master and slave interfaces of Fetch module.
+* This dummy module sends a SET/RESET PC signal and instructions.
+* A testbench connects the fetch module and dummy module.
+* Cases to test are:
+    * Able to set/reset PC value in Fetch module.
+    * Able to send a fetch request from fetch module.
+    * Fetch module able to receive a AXI response of dummy instruction.
+    * Instruction fetch should start after PC is set.
+    * IF queue working properly (enq, deq, full, empty)
+
