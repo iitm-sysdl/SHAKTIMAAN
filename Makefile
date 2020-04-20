@@ -1,7 +1,7 @@
-TOP_MODULE:=mksystolic3
-TOP_FILE:=systolic_top.bsv
+TOP_MODULE:=mkTB
+TOP_FILE:=fetchDecode.bsv
 HOMEDIR:=./
-TOP_DIR:=./src
+TOP_DIR:=./src/frontend/
 BSVBUILDDIR:=./build/
 VERILOGDIR:=./verilog/
 AXI4:=./fabrics/axi4
@@ -26,26 +26,26 @@ link:
 	@echo Linking $(TOP_MODULE)...
 	@mkdir -p bin
 	@bsc -e $(TOP_MODULE) -sim -o ./bin/out -simdir $(BSVBUILDDIR) -p .:%/Prelude:%/Libraries:%/Libraries/BlueNoC\
-  -bdir $(BSVBUILDDIR) -keep-fires 
+  -bdir $(BSVBUILDDIR) -keep-fires
 	@echo Linking finished
 
-.PHONY: generate_verilog 
+.PHONY: generate_verilog
 generate_verilog:
 	@echo Compiling $(TOP_MODULE) in verilog ...
-	@mkdir -p $(BSVBUILDDIR); 
-	@mkdir -p $(VERILOGDIR); 
+	@mkdir -p $(BSVBUILDDIR);
+	@mkdir -p $(VERILOGDIR);
 	@bsc -u -verilog -elab -vdir $(VERILOGDIR) -bdir $(BSVBUILDDIR) -info-dir $(BSVBUILDDIR)\
   $(define_macros) -D verilog=True -D VERBOSITY=0 $(BSVCOMPILEOPTS) -p $(BSVINCDIR) -g $(TOP_MODULE) $(TOP_DIR)/$(TOP_FILE)\
-  || (echo "BSC COMPILE ERROR"; exit 1) 
+  || (echo "BSC COMPILE ERROR"; exit 1)
 
 .PHONY: simulate
 simulate:
 	@echo Simulation...
-	./bin/out 
-	@echo Simulation finished. 
+	./bin/out
+	@echo Simulation finished.
 
 .PHONY: vivado_build
-vivado_build: 
+vivado_build:
 	@vivado -mode tcl -source $(HOMEDIR)/src/tcl/create_project.tcl -tclargs $(TOP_MODULE) $(FPGA) || (echo "Could \
 not create core project"; exit 1)
 	@vivado -mode tcl -source $(HOMEDIR)/src/tcl/run.tcl || (echo "ERROR: While running synthesis")
@@ -61,7 +61,7 @@ full_clean: clean
 .PHONY: restore
 restore: full_clean
 
-.PHONY: release 
+.PHONY: release
 release:
 	rm -rf $(REL_DIR)
 	mkdir -p $(REL_DIR)
