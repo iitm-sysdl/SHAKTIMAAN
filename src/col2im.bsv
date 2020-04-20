@@ -110,7 +110,7 @@ package col2im;
     //If the multiplier takes more number of clock cycles than the burst_len, new req will not begin
     //Untill mul is done. This is indicated using the rg_mul_done signal
     rule rl_process_buffer_val(rg_state==Active_new_burst && rg_mul_done);
-      Bit#(addr_width) store_addr= dram_base + zeroExtend(rg_channel_offset) + zeroExtend(rg_row_offset);
+      Bit#(addr_width) store_addr= dram_base + ((zeroExtend(rg_channel_offset) + zeroExtend(rg_row_offset)) << v_awsize);
 
 		  AXI4_Wr_Addr#(addr_width, 0) aw = AXI4_Wr_Addr {awaddr : store_addr, awuser : 0,
       awlen : output_window_col_size_minus1, awsize : fromInteger(v_awsize), awburst : 'b01,
