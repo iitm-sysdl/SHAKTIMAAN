@@ -79,10 +79,13 @@ module mkdepResolver(Ifc_depResolver);
     let deptFlags = load_inst[iLEN-opCode-1:iLEN-opCode-dePT];  //deptFlags
    
     if((deptFlags == `Pop_next_dep && gemmtoloadQ.notEmpty()) || deptFlags != `Pop_next_dep) begin
-      tloadQ.deq; 
+      tloadQ.deq;
+      $display("Resolving: load inst");
       loadQ.enq(load_inst);
-      if(deptFlags == `Pop_next_dep)
+      if(deptFlags == `Pop_next_dep) begin
         gemmtoloadQ.deq;
+        $display("Load inst with dependency!");
+      end
     end
   endrule
 
@@ -94,14 +97,24 @@ module mkdepResolver(Ifc_depResolver);
       tstoreQ.deq;
       storeQ.enq(store_inst);
 
-      if(deptFlags == `Pop_prev_dep)
+      $display("Resolving: store inst");
+      if(deptFlags == `Pop_prev_dep)begin
         gemmtostoreQ.deq;
-    end
-  endrule 
+        $display("Store inst with dependency!");
+      end
 
+    end
+  endrule
+
+  rule display_TComputeQ;
+    let lv_val = tcomputeQ.first;
+    $display("TCompute queue has a value: %h",lv_val);
+  endrule
+  
   rule rl_schedcompute;
     let compute_inst = tcomputeQ.first;
     let deptFlags    = compute_inst[iLEN-opCode-1:iLEN-opCode-dePT];
+    $display("Entering rule: rl_schedcompute");
 
     if(((deptFlags == `Pop_prev_dep && loadtogemmQ.notEmpty()) || deptFlags != `Pop_prev_dep) &&
         ((deptFlags == `Pop_next_dep && storetogemmQ.notEmpty()) || deptFlags != `Pop_next_dep)) begin
@@ -157,6 +170,7 @@ module mkdepResolver(Ifc_depResolver);
 
   interface Put fromcomputeDep;
     method Action put(Bit#(ILEN) computeinst);
+      $display("putting a compute inst");
       tcomputeQ.enq(computeinst);
     endmethod
   endinterface 
@@ -203,21 +217,33 @@ module mkdepResolverSlave(Ifc_tb_slave);
   rule test_load_nodep(rg_test_counter == 0);
     wr_loadinst <= {4'b0000, 4'b0000, '1};
     rg_test_counter <= 1;
+    $display("Generating a load inst without dep!");
   endrule
 
   rule test_load_dep(rg_test_counter == 1);
     wr_gemmtoload_token <= 1;
     wr_loadinst <= {4'b0000, `Pop_next_dep, '1};  
     rg_test_counter <= 2;
+    $display("Generating a load inst with Dep!");
   endrule
 
-  rule test_store_nodep(rg_test_counter == 3);
+  rule test_store_nodep(rg_test_counter == 2);
+    wr_storeinst <= {4'b0001,4'b0000, '1 };
+    rg_test_counter <= 3;
+    $display("Generating a store inst without dep!");
   endrule
 
-  rule test_store_dep(rg_test_counter == 4);
+  rule test_store_dep(rg_test_counter == 3);
+    wr_storeinst <= {4'b0001,`Pop_prev_dep, '1 };
+    rg_test_counter <= 5;
+    wr_gemmtostore_token <= 1;
+    $display("Generating a store inst with Dep!");
   endrule
 
   rule test_compute_nodep(rg_test_counter == 5);
+   wr_computeinst <= {4'b0001,4'b0000, '1 };
+   rg_test_counter <= 6;
+   $display("Generating a compute inst without dep!");
   endrule
 
   rule test_compute_dep1(rg_test_counter == 6);
@@ -288,8 +314,12 @@ module mkdepResolverSlave(Ifc_tb_slave);
 
 endmodule
 
-module mkTb(Empty);
+module mkTB(Empty);
 
+ Reg#(Bit#(20)) rg_clock_val <- mkReg(0);
+ Reg#(Bit#(20)) rg_max_clk <- mkReg(100);
+
+ //instantiating modules
  Ifc_depResolver depResolver <- mkdepResolver();
  Ifc_tb_slave    depResolverslave <- mkdepResolverSlave();
 
@@ -305,6 +335,18 @@ module mkTb(Empty);
  mkConnection(depResolver.toloadModule,    depResolverslave.fromloadModule);
  mkConnection(depResolver.tostoreModule,   depResolverslave.fromstoreModule);
  mkConnection(depResolver.tocomputeModule, depResolverslave.fromcomputeModule);
+
+ rule rl_clock(rg_clock_val < rg_max_clk);
+   rg_clock_val <= rg_clock_val +1;
+ endrule
+
+ rule rl_finish(rg_clock_val == rg_max_clk);
+   $finish;
+ endrule
+
+ rule rl_print_20(rg_clock_val%20==0);
+   $display("Clock val: %d", rg_clock_val);
+ endrule
 
 endmodule
 
