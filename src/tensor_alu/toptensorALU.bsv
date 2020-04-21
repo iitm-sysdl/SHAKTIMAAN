@@ -44,14 +44,14 @@ import Vector::*;
 /* TODO
   1. Stride fields in the ISA needs to be standardised
     1.1 Updating input address
-  2. Updating output address
-  3. Writing back output address to SRAM
+  2. Add mask when writing back to memory where the number of valid ALU elements should be from instruction
   ...
 */
 interface Ifc_toptensorALU#(numeric type aluWidth, numeric type nCol);
     method Action getParams(ALU_params params);
     method SRAM_address send_req_op;
-    method ActionValue#(Vector#(nCol, Bit#(aluWidth2))) putResult();
+    method Action recvOp(Vector#(nCol, Bit#(aluWidth)) vec_data);
+    method ActionValue#(Tuple2#(SRAM_address, Vector#(nCol, Bit#(aluWidth2)))) putResult()
 endinterface
 
 module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
@@ -60,9 +60,13 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
     );
 
     Reg#(Maybe#(ALU_params)) rg_aluPacket <- mkReg(tagged Invalid);
-    Reg#(SRAM_address) rg_baseaddr_copy <- mkReg(0);
+    Reg#(SRAM_address) rg_irow_addr <- mkReg(0);
+    Reg#(SRAM_address) rg_icol_addr <- mkReg(0);
+    Reg#(SRAM_address) rg_srow_addr <- mkReg(0);
+    Reg#(SRAM_address) rg_scol_addr <- mkReg(0);
+    Reg#(SRAM_address) rg_output_addr <- mkReg(0);
     
-    Wire#(Tuple2#(SRAM_address, SRAM_address)) wr_send_req <- mkWire();
+    Wire#(SRAM_address) wr_send_req <- mkWire();
     
     Vector#(nCol, Reg#(Bit#(aluWidth2))) vec_operand_out <- replicateM(mkReg(0));
     Vector#(nCol, Wire#(Bit#(aluWidth2))) wr_vec_operand <- replicateM(mkWire());
@@ -73,15 +77,16 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
     Reg#(Dim1) rg_k_var <- mkReg(0);
     Reg#(Dim1) rg_l_var <- mkReg(0);
 
+    Reg#(Dim2) rg_mem_count <- mkReg(0);
+
     Ifc_vectorALU#(aluWidth, nCol) vectorALU <- mkvectorALU();
 
     //Innermost loop, for l = 1 to S, l < R
     rule rl_send_req(rg_aluPacket matches tagged Valid .rgalu &&& 
                   rg_l_var < extend(rgalu.window_width));
-        let op1_base = rgalu.input_address;
-        let opsend  = op1_base+rg_l_var;
+        let op1_base = rg_scol_addr + rg_aluPacket.mem_stride_S;
         rg_l_var <= rg_l_var+1;
-        wr_send_req <= opsend;
+        wr_send_req <= op1_base;
     endrule
   
     // out = op(out, in)
@@ -92,46 +97,66 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
         end
     endrule
  
-    //3rd nested loop, l = S, input_address = input_address + stride_S, k = k + 1
+    //3rd nested loop, l = S, input_address = input_address + stride_R, k = k + 1
     rule rl_end_loop_l(rg_aluPacket matches tagged Valid .rgalu &&& 
                         rg_l_var == rgalu.window_width &&&
                         rg_j_var < rgalu.window_height);
-       let op1_base = rg_aluPacket.input_address + rgalu.mem_stride_S; 
-       let opsend = op1_base;
-       wr_send_req <= opsend;
-       rg_aluPacket.input_address <= op1_base; // TODO: updating Maybe#
+       let op1_base = rg_srow_addr + rgalu.mem_stride_R;
+       rg_srow_addr <= op1_base; 
+       rg_scol_addr <= op1_base;
+       wr_send_req <= op1_base;
        rg_k_var <= rg_k_var + 1; // k = k + 1
        rg_l_var <= 0; // l = 0
     endrule
     
-    //2nd nested loop, k = R, l = S, input_address = base_copy + stride_R, j = j + 1
+    //2nd nested loop, k = R, l = S, input_address = rg_icol_addr + Sy*mem_stride_S, j = j + 1
     rule rl_end_loop_k(rg_aluPacket matches tagged Valid .rgalu &&& 
                        rg_l_var == rgalu.window_width &&& 
                        rg_k_var == rgalu.window_height &&& 
-                       rg_j_var < rgalu.output_width);
-      let op1_base = rg_baseaddr_copy + rgalu.mem_stride_R;
-      rg_aluPacket.input_address <= op1_base; // TODO: updating Maybe#
-      rg_baseaddr_copy <= op1_base;
-      rg_j_var <= rg_j_var + 1;
-      rg_k_var <= 0; 
-      rg_l_var <= 0;
-      wr_send_req <= opsend;
+                       rg_j_var < rgalu.output_width &&& 
+                       rg_mem_count < rg_aluPacket.stride_w);
+      if(rg_mem_count == rg_aluPacket.stride_w - 1) begin
+        let op1_base = rg_icol_addr + rgalu.mem_stride_S;
+        rg_icol_addr <= op1_base;
+        rg_srow_addr <= op1_base;
+        wr_send_req <= opsend;
+        for(Integer temp = 0; temp < nCol; temp=temp+1) begin
+          wr_vec_operand_out[temp] <= vec_operand_out[temp];
+          vec_operand_out[temp] <= 0;
+        end
+        rg_j_var <= rg_j_var + 1;
+        rg_k_var <= 0; 
+        rg_l_var <= 0;
+        rg_mem_count <= 0;
+      end
+      else begin
+        rg_mem_count <= rg_mem_count + 1;
+        rg_icol_addr <= rg_icol_addr + rgalu.mem_stride_S;
+      end
     endrule
 
-    //Outermost loop, j = OW, k = R, l = S, input_address = base_copy + stride_OW, i = i + 1
+    //Outermost loop, j = OW, k = R, l = S, input_address = rg_irow_addr + Sx*mem_stride_R, i = i + 1
     rule rl_end_loop_j(rg_aluPacket matches tagged Valid .rgalu &&& 
                     rg_l_var == rgalu.window_width &&&
                     rg_k_var == rgalu.window_height &&&
                     rg_j_var == rgalu.output_width &&& 
-                    rg_i_var < rgalu.output_height);
-
-      let op1_base = rg_baseaddr_copy + rgalu.mem_stride_OW;
-      wr_send_req <= op1_base;
-      rg_aluPacket.input_address <= op1_base; 
-      rg_i_var <= rg_i_var + 1;
-      rg_l_var <= 0;
-      rg_k_var <= 0;
-      rg_j_var <= 0;
+                    rg_i_var < rgalu.output_height &&& 
+                    rg_mem_count < rg_aluPacket.stride_h);
+      if(rg_mem_count == rg_aluPacket.stride_h - 1) begin
+        let op1_base = rg_irow_addr + rgalu.mem_stride_R;
+        rg_icol_addr <= op1_base;
+        rg_irow_addr <= op1_base;
+        wr_send_req <= op1_base; 
+        rg_i_var <= rg_i_var + 1;
+        rg_l_var <= 0;
+        rg_k_var <= 0;
+        rg_j_var <= 0;
+        rg_mem_count <= 0;
+      end
+      else begin
+        rg_mem_count <= rg_mem_count + 1;
+        rg_irow_addr <= rg_irow_addr + rgalu.mem_stride_R;
+      end
     endrule
 
     //End of pseudocode, send tokens to dependency module if applicable
@@ -150,10 +175,15 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
 
     method Action getParams(ALU_params params);
         rg_aluPacket <= tagged Valid params;
-        rg_baseaddr_copy <= params.input_address;
+        let lv_in_base_addr = params.input_address;
+        rg_irow_addr <= lv_in_base_addr;
+        rg_icol_addr <= lv_in_base_addr;
+        rg_scol_addr <= lv_in_base_addr;
+        rg_srow_addr <= lv_in_base_addr;
+        rg_output_addr <= params.output_address;
     endmethod
 
-    method Tuple2#(Bool, Maybe#(SRAM_address)) send_req_op;
+    method SRAM_address send_req_op;
         return wr_send_req;
     endmethod
 
@@ -163,9 +193,8 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
     endmethod
 
     method ActionValue#(Tuple2#(SRAM_address, Vector#(nCol, Bit#(aluWidth2)))) putResult();
-          //Calculate the output SRAM address to be sent
-           let out = rg_aluPacket.address_output; // + XXX
-           return tuple2(out, wr_vec_operand_out);
+           rg_output_addr <= rg_output_addr + rg_aluPacket.mem_stride_OW;
+           return tuple2(rg_output_addr, wr_vec_operand_out);
     endmethod
 
 endmodule
