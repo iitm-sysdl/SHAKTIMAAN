@@ -1,5 +1,5 @@
 TOP_MODULE:=mkTb
-TOP_FILE:=unified_buffer.bsv
+TOP_FILE:=onchip_buffers.bsv
 HOMEDIR:=./
 TOP_DIR:=./src
 BSVBUILDDIR:=./build/
