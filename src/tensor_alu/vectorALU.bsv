@@ -8,9 +8,11 @@ package vectorALU;
 
 import scalarALU::*;
 import  Vector ::*;
+import isa::*;
+`include "Logger.bsv"
 
 interface Ifc_sendALU#(numeric type aluWidth);
-  method ActionValue#(Bit#(TAdd#(aluWidth, 1))) sendoperands(Bit#(aluWidth) op1, Bit#(aluWidth) op2, Bit#(2) op_type);
+  method ActionValue#(Bit#(TAdd#(aluWidth, 1))) sendoperands(Bit#(aluWidth) op1, Bit#(aluWidth) op2, ALU_Opcode op_type);
 endinterface
 
 interface Ifc_vectorALU#(numeric type aluWidth, numeric type nCol);
@@ -45,8 +47,9 @@ module mkvectorALU(Ifc_vectorALU#(aluWidth, nCol))
     vec_colValue[i] = ( 
       interface Ifc_sendALU#(aluWidth); 
         method ActionValue#(Bit#(TAdd#(aluWidth,1))) sendoperands(Bit#(aluWidth) op1,Bit#(aluWidth) op2, 
-                                                                  Bit#(2) op_type);
+                                                                  ALU_Opcode op_type);
           let x <- scalarALU[i].inp_operands(op1, op2, op_type);
+          `logLevel(vectoralu, 0, $format(" Vector ALU : %d Received ALU instruction \n",i))
           return x;
         endmethod
       endinterface
