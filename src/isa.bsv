@@ -88,6 +88,7 @@ typedef struct {
     Dim2 stride_h; // Sx
     Dim2 stride_w; // Sy
     Bool use_immediate;
+    Dim1 immediate_value;// Modify the length of immediate value if required
 } ALU_params deriving(Bits);
 
 endpackage
