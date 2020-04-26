@@ -6,10 +6,7 @@ Details: Simple Scalar ALU
 
 /*
   TODO: 
-  1. If need be, add shift functions with op2 being the immediate value to shift op1 either 
-  left or right
-  2. Should the size of output be aluwidth+1 or aluwidth?
-  3. Add shift left operation
+  1. Add shift left operation, if required
 */
 
 package scalarALU;
@@ -18,7 +15,7 @@ package scalarALU;
   `include "Logger.bsv"
 
 interface Ifc_scalarALU#(numeric type aluWidth);
-  method ActionValue#(Bit#(TAdd#(aluWidth, 1))) inp_operands(Bit#(aluWidth) op1, Bit#(aluWidth) op2, ALU_Opcode op_type);
+  method ActionValue#(Bit#(aluWidth)) inp_operands(Bit#(aluWidth) op1, Bit#(aluWidth) op2, ALU_Opcode op_type);
 endinterface
   
 //A Dummy module to simply compile
@@ -29,33 +26,30 @@ module mkscalardummy(Ifc_scalarALU#(32));
     return (ifc);
 endmodule
 
-module mkscalarALU(Ifc_scalarALU#(aluWidth))
-    provisos(
-              Add#(aluWidth, 1, aluWidth2)
-            );
+module mkscalarALU(Ifc_scalarALU#(aluWidth));
   
   let dLEN = valueOf(aluWidth);
 
-  method ActionValue#(Bit#(TAdd#(aluWidth,1))) inp_operands(Bit#(aluWidth) op1, Bit#(aluWidth) op2, ALU_Opcode op_type);
-    Bool cmp = op1>op2;
-    let max_out = cmp? op1 : op2;
-    let min_out = cmp? op2 : op1;
-    
+  method ActionValue#(Bit#(aluWidth)) inp_operands(Bit#(aluWidth) op1, Bit#(aluWidth) op2, ALU_Opcode op_type);
     Int#(aluWidth) signed_op1 = unpack(op1);
     Int#(aluWidth) signed_op2 = unpack(op2);
+    
+    Bool cmp = signed_op1>signed_op2;
+    let max_out = max(signed_op1, signed_op2);
+    let min_out = min(signed_op1, signed_op2);
 
-    Int#(aluWidth2) signed_output = extend(signed_op1) + extend(signed_op2);
+    Int#(aluWidth) signed_output = signed_op1 + signed_op2;
     Bit#(aluWidth) shifted_output = op1 << op2;
     
-    Bit#(aluWidth2) outp = 0; 
+    Bit#(aluWidth) outp = 0; 
     if(op_type == Max)
-      outp = extend(max_out);
+      outp = pack(max_out);
     else if(op_type == Min)
-      outp = extend(min_out);
+      outp = pack(min_out);
     else if(op_type == Add)
       outp = pack(signed_output);
     else if(op_type == Shift)
-      outp = extend(shifted_output);
+      outp = shifted_output;
       `logLevel(toptensoralu, 0, $format(" Scalar ALU : Received ALU instruction: opcode %d; operand_1 %d; operand_2 %d; output %d; \n", op_type, op1, op2, outp))
     return outp;
   endmethod

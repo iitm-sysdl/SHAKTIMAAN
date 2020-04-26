@@ -19,25 +19,39 @@ import isa::*;
   Each ALU instruction performs the following pseudocode.
   A 3D slice of feature map is read as input, and another 3D slice of feature map is generated as output.
 
+  OH - output_height
+  OW - output_width
+  R - window_hegiht
+  S - window_width
+  Sx - stride_h - window stride along the rows
+  Sy - stride_w - window stride along the columns
+  S_OW - mem_stride_OW - mem stride which gives the address difference of two consective output elements(output is stored in row major order)
+  S_R - mem_stride_R - mem stride which gives the address difference of two consecutive elements in the input row
+  S_S - mem_stride_S - mem stride which gives the address difference of two consecutive elements in the input column
+
   PSEUDOCODE:
   --------------------------------
   # input: base address of input, output: base address of output
   
-  basecopy = input
+  irow_addr = input_address
   for i = 1 to OH
+      icol_addr = irow_addr
       for j = 1 to OW
-          out = 0
+          out = if_immediate ? immediate_value : 0
+          srow_addr = icol_addr
           for k = 1 to R
+              scol_addr = srow_addr
               for l = 1 to S
-                  out = alu_op(out, *input)
+                  out = alu_op(out, *scol_addr)
+                  scol_addr += mem_Stride_S
               endfor
-              input += mem_stride_S
+              srow_addr += mem_stride_R
           endfor
-          input += mem_stride_R
-          *output = out
-          output += 1
+          icol_addr += Sy*mem_stride_S
+          *output_address = out
+          output_address += mem_stride_OW
       endfor
-      input += mem_stride_OW
+      irow_addr += Sx*mem_stride_R
   endfor
 
   --------------------------------
@@ -53,13 +67,13 @@ interface Ifc_toptensorALU#(numeric type aluWidth, numeric type nCol);
     method Action getParams(ALU_params params);
     method SRAM_address send_req_op;
     method Action recvOp(Vector#(nCol, Bit#(aluWidth)) vec_data);
-    method ActionValue#(Tuple2#(SRAM_address, Vector#(nCol, Bit#(TAdd#(aluWidth,1))))) putResult;
+    method ActionValue#(Tuple2#(SRAM_address, Vector#(nCol, Bit#(aluWidth)))) putResult;
 endinterface
 
 module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
-    provisos(
-        Add#(aluWidth, 1, aluWidth2)
-    );
+    provisos(Bits#(Dim1,a),
+              Add#(b,a,aluWidth)
+            );
 
     Integer vnCol = valueOf(nCol);
 
@@ -72,9 +86,9 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
     
     Wire#(SRAM_address) wr_send_req <- mkWire();
     
-    Vector#(nCol, Reg#(Bit#(aluWidth2))) vec_operand_out <- replicateM(mkReg(0));
+    Vector#(nCol, Reg#(Bit#(aluWidth))) vec_operand_out <- replicateM(mkReg(0));
     Vector#(nCol, Wire#(Bit#(aluWidth))) wr_vec_operand <- replicateM(mkWire());
-    Vector#(nCol, Wire#(Bit#(aluWidth2))) wr_vec_operand_out <- replicateM(mkWire());
+    Vector#(nCol, Wire#(Bit#(aluWidth))) wr_vec_operand_out <- replicateM(mkWire());
 
     Reg#(Dim1) rg_i_var <- mkReg(1);
     Reg#(Dim1) rg_j_var <- mkReg(1);
@@ -97,10 +111,10 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
     // out = op(out, in)
     rule rl_perform_computation(rg_aluPacket matches tagged Valid .rgalu);
         for(Integer i = 0; i < vnCol; i=i+1) begin
-            let x <- vectorALU.sendcolValue[i].sendoperands(truncate(vec_operand_out[i]), wr_vec_operand[i], rgalu.alu_opcode);
+            let x <- vectorALU.sendcolValue[i].sendoperands(vec_operand_out[i], wr_vec_operand[i], rgalu.alu_opcode);
             if(rg_l_var == rgalu.window_height && rg_k_var == rgalu.window_width) begin
               wr_vec_operand_out[i] <= x;
-              vec_operand_out[i] <= 0;
+              vec_operand_out[i] <= rgalu.use_immediate ? extend(rgalu.immediate_value) : 0;
             end
         end
         `logLevel(toptensoralu, 0, $format(" toptensoralu : Sending operands to vectors : i = %d; j = %d; k = %d; l = %d \n", rg_i_var, rg_j_var, rg_k_var, rg_l_var))
@@ -192,6 +206,9 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
         rg_scol_addr <= lv_in_base_addr;
         rg_srow_addr <= lv_in_base_addr;
         rg_output_addr <= params.output_address;
+        if(params.use_immediate)
+          for(Integer i=0; i<vnCol; i=i+1) 
+            vec_operand_out[i] <= extend(params.immediate_value);
         `logLevel(toptensoralu, 0, $format(" toptensoralu : Received ALU instruction : OPcode %d; input address %d; output address %d; output height %d \n", params.alu_opcode, params.input_address, params.output_address, params.output_height, params.output_width))
         `logLevel(toptensoralu, 0, $format(" toptensoralu : R = %d; S = %d; S_OW = %d; S_R = %d; S_S = %d; Sx = %d; Sy = %d \n", params.window_height, params.window_width, params.mem_stride_OW, params.mem_stride_R, params.mem_stride_S, params.stride_h, params.stride_w))
       endmethod
@@ -207,11 +224,11 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
           end
     endmethod
 
-    method ActionValue#(Tuple2#(SRAM_address, Vector#(nCol, Bit#(TAdd#(aluWidth,1))))) putResult;     
-        Vector#(nCol,Bit#(TAdd#(aluWidth,1))) lv_temp;
+    method ActionValue#(Tuple2#(SRAM_address, Vector#(nCol, Bit#(aluWidth)))) putResult;     
+        Vector#(nCol,Bit#(aluWidth)) lv_temp;
         for(Integer i=0; i< vnCol; i= i+1) begin
           lv_temp[i] = wr_vec_operand_out[i];
-        `logLevel(toptensoralu, 0, $format(" toptensoralu : %d : Writing to SRAM %d \n", i, lv_temp[i]))
+          `logLevel(toptensoralu, 0, $format(" toptensoralu : %d : Writing to SRAM %d \n", i, lv_temp[i]))
         end
         return tuple2(rg_output_addr, lv_temp);
     endmethod

@@ -7,10 +7,10 @@ import DReg::*;
 
 module mkTestbench_tensoralu();
 
-    Integer mem_per_bank = valueOf(TExp#(TSub#(26,TLog#(1))));
-    Vector#(1,BRAM_PORT#(Bit#(TSub#(26,TLog#(1))), Bit#(TAdd#(16,1)))) output_buffer <- replicateM(mkBRAMCore1(mem_per_bank,False));
+    Integer mem_per_bank = valueOf(TExp#(TSub#(26,TLog#(64))));
+    Vector#(64,BRAM_PORT#(Bit#(TSub#(26,TLog#(64))), Bit#(16))) output_buffer <- replicateM(mkBRAMCore1(mem_per_bank,False));
 
-    Ifc_toptensorALU#(16, 1) tensoralu <- mktoptensorALU;
+    Ifc_toptensorALU#(16, 64) tensoralu <- mktoptensorALU;
 
     Reg#(Bit#(3)) rg_flag <- mkReg(0);
     Reg#(ALU_params) rg_alu_instr <- mkReg(unpack(0));
@@ -23,8 +23,8 @@ module mkTestbench_tensoralu();
     endrule
 
     rule rl_write_to_memory(rg_flag ==0 && rg_counter < 36);
-        for(Integer i=0; i<1; i=i+1) begin
-            output_buffer[i].put(True, zeroExtend(rg_counter), zeroExtend(rg_counter));
+        for(Integer i=0; i<64; i=i+1) begin
+            output_buffer[i].put(True, zeroExtend(rg_counter), fromInteger(i) + zeroExtend(rg_counter));
         end
         rg_counter <= rg_counter + 1;
     endrule
@@ -43,7 +43,8 @@ module mkTestbench_tensoralu();
         lv_instr.mem_stride_S = 1;
         lv_instr.stride_h = 1;
         lv_instr.stride_w = 1;
-        lv_instr.use_immediate = False;
+        lv_instr.use_immediate = True;
+        lv_instr.immediate_value = 0;
         rg_alu_instr <= lv_instr;
         tensoralu.getParams(lv_instr);
         `logLevel(testbench, 0, $format("From testbench, Assigned ALU instruction"))
@@ -53,7 +54,7 @@ module mkTestbench_tensoralu();
 
     rule rl_get_sram_request;
         let lv_addr = tensoralu.send_req_op;
-        for(Integer i=0; i<valueOf(1); i=i+1) begin
+        for(Integer i=0; i<64; i=i+1) begin
             output_buffer[i].put(False, truncate(lv_addr), ?);
         end
         rg_sram_read <= True;
@@ -61,8 +62,8 @@ module mkTestbench_tensoralu();
     endrule
 
     rule rl_send_sram_response(rg_sram_read == True);
-        Vector#(1, Bit#(16)) lv_data = unpack(0);
-        for(Integer i=0; i<valueOf(1); i=i+1) begin
+        Vector#(64, Bit#(16)) lv_data = unpack(0);
+        for(Integer i=0; i<64; i=i+1) begin
             lv_data[i] = truncate(output_buffer[i].read);
         end
         tensoralu.recvOp(lv_data);
@@ -74,7 +75,7 @@ module mkTestbench_tensoralu();
         let lv_addr = tpl_1(lv_temp);
         let lv_data = tpl_2(lv_temp);
         let lv_mask;
-        for(Integer i=0; i<1; i=i+1) begin
+        for(Integer i=0; i<64; i=i+1) begin
             output_buffer[i].put(True, truncate(lv_addr), lv_data[i]);
         end 
         `logLevel(testbench, 0, $format("From testbench: sending SRAM write request %d \n",lv_addr))
