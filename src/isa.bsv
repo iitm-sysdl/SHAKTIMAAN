@@ -87,6 +87,7 @@ typedef struct {
     Dim1 mem_stride_S; // S_S
     Dim2 stride_h; // Sx
     Dim2 stride_w; // Sy
+    Dim1 num_of_filters; //Number of filters(M)
     Bool use_immediate;
     Dim1 immediate_value;// Modify the length of immediate value if required
 } ALU_params deriving(Bits);

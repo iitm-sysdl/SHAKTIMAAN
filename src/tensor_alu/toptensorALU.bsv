@@ -60,19 +60,21 @@ import isa::*;
 /* TODO
   1. Stride fields in the ISA needs to be standardised
     1.1 Updating input address
-  2. Add mask when writing back to memory where the number of valid ALU elements should be from instruction
+  2. Added output mask; num_of_filters is taken from ALUParams when this moved to other place correponding changes should be made
   ...
 */
 interface Ifc_toptensorALU#(numeric type aluWidth, numeric type nCol);
     method Action getParams(ALU_params params);
     method SRAM_address send_req_op;
     method Action recvOp(Vector#(nCol, Bit#(aluWidth)) vec_data);
-    method ActionValue#(Tuple2#(SRAM_address, Vector#(nCol, Bit#(aluWidth)))) putResult;
+    method ActionValue#(Tuple3#(SRAM_address, Vector#(nCol, Bit#(aluWidth)), Bit#(TLog#(nCol)))) putResult;
+    method Bool mv_alu_complete;
 endinterface
 
 module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
     provisos(Bits#(Dim1,a),
-              Add#(b,a,aluWidth)
+              Add#(b,a,aluWidth),
+              Add#(c,TLog#(nCol),a)
             );
 
     Integer vnCol = valueOf(nCol);
@@ -94,6 +96,11 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
     Reg#(Dim1) rg_j_var <- mkReg(1);
     Reg#(Dim2) rg_k_var <- mkReg(1);
     Reg#(Dim2) rg_l_var <- mkReg(0);
+
+    Reg#(Bool) rg_alu_complete <- mkReg(False);
+
+    Reg#(Dim1) rg_mask_counter <- mkReg(0);
+    Reg#(Bit#(TLog#(nCol))) rg_output_mask <- mkReg(0);
 
     Reg#(Dim2) rg_mem_count <- mkReg(0);
 
@@ -194,6 +201,7 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
           rg_j_var <= 1;
           rg_i_var <= 1;
           rg_aluPacket <= tagged Invalid;
+          rg_alu_complete <= True;
           `logLevel(toptensoralu, 1, $format(" toptensoralu : End of 2D operation i = %d; j = %d; k = %d; l = %d; \n", rg_i_var, rg_j_var, rg_k_var, rg_l_var))
           //TODO: Send appropriate tokens to dependency module
     endrule
@@ -206,11 +214,27 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
         rg_scol_addr <= lv_in_base_addr;
         rg_srow_addr <= lv_in_base_addr;
         rg_output_addr <= params.output_address;
+        rg_alu_complete <= False;
         if(params.use_immediate)
           for(Integer i=0; i<vnCol; i=i+1) 
             vec_operand_out[i] <= extend(params.immediate_value);
+        Dim1 lv_temp;
+        if(rg_mask_counter == 0)
+          lv_temp = params.num_of_filters;
+        else
+          lv_temp = rg_mask_counter;
+        if(lv_temp <= fromInteger(vnCol)) begin
+          rg_mask_counter <= 0;
+          rg_output_mask <= truncate(lv_temp - 1);
+          `logLevel(toptensoralu, 1, $format(" Calculating last mask %d \n", lv_temp))
+        end
+        else begin
+          rg_mask_counter <= lv_temp - fromInteger(vnCol);
+          rg_output_mask <= fromInteger(vnCol - 1);
+          `logLevel(toptensoralu, 1, $format(" Calculating mask %d \n", lv_temp))
+        end
         `logLevel(toptensoralu, 0, $format(" toptensoralu : Received ALU instruction : OPcode %d; input address %d; output address %d; output height %d \n", params.alu_opcode, params.input_address, params.output_address, params.output_height, params.output_width))
-        `logLevel(toptensoralu, 0, $format(" toptensoralu : R = %d; S = %d; S_OW = %d; S_R = %d; S_S = %d; Sx = %d; Sy = %d \n", params.window_height, params.window_width, params.mem_stride_OW, params.mem_stride_R, params.mem_stride_S, params.stride_h, params.stride_w))
+        `logLevel(toptensoralu, 0, $format(" toptensoralu : R = %d; S = %d; S_OW = %d; S_R = %d; S_S = %d; Sx = %d; Sy = %d Immediate %d Value %d filter %d \n", params.window_height, params.window_width, params.mem_stride_OW, params.mem_stride_R, params.mem_stride_S, params.stride_h, params.stride_w, params.use_immediate, params.immediate_value, params.num_of_filters))
       endmethod
 
     method SRAM_address send_req_op;
@@ -224,13 +248,17 @@ module mktoptensorALU(Ifc_toptensorALU#(aluWidth, nCol))
           end
     endmethod
 
-    method ActionValue#(Tuple2#(SRAM_address, Vector#(nCol, Bit#(aluWidth)))) putResult;     
+    method ActionValue#(Tuple3#(SRAM_address, Vector#(nCol, Bit#(aluWidth)), Bit#(TLog#(nCol)))) putResult;     
         Vector#(nCol,Bit#(aluWidth)) lv_temp;
         for(Integer i=0; i< vnCol; i= i+1) begin
           lv_temp[i] = wr_vec_operand_out[i];
-          `logLevel(toptensoralu, 0, $format(" toptensoralu : %d : Writing to SRAM %d \n", i, lv_temp[i]))
+          `logLevel(toptensoralu, 0, $format(" toptensoralu : %d : Writing to SRAM %d mask %d \n", i, lv_temp[i], rg_output_mask))
         end
-        return tuple2(rg_output_addr, lv_temp);
+        return tuple3(rg_output_addr, lv_temp, rg_output_mask);
+    endmethod
+
+    method Bool mv_alu_complete if(rg_aluPacket matches tagged Invalid);
+        return rg_alu_complete;
     endmethod
 
 endmodule

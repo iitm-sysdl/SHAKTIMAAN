@@ -43,6 +43,7 @@ module mkTestbench_tensoralu();
         lv_instr.mem_stride_S = 1;
         lv_instr.stride_h = 1;
         lv_instr.stride_w = 1;
+        lv_instr.num_of_filters = 32;
         lv_instr.use_immediate = True;
         lv_instr.immediate_value = 0;
         rg_alu_instr <= lv_instr;
@@ -74,14 +75,18 @@ module mkTestbench_tensoralu();
         let lv_temp <- tensoralu.putResult;
         let lv_addr = tpl_1(lv_temp);
         let lv_data = tpl_2(lv_temp);
-        let lv_mask;
-        for(Integer i=0; i<64; i=i+1) begin
-            output_buffer[i].put(True, truncate(lv_addr), lv_data[i]);
+        let lv_mask = tpl_3(lv_temp);
+        for(Bit#(TAdd#(TLog#(64),1)) i=0; i < 64; i=i+1) begin
+            if( i <= extend(lv_mask)) begin
+                output_buffer[i].put(True, truncate(lv_addr), lv_data[i]);
+                `logLevel(testbench, 0, $format(" From testbench : Wrtitng to output buffer %d : addr : %d data : %d\n",i,lv_addr,lv_data[i]))
+            end
         end 
-        `logLevel(testbench, 0, $format("From testbench: sending SRAM write request %d \n",lv_addr))
         rg_counter <= rg_counter + 1;
-        if(rg_counter == 35)
-            $finish();
+    endrule
+
+    rule rl_alu_complete(tensoralu.mv_alu_complete);
+        $finish;
     endrule
 
 
