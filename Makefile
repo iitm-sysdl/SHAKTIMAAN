@@ -1,5 +1,5 @@
 TOP_MODULE:=mkTB
-TOP_FILE:=depResolver.bsv
+TOP_FILE:=tb.bsv
 HOMEDIR:=./
 TOP_DIR:=./src/frontend/
 BSVBUILDDIR:=./build/
@@ -7,7 +7,7 @@ VERILOGDIR:=./verilog/
 AXI4:=./fabrics/axi4
 BRIDGES:=./fabrics/bridges
 COMMON_BSV:=./common_bsv
-FILES:= ./src/:$(AXI4):$(BRIDGES):$(COMMON_BSV)
+FILES:= ./src/:$(AXI4):$(BRIDGES):$(COMMON_BSV):$(TOP_DIR)
 BSVINCDIR:= .:%/Prelude:%/Libraries:%/Libraries/BlueNoC:$(FILES)
 FPGA=xc7a100tcsg324-1
 export HOMEDIR=./
