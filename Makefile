@@ -1,5 +1,5 @@
 TOP_MODULE:=mkTB
-TOP_FILE:=fetchDecode.bsv
+TOP_FILE:=depResolver.bsv
 HOMEDIR:=./
 TOP_DIR:=./src/frontend/
 BSVBUILDDIR:=./build/
