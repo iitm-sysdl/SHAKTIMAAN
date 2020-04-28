@@ -107,11 +107,11 @@ module mkfetchDecode(Ifc_fetchDecode);
                          aruser: 0 };  //0101 --random id to mark the requests
 
         m_xactor.i_rd_addr.enq(read_request);
-        $display("Systolic sending fetch request to memory");
+        //$display("Systolic sending fetch request to memory");
   endrule
 
   rule recvReqfromMem;
-        $display("IF resp is coming back !");
+        //$display("IF resp is coming back !");
         let resp <- pop_o(m_xactor.o_rd_data);
         let inst = resp.rdata;
         instrQueue.enq(inst);
@@ -121,7 +121,7 @@ module mkfetchDecode(Ifc_fetchDecode);
   //aggressive conditions or something, or break it into multiple queues
   rule decodeInstr(instrQueue.notEmpty());
     let inst = instrQueue.first;
-    $display("Dequeueing Inst Queue");
+    //$display("Dequeueing Inst Queue");
     instrQueue.deq();
     Bit#(4) opcodE = inst[valueOf(ILEN)-1:valueOf(ILEN)-valueOf(OpWidth)+1];
     //This is useless here right?
@@ -143,18 +143,21 @@ module mkfetchDecode(Ifc_fetchDecode);
 
    interface Get toloadQdep;
     method ActionValue#(Bit#(ILEN)) get;
+      $display($time, "\t  Success - Sending a Load Instruction " );
       return wr_loadQ;
     endmethod
    endinterface
 
    interface Get tostoreQdep;
     method ActionValue#(Bit#(ILEN)) get;
+      $display($time, "\t  Success - Sending a Store Instruction " );
       return wr_storeQ;
     endmethod
    endinterface
 
   interface Get tocomputeQdep;
     method ActionValue#(Bit#(ILEN)) get;
+      $display($time, "\t  Success - Sending a Compute Instruction " );
       return wr_computeQ;
     endmethod
    endinterface
@@ -183,7 +186,7 @@ module mkslave(Ifc_slave);
 
   AXI4_Master_Xactor_IFC #(`ADDR_WIDTH, `DATA_WIDTH, 0) m_tb_xactor <- mkAXI4_Master_Xactor;
   AXI4_Slave_Xactor_IFC#(`ADDR_WIDTH,`DATA_WIDTH,0) s_tb_xactor  <- mkAXI4_Slave_Xactor;
-  Reg#(Bit#(ILEN)) rg_inst <- mkReg({3'b000,4'b0000,'1});
+  Reg#(Bit#(ILEN)) rg_inst <- mkReg({4'b0000,4'b0001,'1});
   Reg#(Bit#(1)) rg_start <- mkReg(0);
 
 
@@ -193,7 +196,7 @@ module mkslave(Ifc_slave);
   //endrule
 
   rule set_pc(rg_start == 0);
-    $display("Setting PC");
+    //$display("Setting PC");
     rg_start <= 1;
     let write_data = AXI4_Wr_Data { wdata: '0, wstrb: '1, wlast: True, wid: ?};
     let write_addr = AXI4_Wr_Addr { awaddr: zeroExtend(4'b0000), awuser: 0, awlen: 0,
@@ -208,7 +211,7 @@ module mkslave(Ifc_slave);
     let rd_req <- pop_o(s_tb_xactor.o_rd_addr);
     let lv_resp= AXI4_Rd_Data {rresp:AXI4_OKAY, rdata: rg_inst, ruser: ?}; //TODO user?
     s_tb_xactor.i_rd_data.enq(lv_resp);
-    $display("slave writing fetch resp");
+    //$display("slave writing fetch resp");
   endrule
 
 
@@ -241,7 +244,7 @@ module mkTB(Empty);
   endrule
 
   rule rl_print_50_cyc(rg_clock_val%50==0);
-    //$display("fetch decode TB getting triggered!");
+    ////$display("fetch decode TB getting triggered!");
   endrule
 
 endmodule
