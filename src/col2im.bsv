@@ -40,6 +40,7 @@ package col2im;
 	import AXI4_Fabric::*;
 	import Semi_FIFOF::*;
   import ConfigReg::*;
+  import UniqueWrappers::*;
   import pipe_mul::*;
   `define Buffer_wreq_id 4
 
@@ -56,6 +57,10 @@ package col2im;
     interface AXI4_Master_IFC#(addr_width, data_width, 0) axi_buffer_wreq;
   endinterface
 
+  function Bit#(a) incr1(Bit#(a) inp);
+    return inp+1;
+  endfunction
+
   module mkcol2im#(Bit#(addr_width) dram_base, Bit#(8) output_window_col_size_minus1,
   Bit#(accumindexbits) output_window_row_size_minus1)
   (Ifc_col2im#(addr_width, data_width, nCol, mulWidth2, nRow, accumindexbits, convColbits))
@@ -66,14 +71,18 @@ package col2im;
            Add#(b__, TAdd#(TAdd#(convColbits, convColbits), nColbits), addr_width),
            Add#(c__, TAdd#(convColbits, accumindexbits), addr_width),
            Add#(d__, convColbits, accumindexbits),    //assumption 5.
-           Add#(ie__, nColbits, accumindexbits) //assumption 5.
+           Add#(e__, nColbits, accumindexbits), //assumption 5.
+           Max#(accumindexbits, 8, incr_width), //assumption 5. Max(accumindexbits,8,nColbits)= incr_width
+           Add#(f__, 8, incr_width),
+           Add#(g__, nColbits, incr_width),
+           Add#(h__, accumindexbits, incr_width)
            );
     let v_awsize= valueOf(awsz);
     let v_accumbanks= valueOf(nCol);
 
 		AXI4_Master_Xactor_IFC #(addr_width, data_width, 0) memory_xactor <- mkAXI4_Master_Xactor;
 
-    Reg#(Bit#(nColbits)) rg_bank_index <- mkReg(0);  //nColbits= Log(no. of Cols)
+    Reg#(Bit#(nColbits)) rg_bank_index <- mkReg(0);
     Reg#(Bit#(accumindexbits)) rg_accum_row_index <- mkReg(0);
     Reg#(Bit#(8)) rg_burst_counter <- mkReg(0);
     Reg#(Bit#(accumindexbits)) rg_output_partial_row <- mkReg(0);
@@ -89,6 +98,8 @@ package col2im;
     Wire#(Bit#(mulWidth2)) wr_buffer_val <- mkWire();
 
     Ifc_pipe_mul#(TAdd#(convColbits, convColbits), accumindexbits, 2) mul <- mkpipe_mul();
+		Wrapper#(Bit#(accumindexbits), Bit#(accumindexbits)) wrapper1_incr1 <- mkUniqueWrapper(incr1);
+		Wrapper#(Bit#(incr_width), Bit#(incr_width)) wrapper2_incr1 <- mkUniqueWrapper(incr1);
 
 //Bit#(TAdd#(TAdd#(convColbits, convColbits), nColbits)) channel_offset=
 //zeroExtend(rg_conv_output_total_size) * zeroExtend(rg_bank_index);
@@ -122,9 +133,11 @@ package col2im;
 	    memory_xactor.i_wr_addr.enq(aw);
 		  memory_xactor.i_wr_data.enq(w);
 
+      //$display("AXI4 New burst write addr: ", fshow(aw));
       //If partial output is not done, then new rg_row_offset has to be calculated
       if(rg_output_partial_row < output_window_row_size_minus1) begin
-        rg_output_partial_row<= rg_output_partial_row + 1;
+        let lv2 <- wrapper2_incr1.func(zeroExtend(rg_output_partial_row));
+        rg_output_partial_row<= truncate(lv2);
         mul.inp(zeroExtend(rg_conv_output_col_size), rg_output_partial_row); 
         rg_mul_compute_channel_offset<= False;
       end
@@ -135,7 +148,8 @@ package col2im;
         rg_row_offset<= 0;
       end
       rg_mul_done<= False;
-      rg_accum_row_index<= rg_accum_row_index+1;
+      let lv1 <- wrapper1_incr1.func(rg_accum_row_index);
+      rg_accum_row_index<= lv1;
       rg_state<= Active_burst_data;
     endrule
 
@@ -144,20 +158,21 @@ package col2im;
                              wlast : rg_burst_counter==output_window_col_size_minus1, 
                              wid : `Buffer_wreq_id };
 		  memory_xactor.i_wr_data.enq(w);
-
+      //$display("AXI4 burst write data: %h", wr_buffer_val);
       //Keep track of how many bursts are done
       if(rg_burst_counter==output_window_col_size_minus1) begin   //Burst transfer complete
         rg_burst_counter<= 0;
-
         //This block computes the SRAM indices (rg_accum_row_index and rg_bank_index)
         if(rg_mul_compute_channel_offset) begin //Not the last row of output window for one channel
-          rg_accum_row_index<= rg_accum_row_index + 1;
+          let lv1 <- wrapper1_incr1.func(rg_accum_row_index);
+          rg_accum_row_index<= lv1;
           rg_state<= Active_new_burst;
         end
         else begin  //Last row of output window for one channel
           rg_accum_row_index<= 0;
-          rg_bank_index<= rg_bank_index+1;      //TODO Assuming a store instruction would end at the
-                                                //last bank.
+          //TODO Assuming a store instruction would end at the last bank
+          let lv2 <- wrapper2_incr1.func(zeroExtend(rg_bank_index));
+          rg_bank_index<= truncate(lv2);
           if(rg_bank_index == fromInteger(v_accumbanks-1))  //Last bank's last row's last burst data
             rg_state<= Done;
           else
@@ -165,9 +180,15 @@ package col2im;
         end
       end
       else begin
-        rg_burst_counter<= rg_burst_counter+1;
-        rg_accum_row_index<= rg_accum_row_index+1;
+        let lv1 <- wrapper1_incr1.func(rg_accum_row_index);
+        rg_accum_row_index<= lv1;
+        let lv2 <- wrapper2_incr1.func(zeroExtend(rg_burst_counter));
+        rg_burst_counter<= truncate(lv2);
       end
+    endrule
+
+    rule rl_get_write_response;
+			let x<- pop_o(memory_xactor.o_wr_resp) ;
     endrule
 
     rule rl_update_burst_counter(rg_state==Active_burst_data);
