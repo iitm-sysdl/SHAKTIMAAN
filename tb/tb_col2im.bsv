@@ -3,6 +3,7 @@ import col2im   ::*;
 import bram ::*;
 import AXI4_Types:: *;
 import Connectable :: *;
+`include "Logger.bsv"
 module mktb_col2im();
     Reg#(Bit#(32)) rg_cycle <- mkReg(0);
     /*
@@ -31,13 +32,13 @@ module mktb_col2im();
     endrule
     rule rl_put_data;
         match {.valid,.bank_num,.bank_row_num} = ifc_c2i.outp_buffer_addr();
-        $display("cycle %d : valid %d : bank_num %d : row_num %d",rg_cycle,valid,bank_num,bank_row_num);
+       `logLevel(tb,0,$format("cycle %d : valid %d : bank_num %d : row_num %d",rg_cycle,valid,bank_num,bank_row_num))
         if(valid)
             ifc_c2i.buffer_val(zeroExtend(rg_cycle));
     endrule
     rule rl_disp_axi_req;
         let lv_axi = ifc_c2i.axi_buffer_wreq;
-        $display("AXI: wvalid %d : wdata %d",lv_axi.m_wvalid,lv_axi.m_wdata);
+       `logLevel(tb,0,$format("AXI: wvalid %d : wdata %d",lv_axi.m_wvalid,lv_axi.m_wdata))
     endrule
 endmodule
 endpackage
