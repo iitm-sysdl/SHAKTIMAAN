@@ -35,29 +35,57 @@ package onchip_buffers;
   import BRAM::*;
   import BRAMCore::*;
   import BUtils::*;
+  import isa::*;
+
   `include "systolic.defines"
+  `define SRAM_ADDR_WIDTH 26
+
+
 
   interface Ifc_onchip_buffers;
-    interface Vector#(`NUM_IBUF, Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 2))) input_buffer;
-    interface Vector#(`NUM_WBUF, Vector#(`WBUF_BANKS, BRAM2PortBE#(Bit#(`WBUF_INDEX), Bit#(`INWIDTH), 2))) weight_buffer;
-    interface Vector#(`NUM_OBUF, Vector#(`OBUF_BANKS, BRAM2PortBE#(Bit#(`OBUF_INDEX), Bit#(`OUTWIDTH), 2))) output_buffer;
+    interface Vector#(`NUM_IBUF, Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 1))) input_buffer;
+    interface Vector#(`NUM_WBUF, Vector#(`WBUF_BANKS, BRAM2PortBE#(Bit#(`WBUF_INDEX), Bit#(`INWIDTH), 1))) weight_buffer;
+    interface Vector#(`NUM_OBUF, Vector#(`OBUF_BANKS, BRAM2PortBE#(Bit#(`OBUF_INDEX), Bit#(`OUTWIDTH), 4))) output_buffer;
   endinterface
 
-  module mkbuffers(Ifc_unified_buffer)
-    provisos(
-    );
-
-    function BRAMRequestBE#(Bit#(a), Bit#(d), n) makeRequest (Bool write, Bit#(n) wstrb, Bit#(a) addr, Bit#(d) data);
+  function BRAMRequestBE#(Bit#(a), Bit#(d), n) makeRequest (Bool write, Bit#(n) wstrb, Bit#(a) addr, Bit#(d) data);
             return BRAMRequestBE{
                                 writeen: wstrb ,
-                                responseOnWrite: True,
+                                responseOnWrite: False,
                                 address   : addr,
                                 datain : data
                               };
-    endfunction
+  endfunction
+
+  function Tuple2#(Bit#(`IBUF_INDEX),Bit#(`IBUF_Bankbits)) split_address_IBUF(Bit#(addr_width) addr);
+        Bit#(TSub#(`SRAM_ADDR_WIDTH,TSub#(`INBYTES,1))) alignAddr = addr[`SRAM_ADDR_WIDTH-1:`INBYTES-1];
+        Bit#(`IBUF_Bankbits) gbank = alignAddr[`IBUF_Bankbits-1:0];
+        Bit#(`IBUF_INDEX) gindex = alignAddr[`IBUF_INDEX+`IBUF_Bankbits-1:`IBUF_Bankbits];
+        return tuple2(gindex,gbank);
+  endfunction
+
+  function Tuple2#(Bit#(`WBUF_INDEX),Bit#(`WBUF_Bankbits)) split_address_WBUF(Bit#(addr_width) addr);
+        Bit#(TSub#(`SRAM_ADDR_WIDTH,TSub#(`INBYTES,1))) alignAddr = addr[`SRAM_ADDR_WIDTH-1:`INBYTES-1];
+        Bit#(`WBUF_Bankbits) gbank = alignAddr[`WBUF_Bankbits-1:0];
+        Bit#(`WBUF_INDEX) gindex = alignAddr[`WBUF_INDEX+`WBUF_Bankbits-1:`WBUF_Bankbits];
+        return tuple2(gindex,gbank);
+  endfunction
+
+  function Tuple2#(Bit#(`OBUF_INDEX),Bit#(`OBUF_Bankbits)) split_address_OBUF(Bit#(addr_width) addr);
+        Bit#(TSub#(`SRAM_ADDR_WIDTH,TSub#(`OUTBYTES,1))) alignAddr = addr[`SRAM_ADDR_WIDTH-1:`OUTBYTES-1];
+        Bit#(`OBUF_Bankbits) gbank = alignAddr[`OBUF_Bankbits-1:0];
+        Bit#(`OBUF_INDEX) gindex = alignAddr[`OBUF_INDEX+`OBUF_Bankbits-1:`OBUF_Bankbits];
+        return tuple2(gindex,gbank);
+  endfunction
+
+
+  module mkbuffers(Ifc_onchip_buffers)
+    provisos(
+    );
+    
 
     BRAM_Configure inputBufConfig = defaultValue;
-    inputBufConfig.memorySize = `IBUF_ENTRIES;
+    inputBufConfig.memorySize = valueOf(`IBUF_ENTRIES);
     inputBufConfig.loadFormat = None; // can be used to load hex if needed
 
     BRAM_Configure weightBufConfig = defaultValue;
@@ -68,46 +96,59 @@ package onchip_buffers;
     outputBufConfig.memorySize = `OBUF_ENTRIES;
     outputBufConfig.loadFormat = None;
 
-    Vector#(`NUM_IBUF, Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 2))) ibuf;
-    Vector#(`NUM_WBUF, Vector#(`WBUF_BANKS, BRAM2PortBE#(Bit#(`WBUF_INDEX), Bit#(`INWIDTH), 2))) wbuf;
-    Vector#(`NUM_OBUF, Vector#(`OBUF_BANKS, BRAM2PortBE#(Bit#(`OBUF_INDEX), Bit#(`OUTWIDTH), 2))) obuf;
+    Vector#(`NUM_IBUF, Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 1))) ibuf;
+    Vector#(`NUM_WBUF, Vector#(`WBUF_BANKS, BRAM2PortBE#(Bit#(`WBUF_INDEX), Bit#(`INWIDTH), 1))) wbuf;
+    Vector#(`NUM_OBUF, Vector#(`OBUF_BANKS, BRAM2PortBE#(Bit#(`OBUF_INDEX), Bit#(`OUTWIDTH), 4))) obuf;
 
     for(Integer i=0; i<`NUM_IBUF; i=i+1)begin
+      // for(Integer j=0; j<`IBUF_BANKS; j=j+1)begin
+        // ibuf[i][j] <- mkBRAM2ServerBE(inputBufConfig);
+      // end
       ibuf[i] <- replicateM(mkBRAM2ServerBE(inputBufConfig));
-    end
-    for(Integer i=0; i<`NUM_IBUF; i=i+1)begin
-      wbuf[i] <- replicateM(mkBRAM2ServerBE(weightBufConfig));
-    end
-    for(Integer i=0; i<`NUM_IBUF; i=i+1)begin
-      obuf[i] <- replicateM(mkBRAM2ServerBE(outputBufConfig));
-    end
-
-    Vector#(`NUM_IBUF, Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 2))) itemp;
-    Vector#(`NUM_WBUF, Vector#(`WBUF_BANKS, BRAM2PortBE#(Bit#(`WBUF_INDEX), Bit#(`INWIDTH), 2))) wtemp;
-    Vector#(`NUM_OBUF, Vector#(`OBUF_BANKS, BRAM2PortBE#(Bit#(`OBUF_INDEX), Bit#(`OUTWIDTH), 2))) otemp;
-
-    for(Integer i=0; i<`NUM_IBUF; i=i+1)begin
-      Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 2)) itemp2;
-      for(Integer j=0; j<`IBUF_BANKS; j=j+1)begin
-        itemp2[j] = ibuf[i][j];
-      end
-      itemp[i] = itemp2;
     end
 
     for(Integer i=0; i<`NUM_WBUF; i=i+1)begin
-      Vector#(`WBUF_BANKS, BRAM2PortBE#(Bit#(`WBUF_INDEX), Bit#(`INWIDTH), 2)) wtemp2;
-      for(Integer j=0; j<`WBUF_BANKS; j=j+1)begin
-        wtemp2[j] = wbuf[i][j];
-      end
-      wtemp[i] = wtemp2;
+      // for(Integer j=0; j<`WBUF_BANKS; j=j+1)begin
+      //   wbuf[i][j] <- mkBRAM2ServerBE(weightBufConfig);
+      // end
+      wbuf[i] <- replicateM(mkBRAM2ServerBE(weightBufConfig));
     end
 
     for(Integer i=0; i<`NUM_OBUF; i=i+1)begin
-      Vector#(`OBUF_BANKS, BRAM2PortBE#(Bit#(`OBUF_INDEX), Bit#(`OUTWIDTH), 2)) otemp2;
-      for(Integer j=0; j<`OBUF_BANKS; j=j+1)begin
-        otemp2[j] = obuf[i][j];
-      end
-      otemp[i] = otemp2;
+      // for(Integer j=0; j<`OBUF_BANKS; j=j+1)begin
+      //   obuf[i][j] <- mkBRAM2ServerBE(outputBufConfig);
+      // end
+      obuf[i] <- replicateM(mkBRAM2ServerBE(outputBufConfig));
+    end
+
+    Vector#(`NUM_IBUF, Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 1))) itemp;
+    Vector#(`NUM_WBUF, Vector#(`WBUF_BANKS, BRAM2PortBE#(Bit#(`WBUF_INDEX), Bit#(`INWIDTH), 1))) wtemp;
+    Vector#(`NUM_OBUF, Vector#(`OBUF_BANKS, BRAM2PortBE#(Bit#(`OBUF_INDEX), Bit#(`OUTWIDTH), 4))) otemp;
+
+    for(Integer i=0; i<`NUM_IBUF; i=i+1)begin
+      // Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 1)) itemp2;
+      // for(Integer j=0; j<`IBUF_BANKS; j=j+1)begin
+      //   itemp[i][j] = ibuf[i][j];
+      // end
+      itemp[i] = ibuf[i];
+    end
+
+    for(Integer i=0; i<`NUM_WBUF; i=i+1)begin
+      // Vector#(`WBUF_BANKS, BRAM2PortBE#(Bit#(`WBUF_INDEX), Bit#(`INWIDTH), 1)) wtemp2;
+      // for(Integer j=0; j<`WBUF_BANKS; j=j+1)begin
+      //   wtemp[i][j] = wbuf[i][j];
+      // end
+      // wtemp[i] = wtemp2;
+      wtemp[i] = wbuf[i];
+    end
+
+    for(Integer i=0; i<`NUM_OBUF; i=i+1)begin
+      // Vector#(`OBUF_BANKS, BRAM2PortBE#(Bit#(`OBUF_INDEX), Bit#(`OUTWIDTH), 4)) otemp2;
+      // for(Integer j=0; j<`OBUF_BANKS; j=j+1)begin
+      //   otemp[i][j] = obuf[i][j];
+      // end
+      // otemp[i] = otemp2;
+      otemp[i] = obuf[i];
     end
 
     interface input_buffer = itemp;
@@ -116,11 +157,11 @@ package onchip_buffers;
 
   endmodule
 
-  (*synthesize*)
-  module mkTb(Ifc_onchip_buffers);
-    let ifc();
-    mkbuffers buffer(ifc);
-    return (ifc);
-  endmodule
+  // (*synthesize*)
+  // module mkTb(Ifc_onchip_buffers);
+  //   let ifc();
+  //   mkbuffers buffer(ifc);
+  //   return (ifc);
+  // endmodule
 
 endpackage

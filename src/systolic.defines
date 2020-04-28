@@ -12,25 +12,33 @@
 `define GBufStart     'hB0030000
 `define GBufEnd       'hB003ffff
 
-`define NUMROWS 64
-`define NUMCOLS 64
+`define NUMROWS 16
+`define NUMCOLS 16
 
 //------------Configuration of buffers---------------------
 
-`define IBUF_BANKS NUMROWS
-`define WBUF_BANKS NUMCOLS
-`define OBUF_BANKS NUMCOLS
+`define IBUF_BANKS `NUMROWS
+`define WBUF_BANKS `NUMCOLS
+`define OBUF_BANKS `NUMCOLS
 
 `define INWIDTH 8
 `define OUTWIDTH 32
 
-`define IBUF_ENTRIES 1024
-`define WBUF_ENTRIES 1024
-`define OBUF_ENTRIES 1024
+`define INBYTES	1
+`define OUTBYTES 4
 
-`define IBUF_INDEX 10
-`define WBUF_INDEX 10
-`define OBUF_INDEX 10
+`define IBUF_ENTRIES 64
+`define WBUF_ENTRIES 64
+`define OBUF_ENTRIES 64
+
+`define IBUF_INDEX 6
+`define WBUF_INDEX 6
+`define OBUF_INDEX 6
+
+`define IBUF_Bankbits 4
+`define WBUF_Bankbits 4
+`define OBUF_Bankbits 4
+
 
 //Duplication of buffers to support double buffering
 `define NUM_IBUF 2
