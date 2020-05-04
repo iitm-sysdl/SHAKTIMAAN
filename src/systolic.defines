@@ -20,9 +20,11 @@
 `define IBUF_BANKS `NUMROWS
 `define WBUF_BANKS `NUMCOLS
 `define OBUF_BANKS `NUMCOLS
+`define PBUF_BANKS 4
 
 `define INWIDTH 8
 `define OUTWIDTH 32
+`define PBUF_WIDTH 8
 
 `define INBYTES	1
 `define OUTBYTES 4
@@ -30,14 +32,17 @@
 `define IBUF_ENTRIES 64
 `define WBUF_ENTRIES 64
 `define OBUF_ENTRIES 64
+`define PBUF_ENTRIES 64
 
 `define IBUF_INDEX 6
 `define WBUF_INDEX 6
 `define OBUF_INDEX 6
+`define PBUF_INDEX 6
 
 `define IBUF_Bankbits 4
 `define WBUF_Bankbits 4
 `define OBUF_Bankbits 4
+`define PBUF_Bankbits 2
 
 
 //Duplication of buffers to support double buffering
