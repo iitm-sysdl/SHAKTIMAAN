@@ -3,6 +3,13 @@ CHANGELOG
 
 This project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_
 
+[0.1.4] - 2020-04-13
+--------------------
+Changed
+^^^^^^^
+- minor docs/readme fix
+
+
 [0.1.3] - 2020-04-12
 --------------------
 

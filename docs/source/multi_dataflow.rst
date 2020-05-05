@@ -1,42 +1,52 @@
-Multi-Data Flow Support
------------------------
+==============================
+Multi-Dataflow Support
+==============================
 
 Overview
-^^^^^^^^
-
+------------------------------------
+To extend the support of current dataflow from weight stationary to output stationary as well.
 
 Inputs to the Module
-^^^^^^^^^^^^^^^^^^^^
-
-* Weights: The weights for convolution into Weight FIFOs. Similar to what we did in weight stationary approach, but need to figure out the direction (N to S or E to W) : Need to figure out the dimensions during literature survey
-* Conv. Inputs: The inputs for convolution into Input FIFOs. Similar to what we did in weight stationary approach, but need to figure out the direction (N to S or E to W) : Need to figure out the dimensions during literature survey
+------------------------------------
+* **Weights**: The weights for convolution into Weight FIFOs. 
+* **Counter**: The value that the y-coordinate of the accompanying weight and store it in the correct PE in weight stationary approach. This is passed as a tupled value from Weight FIFO.
+* **Mode**: The value that determines which phase of a dataflow is the current PE operating in. A valid value should always be passed for every transactin along North-South interface. This is passed as a tupled value from Weight FIFO.
+* **Conv. Inputs**: The inputs for convolution into Input FIFOs.
 
 Outputs from the Module
-^^^^^^^^^^^^^^^^^^^^^^^
-
-* Conv. Outputs: The outputs will be sent out from Accumulation FIFOs to Accumulation buffers. Similar to what we did in weight stationary approach, but need to figure out the direction (N to S or W to E) : Need to figure out the dimensions during literature survey
-
-Assumptions
-^^^^^^^^^^^
-None
+-----------------------------------
+* **Conv. Outputs**: The outputs will be sent out from Accumulator FIFOs to Accumulation buffers. The Accumulator FIFOs are filled during MAC phase itself in weight stationary approach, however we need a final drain phase to populate this FIFO in output stationary approach.
 
 Pseudo Code
-^^^^^^^^^^^
+------------------------------------
+| **for each PE:**
+|    (rg_north,rg_counter,rg_bitW,rg_mode) = from_north;
+|
+|       **if(rg_mode==WS Setup Phase)** {
+|         if(rg_counter == rg_coord) rg_fixed = rg_north;    
+|         if(rg_counter < rg_coord) to_south = (rg_north,rg_counter,rg_bitW,rg_mode);
+|
+|       **if(rg_mode==OS Setup Phase)** { 
+|         rg_fixed = 0;   
+|         to_south = (rg_north,rg_counter,rg_bitW,rg_mode);
+|
+|       **if(rg_mode==WS MAC Phase)** { 
+|         rg_west = from_west; 
+|         new_accum = rg_north + rg_fixed * rg_west;   
+|         to_south = (new_accum,rg_counter,rg_bitW,rg_mode);
+|         to_east = rg_west; 
+|
+|       **if(rg_mode==OS MAC Phase)** { 
+|         rg_west = from_west; 
+|         rg_fixed = rg_fixed + rg_north * rg_west;   
+|         to_south = (rg_north,rg_counter,rg_bitW,rg_mode);
+|         to_east = rg_west; 
+|
+|       **if(rg_mode==OS Drain Phase)** { 
+|         to_south = (rg_fixed,rg_counter,rg_bitW,rg_mode);
+|         rg_fixed = rg_north;
 
-* Reset Phase: For output stationary approach, no need to pass anything in initial phase, we can just reset the value stored in PE when the new computation starts.
-* MAC Phase: We will be passing inputs and weights from N to S and W to E(Need to figure out which element comes from what direction). In every PE, multilpy input with weight and add it to the stored value.
-* Activation and Write Phase: Once the computation is done, pass the outputs southwards/eastwards to activation function blocks. We will get one output/cycle through each of these blocks which will be enqueued in Accum FIFOs.
-
-Milestones
-^^^^^^^^^^
-
-* 03/21: Coming up with a complete dataflow graph for output stationary algorithm, along with the dimensions of all the elements involved(inputs, weights, outputs, PE Array size, etc.)
-* 04/07: Getting a complete, working code ready. 
-* 04/20: Complete verification(?)
-
-To be Resolved
-^^^^^^^^^^^^^^
-* Are the milestones sufficient for the assigned task, or do we need to look into other aspects as well?
-* Need to discuss what would the ideal dimensions for the elements be. A clearer picture will be obtained during the literature survey phase.  
-* Do we need to compare output and weight stationary approaches(to see which one is better) in this phase as well?
-
+Assumptions/Pitfalls
+------------------------------------
+* Can we combine accum_from_south and from_south interfaces into one? 
+* Need to add another 3-bit value to North-South interface corresponding to mode of operation?

@@ -1,0 +1,34 @@
+\section{Inputs to the module (provided by module interface)}
+Assignee: Gokulan \\Co-assignee: Mohan
+\begin{enumerate}
+  \item SRAM base address
+  \item Input feature map dimensions (N', C', H', W') -- received from COMPUTE instruction
+  \item Weight dimensions (M', C', R, S) -- received from previous SETUP instruction
+\end{enumerate}
+
+\section{Assumptions}
+\begin{enumerate}
+    \item The 3D slice stored in DRAM is stored continuously in SRAM.
+\end{enumerate}
+
+\section{Pseudo Code for performing im2col}
+
+\begin{lstlisting}
+for i = 1 to N’ // This loop is mapped in time
+	for j = 1 to C’: // This loop is mapped in space, across all systolic rows
+		counter[m] = 0
+		for m = 1 to R:
+			value = fetch_value_from_sram(inp_base + m * W’ + j * H’ * W’)
+			start_idx, end_idx = compute_replication(m, counter[m])
+			counter[m]++
+			for n=start_idx to end_idx:
+				systolic.row[n].send_value(value)
+\end{lstlisting}
+
+\section{Doubts or Pitfalls that might arise}
+
+\begin{enumerate}
+    \item Unroll across C dimension instead of RxS dimension.
+    \item Changes in sharing of work across different feeder logics
+    \item Bank conflicts while reading inputs
+\end{enumerate}

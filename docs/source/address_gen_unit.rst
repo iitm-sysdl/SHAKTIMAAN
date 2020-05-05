@@ -12,13 +12,16 @@ Overview
 Inputs to Module
 ^^^^^^^^^^^^^^^^
 
+* Opcode
+* Dep Flags
 * DRAM base address
 * SRAM base address
-* X_SIZE - Size of 1 row of the 3D slice 
-* X_STRIDE - Offset from start of row to access next row
-* Y_SIZE - Number of rows to access to complete one 2D slice
+* Z_SIZE - Size of 1 channel of the 3D slice (number of filters in case of weights) 
+* Z_STRIDE - Offset from start of channel to access next channel
+* Y_SIZE - Number of columns to access to complete one 2D slice (number of channels in case of weights)
 * Y_STRIDE - Offset from start of 2D slice to the next 2D slice
-* Z_SIZE - Number of 2D slices to access to complete one 3D slice
+* X_SIZE - Number of rows to access to complete one 3D slice (number of pixels in unrolled RxS, in case of weights)
+* Precision - Size of each element of the 3D slice
 
 Outputs from Module
 ^^^^^^^^^^^^^^^^^^^
@@ -28,7 +31,7 @@ Outputs from Module
 Assumptions
 ^^^^^^^^^^^
 
-* We assume that the 3D slice in DRAM is in NCHW format, and will be stored in the same format in SRAM.
+* We assume that the 3D slice in DRAM is in NHWC format, and will be stored in the same format in SRAM.
 
 Pseudo Code for loading 3D slice from DRAM to SRAM
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -46,7 +49,7 @@ Pseudo Code for loading 3D slice from DRAM to SRAM
 Doubts or Pitfalls that might arise
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-* X_STRIDE and Y_STRIDE defined in the instruction are different from the ConvStride defined above for convolution.
+* Z_STRIDE and Y_STRIDE defined in the instruction are different from the ConvStride defined above for convolution.
 * The pseudocode provided above does not factor for reducing input buffer bank conflicts. 
 
     - TODO: Find effective feeding mechanism to reduce input buffer bank conflicts.

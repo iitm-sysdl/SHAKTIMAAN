@@ -1,5 +1,5 @@
-TOP_MODULE:=mksystolic3
-TOP_FILE:=systolic_top.bsv
+TOP_MODULE:=mkTb
+TOP_FILE:=onchip_buffers.bsv
 HOMEDIR:=./
 TOP_DIR:=./src
 BSVBUILDDIR:=./build/

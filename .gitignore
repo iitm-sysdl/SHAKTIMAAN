@@ -4,3 +4,4 @@ verilog/*
 common_bsv/*
 fabrics/*
 common_verilog/*
+bin/*

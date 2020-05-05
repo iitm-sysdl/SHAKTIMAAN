@@ -1,24 +1,51 @@
 // slave_bound: ??
-`define IfmapDims     'h0B000000
-`define sysConfig     'h0B000002
-`define CoordCount    'h0B000004
-`define weightCount   'h0B000006
-`define FilterDims    'h0B000008
-`define gbuf_rdaddr   'h0B00000A
-`define WeightStart   'h0B010000      
-`define WeightEnd     'h0B01ffff
-`define AccumBufStart 'h0B200000
-`define AccumBufEnd   'h0B2fffff
-`define GBufStart     'h0B030000
-`define GBufEnd       'h0B03ffff
+`define IfmapDims     'hB0000000
+`define sysConfig     'hB0000002
+`define CoordCount    'hB0000004
+`define weightCount   'hB0000006
+`define FilterDims    'hB0000008
+`define InputAddr     'hB000000A
+`define WeightStart   'hB0010000      
+`define WeightEnd     'hB001ffff
+`define AccumBufStart 'hB0200000
+`define AccumBufEnd   'hB02fffff
+`define GBufStart     'hB0030000
+`define GBufEnd       'hB003ffff
 
-`define InputAddr	  'h0B000010
-`define OutputAddr	  'h0B000014
-`define MemReadAddr	  'h0B000018
-`define MemtoSysCfg	  'h0B00001C
-`define MemtoSysCntr  'h0B000020
-`define SystoMemCfg   'h0B000024
-`define MemWriteAddr  'h0B000028
-`define SystoMemCntr  'h0B00002C
-`define Status        'h0B000034
+`define NUMROWS 16
+`define NUMCOLS 16
 
+//------------Configuration of buffers---------------------
+
+`define IBUF_BANKS `NUMROWS
+`define WBUF_BANKS `NUMCOLS
+`define OBUF_BANKS `NUMCOLS
+`define PBUF_BANKS 4
+
+`define INWIDTH 8
+`define OUTWIDTH 32
+`define PBUF_WIDTH 64
+
+`define INBYTES	1
+`define OUTBYTES 4
+
+`define IBUF_ENTRIES 64
+`define WBUF_ENTRIES 64
+`define OBUF_ENTRIES 64
+`define PBUF_ENTRIES 64
+
+`define IBUF_INDEX 6
+`define WBUF_INDEX 6
+`define OBUF_INDEX 6
+`define PBUF_INDEX 6
+
+`define IBUF_Bankbits 4
+`define WBUF_Bankbits 4
+`define OBUF_Bankbits 4
+`define PBUF_Bankbits 2
+
+
+//Duplication of buffers to support double buffering
+`define NUM_IBUF 2
+`define NUM_WBUF 2
+`define NUM_OBUF 2
