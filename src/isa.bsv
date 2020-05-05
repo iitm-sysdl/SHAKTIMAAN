@@ -43,7 +43,7 @@ typedef enum {
     Min,
     Add,
     Shift
-} ALU_Opcode;
+} ALU_Opcode deriving(Eq, Bits);
 
 typedef struct {
   DRAM_address dram_address;
@@ -70,11 +70,18 @@ typedef struct {
     ALU_Opcode alu_opcode;
     SRAM_address input_address;
     SRAM_address output_address;
-    Dim1 output_height; Dim1 output_width; // OH', OW'
-    Dim2 window_height; Dim2 window_width; // R, S
-    Dim1 mem_stride_OW; Dim1 mem_stride_R; Dim1 mem_stride_S; // S_OW, S_R, S_S
-    Dim2 stride_h; Dim2 stride_w; //Sx, Sy
+    Dim1 output_height; // OH'
+    Dim1 output_width; // OW'
+    Dim2 window_height; // R
+    Dim2 window_width; // S
+    Dim1 mem_stride_OW; // S_OW
+    Dim1 mem_stride_R; // S_R
+    Dim1 mem_stride_S; // S_S
+    Dim2 stride_h; // Sx
+    Dim2 stride_w; // Sy
+    Dim1 num_of_filters; //Number of filters(M)
     Bool use_immediate;
-} ALU_params;
+    Dim1 immediate_value;// Modify the length of immediate value if required
+} ALU_params deriving(Bits);
 
 endpackage

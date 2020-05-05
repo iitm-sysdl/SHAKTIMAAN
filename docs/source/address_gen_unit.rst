@@ -38,11 +38,12 @@ Pseudo Code for loading 3D slice from DRAM to SRAM
 
 .. code:: cpp
 
-  for i = 0 to X_SIZE: // Nested loop unrolled in time, across clock cycles 
+  for i = 0 to Z_SIZE: // Nested loop unrolled in time, across clock cycles 
     for j = 0 to Y_SIZE:
-      dram_addr = dram_base + j * Z_STRIDE + i * Y_STRIDE
-      sram_addr = sram_base + j * Z_SIZE + i * Z_SIZE * Y_SIZE
-      load(dram_addr, Z_SIZE, sram_addr)
+      for k = 0 to X_SIZE:
+      dram_addr = dram_base + j * X_STRIDE + i * Y_STRIDE
+      sram_addr = sram_base + j * X_SIZE + i * X_SIZE * Y_SIZE
+      load(dram_addr, X_SIZE, sram_addr)
 
 
 Doubts or Pitfalls that might arise
@@ -53,5 +54,6 @@ Doubts or Pitfalls that might arise
 
     - TODO: Find effective feeding mechanism to reduce input buffer bank conflicts.
 
+* One AXI request per 2D slice or 3D slice?
 * Unified buffer or seperate buffers?
 

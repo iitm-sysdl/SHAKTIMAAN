@@ -19,5 +19,5 @@ implementation of various blocks shown in :numref:`microarch_deep`
 .. include:: tensor_alu.rst
 .. include:: col2im.rst
 .. include:: im2col.rst
-.. include:: tensor_alu.rst
+.. include:: tesor_alu.rst
 
