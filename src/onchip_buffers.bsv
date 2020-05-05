@@ -46,7 +46,7 @@ package onchip_buffers;
     interface Vector#(`NUM_IBUF, Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 1))) input_buffer;
     interface Vector#(`NUM_WBUF, Vector#(`WBUF_BANKS, BRAM2PortBE#(Bit#(`WBUF_INDEX), Bit#(`INWIDTH), 1))) weight_buffer;
     interface Vector#(`NUM_OBUF, Vector#(`OBUF_BANKS, BRAM2PortBE#(Bit#(`OBUF_INDEX), Bit#(`OUTWIDTH), 4))) output_buffer;
-    interface Vector#(`PBUF_BANKS, BRAM2PortBE#(Bit#(`PBUF_INDEX), Bit#(`PBUF_WIDTH), 1)) param_buffer;
+    interface Vector#(`PBUF_BANKS, BRAM2PortBE#(Bit#(`PBUF_INDEX), Bit#(`PBUF_WIDTH), 8)) param_buffer;
   endinterface
 
   function BRAMRequestBE#(Bit#(a), Bit#(d), n) makeRequest (Bool write, Bit#(n) wstrb, Bit#(a) addr, Bit#(d) data);
@@ -107,7 +107,7 @@ package onchip_buffers;
     Vector#(`NUM_IBUF, Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 1))) ibuf;
     Vector#(`NUM_WBUF, Vector#(`WBUF_BANKS, BRAM2PortBE#(Bit#(`WBUF_INDEX), Bit#(`INWIDTH), 1))) wbuf;
     Vector#(`NUM_OBUF, Vector#(`OBUF_BANKS, BRAM2PortBE#(Bit#(`OBUF_INDEX), Bit#(`OUTWIDTH), 4))) obuf;
-    Vector#(`PBUF_BANKS, BRAM2PortBE#(Bit#(`PBUF_INDEX), Bit#(`PBUF_WIDTH), 1)) pbuf <- replicateM(mkBRAM2ServerBE(inputBufConfig));
+    Vector#(`PBUF_BANKS, BRAM2PortBE#(Bit#(`PBUF_INDEX), Bit#(`PBUF_WIDTH), 8)) pbuf <- replicateM(mkBRAM2ServerBE(inputBufConfig));
 
     for(Integer i=0; i<`NUM_IBUF; i=i+1)begin
       // for(Integer j=0; j<`IBUF_BANKS; j=j+1)begin
@@ -133,7 +133,7 @@ package onchip_buffers;
     Vector#(`NUM_IBUF, Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 1))) itemp;
     Vector#(`NUM_WBUF, Vector#(`WBUF_BANKS, BRAM2PortBE#(Bit#(`WBUF_INDEX), Bit#(`INWIDTH), 1))) wtemp;
     Vector#(`NUM_OBUF, Vector#(`OBUF_BANKS, BRAM2PortBE#(Bit#(`OBUF_INDEX), Bit#(`OUTWIDTH), 4))) otemp;
-    Vector#(`PBUF_BANKS, BRAM2PortBE#(Bit#(`PBUF_INDEX), Bit#(`PBUF_WIDTH), 1)) ptemp;
+    Vector#(`PBUF_BANKS, BRAM2PortBE#(Bit#(`PBUF_INDEX), Bit#(`PBUF_WIDTH), 8)) ptemp;
 
     for(Integer i=0; i<`NUM_IBUF; i=i+1)begin
       // Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 1)) itemp2;

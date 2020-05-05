@@ -24,7 +24,7 @@
 
 `define INWIDTH 8
 `define OUTWIDTH 32
-`define PBUF_WIDTH 8
+`define PBUF_WIDTH 64
 
 `define INBYTES	1
 `define OUTBYTES 4
