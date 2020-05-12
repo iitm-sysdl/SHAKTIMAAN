@@ -1,6 +1,7 @@
 package pipe_mul;
   import Vector::*;
   import DReg::*;
+  import ConfigReg::*;
 
   interface Ifc_pipe_mul#(numeric type w1, numeric type w2, numeric type num_stages);
     method Action inp(Bit#(w1) i1, Bit#(w2) i2);
@@ -12,8 +13,8 @@ package pipe_mul;
            Log#(num_stages, num_stages_bits));
     let v_num_stages= valueOf(num_stages);
 
-    Vector#(num_stages, Reg#(Bit#(w1)))  rg_op1   <- replicateM(mkRegU());
-    Vector#(num_stages, Reg#(Bit#(w2)))  rg_op2   <- replicateM(mkRegU());
+    Vector#(num_stages, Reg#(Bit#(w1)))  rg_op1   <- replicateM(mkConfigRegU());
+    Vector#(num_stages, Reg#(Bit#(w2)))  rg_op2   <- replicateM(mkConfigRegU());
     Reg#(Bool) rg_valid0 <- mkDReg(False);
     Vector#(num_stages, Reg#(Bool))      rg_valid <- replicateM(mkReg(False));
 
