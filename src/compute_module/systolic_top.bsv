@@ -100,7 +100,7 @@ module mksystolic_top(Ifc_systolic_top#(macWidth, nRow, nCol))
   /*--------End of Weight load interfaces----------------------------------*/
 
   method Action ma_get_inp_rsp(Vector#(nRow, Maybe#(Bit#(macWidth))) inp);
-    for(Integer i = 0; i < nRow; i=i+1) begin
+    for(Integer i = 0; i < valnRow; i=i+1) begin
       systolic_array.rfifo[i].send_rowbuf_value(inp[i]);
     end
 
