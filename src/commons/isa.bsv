@@ -1,6 +1,6 @@
 /*
-Author: Gokulan Ravi, Mohan Prasath G R
-Email ID: gokulan97@gmail.com, mohanprasathr@gmail.com
+Author: Gokulan Ravi, Mohan Prasath G R, Vinod Ganesan
+Email ID: gokulan97@gmail.com, mohanprasathr@gmail.com, g.vinod1993@gmail.com
 Details: ISA typedefs for Systolic Array
 */
 
@@ -56,34 +56,29 @@ typedef struct {
 typedef Mem_params Load_params;
 typedef Mem_params Store_params;
 
-typedef struct {
+typedef struct{
   SRAM_address input_address;
   SRAM_address output_address;
   SRAM_address weight_address;
   Dim1 in_fmap_height; Dim1 in_fmap_width;
-  Dim2 window_height; Dim2 window_width;
+  Dim1 num_rows_active; Dim1 num_cols_active;
   Dim2 stride_h; Dim2 stride_w;
   Dim2 pad_left; Dim2 pad_right; Dim2 pad_top; Dim2 pad_bottom;
   Bool preload_output;
-  Bit#(8) co_ordinates;
 } Compute_params;
 
-typedef struct {
-    ALU_Opcode alu_opcode;
-    SRAM_address input_address;
-    SRAM_address output_address;
-    Dim1 output_height; // OH'
-    Dim1 output_width; // OW'
-    Dim2 window_height; // R
-    Dim2 window_width; // S
-    Dim1 mem_stride_OW; // S_OW
-    Dim1 mem_stride_R; // S_R
-    Dim1 mem_stride_S; // S_S
-    Dim2 stride_h; // Sx
-    Dim2 stride_w; // Sy
-    Dim1 num_of_filters; //Number of filters(M)
-    Bool use_immediate;
-    Dim1 immediate_value;// Modify the length of immediate value if required
-} ALU_params deriving(Bits);
-
+typedef struct{
+  ALU_Opcode alu_opcode;
+  Dim1 output_height; // OH'
+  Dim1 output_width; // OW'
+  Dim2 window_height; // R
+  Dim2 window_width; // S
+  Dim1 mem_stride_OW; // S_OW
+  Dim1 mem_stride_R; // S_R
+  Dim1 mem_stride_S; // S_S //Window strides are encoded in the memory strides itself
+  Dim1 num_of_filters; //Number of filters(M)
+  Bool use_immediate;
+  Dim1 immediate_value;// Modify the length of immediate value if required
+} ALU_params;
+ 
 endpackage
