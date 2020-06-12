@@ -1,6 +1,6 @@
 /* 
-Author: Mohan Prasath G R
-Email id: mohanprasathr@gmail.com
+Author: Mohan Prasath G R, Gokulan Ravi
+Email id: mohanprasathr@gmail.com, gokulan97@gmail.com
 Details:
 This module performs the load and load_param operations. Recieves load and load_param instruction from the
 dependency resolver module.
@@ -54,631 +54,334 @@ import Vector::*;
 `define rd_req_id 5
 `define DIM_WIDTH3 2*`DIM_WIDTH1
 
+typedef enum
+{
+	InputBuffer,
+	OutputBuffer,
+	WeightBuffer
+}Buffer deriving(Bits, Eq, FShow);
 
-interface Ifc_load_Module#(numeric type addr_width, numeric type data_width);
+typedef struct
+{
+	Buffer buffer;
+	Bit#(a) index;
+	Bit#(b) bank;
+	Bit#(c) data;
+} SRAMReq#(numeric type a, numeric type b, numeric type c) deriving(Bits, Eq, FShow);
 
-	interface AXI4_Master_IFC#(addr_width, data_width,0) master;
-	interface Put#(Bit#(128)) subifc_get_loadparams;  //to get parameters from the dependency module
+interface Ifc_load_Module#(numeric type dram_addr_width, numeric type data_width, numeric type sram_addr_width,
+						   numeric type wt_index, numeric type wt_bank, numeric type wt_data,
+						   numeric type if_index, numeric type if_bank, numeric type if_data,
+						   numeric type of_index, numeric type of_bank, numeric type of_data,
+						   numeric type max_index, numeric type max_bank, numeric type max_data,
+						   numeric type max_words);
+
+	interface AXI4_Master_IFC#(dram_addr_width, data_width, 0) master;
+	interface Put#(Load_params) subifc_get_loadparams;  //to get parameters from the dependency module
 	interface Get#(Bool) subifc_send_loadfinish;	//send the finish signal once the load is completed
-	//methods to send write requests to buffers
-	method Vector#(TDiv#(data_width,`INWIDTH), Tuple4#(Bool, Bit#(`IBUF_INDEX), Bit#(`IBUF_Bankbits), Bit#(`INWIDTH))) ibuf_wr_data; 
-	method Vector#(TDiv#(data_width,`INWIDTH), Tuple4#(Bool, Bit#(`WBUF_INDEX), Bit#(`WBUF_Bankbits), Bit#(`INWIDTH))) wbuf_wr_data;
-	method Vector#(TDiv#(data_width,`OUTWIDTH), Tuple4#(Bool, Bit#(`OBUF_INDEX), Bit#(`OBUF_Bankbits), Bit#(`OUTWIDTH))) obuf_wr_data;
+	method ActionValue#(Vector#(max_words, SRAMReq#(max_index, max_bank, max_data))) wr_data;
 
 endinterface
 
-module mk_load_Module(Ifc_load_Module#(addr_width, data_width))
-		provisos(IsModule#(_m__, _c__),
-				Add#(a__, 26, addr_width),
-				// Add#(b__, data_width, 64),
-				Add#(b__, 32, addr_width));
+module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
+									   wt_index, wt_bank, wt_data,
+									   if_index, if_bank, if_data,
+									   of_index, of_bank, of_data,
+									   max_index, max_bank, max_data,
+									   max_words))
+		provisos(
+			IsModule#(_m__, _c__),
+			Add#(a__, 32, addr_width),
+			Add#(addr_width, 0, `DRAM_ADDR_WIDTH),
+			Add#(sram_addr_width, 0, `SRAM_ADDR_WIDTH),
+			Add#(wt_data, 0, if_data),
+			Mul#(iwords, wt_data, data_width),
+			Mul#(owords, of_data, data_width),
+      Max#(iwords, owords, max_words),
+			Mul#(if_bytes, 8, if_data),
+			Mul#(wt_bytes, 8, wt_data),
+			Mul#(of_bytes, 8, of_data),
+      //Compiler generated
+      Add#(b__, max_data, addr_width),
+      Add#(c__, of_index, max_index),
+      Add#(d__, of_bank, max_bank),
+      Add#(e__, if_index, max_index),
+      Add#(f__, if_bank, max_bank),
+      Add#(g__, wt_index, max_index),
+      Add#(h__, wt_bank, max_bank)
+      //Add#(c__, of_data, addr_width)
+		);
 
-	let axidata_width = valueOf(data_width);
- 	let numWords_Ibuf = axidata_width/`INWIDTH;
- 	let numWords_Obuf = axidata_width/`OUTWIDTH;
+	let sram_width = valueOf(sram_addr_width);
+	let dram_width = valueOf(addr_width);
+  let axi_width = valueOf(data_width);
 
-	AXI4_Master_Xactor_IFC #(addr_width, data_width, 0) m_xactor <- mkAXI4_Master_Xactor;
+	let maxlenindex = valueOf(max_index);
+	let maxlenbank = valueOf(max_bank);
+	let maxlendata = valueOf(max_data);
+	let maxnumwords = valueOf(max_words);
 
-	// Ifc_onchip_buffers buffers <- mkbuffers;
+	let iWords = valueOf(iwords);
+	let oWords = valueOf(owords);
 
-	FIFOF#(Bit#(addr_width)) ff_dest_addr <- mkSizedFIFOF(3) ;
+	let ibuf_index = valueOf(if_index);
+	let ibuf_bankbits = valueOf(if_bank);
+	let ibuf_width = valueOf(if_data);
 
-	//parameters registers
+	let wbuf_index = valueOf(wt_index);
+	let wbuf_bankbits = valueOf(wt_bank);
+	let wbuf_width = valueOf(wt_data);
 
-	Reg#(Bit#(3)) rg_bitwidth <- mkReg(0); // in bytes
-	Reg#(Dim1) rg_x_size <- mkReg(0); 
-	Reg#(Dim1) rg_y_size <- mkReg(0);
-	Reg#(Dim1) rg_z_size <- mkReg(0);
-	Reg#(Bool) rg_isreset <- mkReg(False);
-	Reg#(Dim1) rg_z_stride <- mkReg(0);
-	Reg#(Dim1) rg_y_stride <- mkReg(0);
-	Reg#(DRAM_address) rg_dramaddr <- mkReg(0);
-	Reg#(SRAM_address) rg_sramaddr <- mkReg(0);	
+	let obuf_index = valueOf(of_index);
+	let obuf_bankbits = valueOf(of_bank);
+	let obuf_width = valueOf(of_data);
+
+	let iBytes = valueOf(if_bytes);
+	let wBytes = valueOf(wt_bytes);
+	let oBytes = valueOf(of_bytes);
+
+	function Tuple2#(Bit#(if_index),Bit#(if_bank)) split_address_IBUF(Bit#(sram_width) addr);
+		Bit#(if_bank) gbank = addr[ibuf_bankbits+iBytes-1:iBytes];
+		Bit#(if_index) gindex = addr[ibuf_index+ibuf_bankbits+iBytes-1:iBytes+ibuf_bankbits];
+		return tuple2(gindex,gbank);
+	endfunction
+
+	function Tuple2#(Bit#(wt_index),Bit#(wt_bank)) split_address_WBUF(Bit#(sram_width) addr);
+		Bit#(wt_bank) gbank = addr[wbuf_bankbits+wBytes-1:wBytes];
+		Bit#(wt_index) gindex = addr[wbuf_index+wbuf_bankbits+wBytes-1:wbuf_bankbits+wBytes];
+		return tuple2(gindex,gbank);
+	endfunction
+
+	function Tuple2#(Bit#(of_index),Bit#(of_bank)) split_address_OBUF(Bit#(sram_width) addr);
+		Bit#(of_bank) gbank = addr[obuf_bankbits+oBytes-1:oBytes];
+		Bit#(of_index) gindex = addr[obuf_index+obuf_bankbits+oBytes-1:obuf_bankbits+oBytes];
+		return tuple2(gindex,gbank);
+	endfunction
+	
+	AXI4_Master_Xactor_IFC#(addr_width, data_width, 0) m_xactor <- mkAXI4_Master_Xactor;
+
+	FIFOF#(SRAM_address) ff_dest_addr <- mkSizedFIFOF(3) ;
+	Reg#(Maybe#(Load_params)) rg_params <- mkReg(tagged Invalid);
+
 	Reg#(SRAM_address) rg_zy_size <- mkReg(0); //zsize * ysize
 	Reg#(SRAM_address) rg_xyz_size <- mkReg(0); 
 
+	Reg#(DRAM_address) rg_dram_addr <- mkReg(0);
+	Reg#(SRAM_address) rg_sram_addr <- mkReg(0);
 
-	//local registers
-	Reg#(DRAM_address) rg_dram_addr_a <- mkReg(0);
-	Reg#(DRAM_address) rg_dram_addr_b <- mkReg(0);
-	Reg#(SRAM_address) rg_sram_addr_a <- mkReg(0);
-	Reg#(SRAM_address) rg_sram_addr_b <- mkReg(0);
+	Reg#(Dim1) rg_x_cntr <- mkReg(0);
 	Reg#(Dim1) rg_y_cntr <- mkReg(0);
 	Reg#(Dim1) rg_z_cntr <- mkReg(0);
 
 	Reg#(Bit#(8)) rg_burst_len <- mkReg(0); // (total no.of bytes per request) / (axidatawidth) - 1
+	Reg#(Bool) rg_load_requests <- mkReg(False);
+
 	Reg#(Bool) rg_burst <- mkReg(False);
-	Reg#(Bit#(addr_width)) rg_burst_addr <- mkReg(0);
+	Reg#(SRAM_address) rg_burst_addr <- mkReg(0);
 	Reg#(Bool) rg_finish_load <- mkReg(True);
 	Reg#(SRAM_address) rg_paramaddr <- mkReg(0);
 
 	//registers to send data to buffers
-	Vector#(TDiv#(data_width,`INWIDTH), Reg#(Bit#(`IBUF_INDEX))) rg_input_index <- replicateM(mkReg(0));
-	Vector#(TDiv#(data_width,`INWIDTH), Reg#(Bit#(`IBUF_Bankbits))) rg_input_bank <- replicateM(mkReg(0));
-	Vector#(TDiv#(data_width,`INWIDTH), Reg#(Bit#(`INWIDTH))) rg_inbuf_data <- replicateM(mkReg(0));
-	Vector#(TDiv#(data_width,`INWIDTH), Reg#(Bool)) rg_inp_valid <- replicateM(mkReg(False));
-	Vector#(TDiv#(data_width,`INWIDTH), Reg#(Bit#(`WBUF_INDEX))) rg_weight_index <- replicateM(mkReg(0));
-	Vector#(TDiv#(data_width,`INWIDTH), Reg#(Bit#(`WBUF_Bankbits))) rg_weight_bank <- replicateM(mkReg(0));
-	Vector#(TDiv#(data_width,`INWIDTH), Reg#(Bit#(`INWIDTH))) rg_wbuf_data <- replicateM(mkReg(0));
-	Vector#(TDiv#(data_width,`INWIDTH), Reg#(Bool)) rg_weight_valid <- replicateM(mkReg(False));
-	Vector#(TDiv#(data_width,`OUTWIDTH), Reg#(Bit#(`OBUF_INDEX))) rg_output_index <- replicateM(mkReg(0));
-	Vector#(TDiv#(data_width,`OUTWIDTH), Reg#(Bit#(`OBUF_Bankbits))) rg_output_bank <- replicateM(mkReg(0));
-	Vector#(TDiv#(data_width,`OUTWIDTH), Reg#(Bit#(`OUTWIDTH))) rg_outbuf_data <- replicateM(mkReg(0));
-	Vector#(TDiv#(data_width,`OUTWIDTH), Reg#(Bool)) rg_out_valid <- replicateM(mkReg(False));
-
-
-	// //Get load parameters from param_Buffer
-	// rule rl_get_parambuffer; //yet to define the conditions for this rule 
-
-
-	// 	let temp = 0; //parameters for load inst.
-
-	// 	rg_bitwidth <= (False) ? `INBYTES : `OUTBYTES; //yet to be defined based on sram address
-	// 	rg_sram_addr_b <= temp[86:61]; //sram base address
-	// 	rg_dram_addr_b <= temp[118:87]; //dram base address
-	// 	rg_burst_len <= (False) ? truncate(((temp[36:25] *(`INBYTES)) >> 3)-1) : truncate(((temp[36:25] *(`OUTBYTES)) >> 3)-1); //yet to be defined based on sram address
-	// 	rg_zy_size <= zeroExtend(temp[36:25] * temp[48:37]); //z_size * y_size
-	// 	rg_x_size <= temp[60:49];
-	// 	rg_y_size <= temp[48:37];
-	// 	rg_z_size <= temp[36:25];
-	// 	rg_z_cntr <= temp[36:25];
-	// 	rg_xyz_size <= zeroExtend(temp[36:25] * temp[48:37] * temp[60:49]);
-	// 	rg_isreset <= temp[0]==1'b1;
-	// 	rg_sramaddr <= temp[86:61];
-	// 	rg_dramaddr <= temp[118:87];
-	// 	rg_z_stride <= temp[24:13];
-	// 	rg_y_stride <= temp[12:1];
-
-	// endrule
-
+	Vector#(max_words, Wire#(SRAMReq#(max_index, max_bank, max_data)))
+			wr_buffer_req <- replicateM(mkWire());
 
 	// LOAD immediate into SRAM
-	rule rl_load_immediate(rg_isreset && rg_xyz_size !=0 ); 
+	rule rl_load_immediate(rg_params matches tagged Valid .params &&&
+						   params.is_reset &&&
+						   rg_xyz_size !=0);
 
 		// load immediate into input buffer
 		if(False) begin  //yet to be define based on sram address
-			let {inp_index, inp_bufferbank} = split_address_IBUF(rg_sram_addr_b);
+			Bit#(if_index) inp_index;
+      Bit#(if_bank) inp_bufferbank;
+      {inp_index, inp_bufferbank} = split_address_IBUF(rg_sram_addr);
 
-			if(rg_xyz_size >= fromInteger(numWords_Ibuf)) begin  
-				for(Integer i=0; i<numWords_Ibuf; i=i+1)begin
-		             Bit#(TAdd#(`IBUF_Bankbits,1)) m = zeroExtend(inp_bufferbank) + fromInteger(i);
-		             Bit#(`IBUF_INDEX) index = inp_index;
-		             Bit#(`IBUF_Bankbits) bank = truncate(m);
-		             if(bank < inp_bufferbank)begin 
-		               index = index + 1;
-		             end
-		             Bit#(`INWIDTH) data = truncate(rg_dram_addr_b);
-		             // buffers.input_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data)); 
-		             // $display($time,"writing data index %h bank %d rg_xyz_size %d\n",index,bank,rg_xyz_size);
-		             rg_input_index[i] <= index;
-		             rg_input_bank[i] <= bank;
-		             rg_inbuf_data[i] <= data;
-		             rg_inp_valid[i] <= True;
-		        end
-		        rg_xyz_size <= rg_xyz_size - fromInteger(numWords_Ibuf);
-		    end
-		    else begin  //when remaining values to be written are less than numwords_Ibuf
-		    	for(Integer i=0; i<numWords_Ibuf; i=i+1)begin
-		             Bit#(TAdd#(`IBUF_Bankbits,1)) m = zeroExtend(inp_bufferbank) + fromInteger(i);
-		             Bit#(`IBUF_INDEX) index = inp_index;
-		             Bit#(`IBUF_Bankbits) bank = truncate(m);
-		             if(bank < inp_bufferbank)begin 
-		               index = index + 1;
-		             end
-		             Bit#(TAdd#(`IBUF_Bankbits,1)) n = zeroExtend(inp_bufferbank) + truncate(rg_xyz_size);
-		             Bit#(`INWIDTH) data = truncate(rg_dram_addr_b);
-		             rg_input_bank[i] <= bank;
-		             rg_inbuf_data[i] <= data;
-		             rg_input_index[i] <= index;
-		             
-		             if(m <= n)	begin
-		             	// buffers.input_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data));
-		             	// $display($time,"writing data index %h bank %d rg_xyz_size %d\n",index,bank,rg_xyz_size);
-		             	rg_inp_valid[i] <= True;
-		             end
-		             else rg_inp_valid[i] <= False;
-		             
-		        end
-		        rg_xyz_size <= 0;
-		        rg_finish_load <= True; //end of load immmediate
-		    end
-		    rg_sram_addr_b <= rg_sram_addr_b + fromInteger(numWords_Ibuf * `INBYTES);
-		end 
+			for(Integer i=0; i<iWords; i=i+1) begin
+				if(fromInteger(i) < rg_xyz_size) begin
+					Bit#(max_index) index = extend(inp_index);
+					Bit#(max_bank) bank = extend(inp_bufferbank+fromInteger(i));
+					if(bank < extend(inp_bufferbank)) begin 
+						index = index + 1;
+					end
+					Bit#(max_data) data = truncate(params.dram_address);
+					wr_buffer_req[i] <= SRAMReq {buffer: InputBuffer, index: index, bank: bank, data: data};
+				end
+	    end
+    end
+		//TODO: These logic mark end of load immediate, should be implemented somewhere
+		// rg_xyz_size <= rg_xyz_size - fromInteger(numWords_Ibuf);
+		// rg_finish_load <= True; //end of load immmediate
+		// rg_sram_addr_b <= rg_sram_addr_b + fromInteger(numWords_Ibuf * `INBYTES);
+
 		//load immmediate into output buffer
 		else begin
-			let {out_index, out_bufferbank} = split_address_OBUF(rg_sram_addr_b);
+      //Do
+      Bit#(of_index) out_index;
+      Bit#(of_bank) out_bufferbank;
+			{out_index, out_bufferbank} = split_address_OBUF(rg_sram_addr);
 
-			if(rg_xyz_size >= fromInteger(numWords_Obuf)) begin
-				for(Integer i=0; i<numWords_Obuf; i=i+1)begin
-		             Bit#(TAdd#(`OBUF_Bankbits,1)) m = zeroExtend(out_bufferbank) + fromInteger(i);
-		             Bit#(`OBUF_INDEX) index = out_index;
-		             Bit#(`OBUF_Bankbits) bank = truncate(m);
-		             if(bank < out_bufferbank)begin 
-		               index = index + 1;
-		             end
-		             Bit#(`OUTWIDTH) data = truncate(rg_dram_addr_b);
-		             // buffers.output_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data)); 
-		             // $display($time,"writing data index %h bank %d rg_xyz_size %d\n",index,bank,rg_xyz_size);
-		             rg_output_index[i] <= index;
-		             rg_output_bank[i] <= bank;
-		             rg_outbuf_data[i] <= data;
-		             rg_out_valid[i] <= True;
-		        end
-		        rg_xyz_size <= rg_xyz_size - fromInteger(numWords_Obuf);
-		    end
-		    else begin 			//when remaining values to be written are less than numwords_Obuf
-		    	for(Integer i=0; i<numWords_Obuf; i=i+1)begin
-		             Bit#(TAdd#(`OBUF_Bankbits,1)) m = zeroExtend(out_bufferbank) + fromInteger(i);
-		             Bit#(`OBUF_INDEX) index = out_index;
-		             Bit#(`OBUF_Bankbits) bank = truncate(m);
-		             if(bank < out_bufferbank)begin 
-		               index = index + 1;
-		             end
-		             Bit#(TAdd#(`OBUF_Bankbits,1)) n = zeroExtend(out_bufferbank) + truncate(rg_xyz_size);
-		             Bit#(`OUTWIDTH) data = truncate(rg_dram_addr_b);
-		             rg_output_bank[i] <= bank;
-		             rg_outbuf_data[i] <= data;
-		             rg_output_index[i] <= index;
-		             if(m <= n)	begin
-		             	// buffers.input_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data));
-		             	// $display($time,"writing data index %h bank %d rg_xyz_size %d\n",index,bank,rg_xyz_size);
-		             	rg_out_valid[i] <= True;
-		             end
-		             else rg_out_valid[i] <= False;
-		        end
-		        rg_xyz_size <= 0;
-		        rg_finish_load <= True; //end of load immmediate
-		    end
-		    rg_sram_addr_b <= rg_sram_addr_b + fromInteger(numWords_Obuf * `OUTBYTES);
-		end 
-
-        // rg_sram_addr_b <= rg_sram_addr_b + truncate(rg_xyz_size * `INBYTES);
-
+			for(Integer i=0; i<oWords; i=i+1) begin
+				if(fromInteger(i) < rg_xyz_size) begin
+					Bit#(max_index) index = extend(out_index);
+					Bit#(max_bank) bank = extend(out_bufferbank+fromInteger(i));
+					if(bank < extend(out_bufferbank))begin
+						index = index + 1;
+					end
+					Bit#(max_data) data = truncate(params.dram_address);
+					wr_buffer_req[i] <= SRAMReq{buffer: OutputBuffer, index: index, bank: bank, data: data};
+				end
+			end
+		end
 	endrule
 
 	//LOAD from DRAM to SRAM
-	rule rl_start_dram_Read( !(rg_x_size ==0 && rg_y_cntr==0) && !rg_isreset);  
+	rule rl_start_dram_Read(rg_params matches tagged Valid .params &&&
+							!params.is_reset &&&
+							rg_load_requests);
 
-		if(rg_y_cntr == (rg_y_size-1)) begin //----- end of a 2D slice -----
-			
-			rg_dram_addr_a <= rg_dram_addr_a + zeroExtend(rg_y_stride * zeroExtend(rg_bitwidth));
-			rg_dram_addr_b <= rg_dramaddr;
-			rg_sram_addr_a <= rg_sram_addr_a + truncate(rg_zy_size * zeroExtend(rg_bitwidth));
-			rg_sram_addr_b <= rg_sramaddr;
-			rg_y_cntr <= 0;
-			rg_x_size <= rg_x_size - 1;
+		let lv_read_request = AXI4_Rd_Addr {araddr: rg_dram_addr, arid: `rd_req_id, arlen: rg_burst_len,
+							arsize: 'b011, arburst: 'b01, aruser: 0, arprot: ?};
+
+		//TODO: replace the multipliers in the below logic with shift operations
+		if(rg_x_cntr == 0 && rg_y_cntr == 0) begin
+			rg_load_requests <= False;
+		end
+		else if(rg_y_cntr == 0) begin
+			rg_y_cntr <= params.y_size;
+			rg_x_cntr <= rg_x_cntr - 1;
+			rg_dram_addr <= rg_dram_addr + zeroExtend(pack(params.y_stride)) * fromInteger(params.bitwidth ? iBytes : oBytes);
 		end
 		else begin
-			rg_dram_addr_b <= rg_dram_addr_b + zeroExtend(rg_z_stride * zeroExtend(rg_bitwidth));
-			rg_sram_addr_b <= rg_sram_addr_b + zeroExtend(rg_z_size * zeroExtend(rg_bitwidth));
-			rg_y_cntr <= rg_y_cntr + 1;
+			rg_y_cntr <= rg_y_cntr - 1;
+			rg_dram_addr <= rg_dram_addr + zeroExtend(pack(params.z_stride)) * fromInteger(params.bitwidth ? iBytes : oBytes);
 		end
 
-		Bit#(addr_width) lv_dram_addr = zeroExtend(rg_dram_addr_a + rg_dram_addr_b);
-		Bit#(addr_width) lv_sram_addr = zeroExtend(rg_sram_addr_a + rg_sram_addr_b);
+		ff_dest_addr.enq(rg_sram_addr);
+		rg_sram_addr <= rg_sram_addr + zeroExtend(pack(params.z_size)) * fromInteger(params.bitwidth ? iBytes : oBytes);
 
-		ff_dest_addr.enq(lv_sram_addr);
-
-		let read_request = AXI4_Rd_Addr {araddr: lv_dram_addr, 
-                         arid: {`rd_req_id}, arlen: rg_burst_len,
-                         arsize: 'b011, arburst: 'b01, //arburst: 00-FIXED 01-INCR 10-WRAP
-                         aruser: 0 };  
-
-        m_xactor.i_rd_addr.enq(read_request);
-
+        m_xactor.i_rd_addr.enq(lv_read_request);
 	endrule
 
-	rule rl_start_write(m_xactor.o_rd_data.first.rid == `rd_req_id && m_xactor.o_rd_data.first.rresp==AXI4_OKAY
-                         && !rg_burst);
+	rule rl_start_write(rg_params matches tagged Valid .params &&&
+						m_xactor.o_rd_data.first.rid == `rd_req_id &&&
+						m_xactor.o_rd_data.first.rresp==AXI4_OKAY);
 
 		let lv_resp <- pop_o(m_xactor.o_rd_data);
 		let lv_data = lv_resp.rdata;
 		let lv_sram_addr = ff_dest_addr.first;
 
-		/* ----code for loading into buffer----*/
-
-		
-		if(False) begin //loading inputs -- //condn. yet to be defined based on sram address
-			
-			let {inp_index, bufferbank} = split_address_IBUF(lv_sram_addr);
-
-			if(rg_z_cntr >= fromInteger(numWords_Ibuf)) begin
-				for(Integer i=0; i<numWords_Ibuf; i=i+1)begin
-	             Bit#(TAdd#(`IBUF_Bankbits,1)) m = zeroExtend(bufferbank) + fromInteger(i);
-	             Bit#(`IBUF_INDEX) index = inp_index;
-	             Bit#(`IBUF_Bankbits) bank = truncate(m);
-	             if(bank < bufferbank)begin 
-	               index = index + 1;
-	             end
-	             Bit#(`INWIDTH) data = lv_data[(i+1)*`INWIDTH-1:i*`INWIDTH];
-	             // buffers.input_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data));
-	             rg_input_index[i] <= index;
-	             rg_input_bank[i] <= bank;
-	             rg_inbuf_data[i] <= data;
-	             rg_inp_valid[i] <= True;
-	            end
-	            rg_z_cntr <= rg_z_cntr - fromInteger(numWords_Ibuf);
-	        end
-	        else begin		//when remaining values to be written are less than numwords_Ibuf
-	        	for(Integer i=0; i<numWords_Ibuf; i=i+1)begin
-	             Bit#(TAdd#(`IBUF_Bankbits,1)) m = zeroExtend(bufferbank) + fromInteger(i);
-	             Bit#(`IBUF_INDEX) index = inp_index;
-	             Bit#(`IBUF_Bankbits) bank = truncate(m);
-	             if(bank < bufferbank)begin 
-	               index = index + 1;
-	             end
-	             Bit#(TAdd#(`IBUF_Bankbits,1)) n = zeroExtend(bufferbank) + truncate(rg_z_cntr);
-	             Bit#(`INWIDTH) data = lv_data[(i+1)*`INWIDTH-1:i*`INWIDTH];
-	             rg_input_index[i] <= index;
-	             rg_input_bank[i] <= bank;
-	             rg_inbuf_data[i] <= data;
-	             if(m <= n) begin	
-	             	// buffers.input_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data));
-	             	rg_inp_valid[i] <= True;
-	             end else rg_inp_valid[i] <= False;
-	            end
-	            rg_z_cntr <= rg_z_size;
-	        end
-
-		end
-
-		else if(False) begin //loading weights
-
-			let {wt_index, bufferbank} = split_address_WBUF(lv_sram_addr);
-
-			if(rg_z_cntr >= fromInteger(numWords_Ibuf)) begin
-				for(Integer i=0; i<numWords_Ibuf; i=i+1)begin
-	             Bit#(TAdd#(`WBUF_Bankbits,1)) m = zeroExtend(bufferbank) + fromInteger(i);
-	             Bit#(`WBUF_INDEX) index = wt_index;
-	             Bit#(`WBUF_Bankbits) bank = truncate(m);
-	             if(bank < bufferbank)begin 
-	               index = index + 1;
-	             end
-	             Bit#(`INWIDTH) data = lv_data[(i+1)*`INWIDTH-1:i*`INWIDTH];
-	             // buffers.weight_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data));
-	             rg_weight_index[i] <= index;
-	             rg_weight_bank[i] <= bank;
-	             rg_wbuf_data[i] <= data;
-	             rg_weight_valid[i] <= True;
-	            end	
-	            rg_z_cntr <= rg_z_cntr - fromInteger(numWords_Ibuf);
-	        end
-	        else begin		//when remaining values to be written are less than numwords_Ibuf
-	        	for(Integer i=0; i<numWords_Ibuf; i=i+1)begin
-	             Bit#(TAdd#(`WBUF_Bankbits,1)) m = zeroExtend(bufferbank) + fromInteger(i);
-	             Bit#(`WBUF_INDEX) index = wt_index;
-	             Bit#(`WBUF_Bankbits) bank = truncate(m);
-	             if(bank < bufferbank)begin 
-	               index = index + 1;
-	             end
-	             Bit#(TAdd#(`WBUF_Bankbits,1)) n = zeroExtend(bufferbank) + truncate(rg_z_cntr);
-	             Bit#(`INWIDTH) data = lv_data[(i+1)*`INWIDTH-1:i*`INWIDTH];
-	             rg_weight_index[i] <= index;
-	             rg_weight_bank[i] <= bank;
-	             rg_wbuf_data[i] <= data;
-	             if(m >= n) begin 
-	            	// buffers.weight_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data));
-	            	rg_weight_valid[i] <= True;
-	             end else rg_weight_valid[i] <= False;
-	            end
-	            rg_z_cntr <= rg_z_size;
-	        end
-		end
-
-		else if(False) begin //loading outputs
-		
-			let {out_index, bufferbank} = split_address_OBUF(lv_sram_addr);
-
-			if(rg_z_cntr >= fromInteger(numWords_Obuf)) begin
-				for(Integer i=0; i<numWords_Obuf; i=i+1)begin
-	             Bit#(TAdd#(`OBUF_Bankbits,1)) m = zeroExtend(bufferbank) + fromInteger(i);
-	             Bit#(`OBUF_INDEX) index = out_index;
-	             Bit#(`OBUF_Bankbits) bank = truncate(m);
-	             if(bank < bufferbank)begin 
-	               index = index + 1;
-	             end
-	             Bit#(`OUTWIDTH) data = lv_data[(i+1)*`OUTWIDTH-1:i*`OUTWIDTH];
-	             // buffers.output_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data));
-	             rg_output_index[i] <= index;
-	             rg_output_bank[i] <= bank;
-	             rg_outbuf_data[i] <= data;
-	             rg_out_valid[i] <= True;
-	            end
-	            rg_z_cntr <= rg_z_cntr - fromInteger(numWords_Obuf);
-	        end
-	        else begin		//when remaining values to be written are less than numwords_Obuf
-	        	for(Integer i=0; i<numWords_Obuf; i=i+1)begin
-	             Bit#(TAdd#(`OBUF_Bankbits,1)) m = zeroExtend(bufferbank) + fromInteger(i);
-	             Bit#(`OBUF_INDEX) index = out_index;
-	             Bit#(`OBUF_Bankbits) bank = truncate(m);
-	             if(bank < bufferbank)begin 
-	               index = index + 1;
-	             end
-	             Bit#(TAdd#(`OBUF_Bankbits,1)) n = zeroExtend(bufferbank) + truncate(rg_z_cntr);
-	             Bit#(`OUTWIDTH) data = lv_data[(i+1)*`OUTWIDTH-1:i*`OUTWIDTH];
-	             rg_output_index[i] <= index;
-	             rg_output_bank[i] <= bank;
-	             rg_outbuf_data[i] <= data;
-	             if (m >= n) begin
-	            	 // buffers.output_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data));
-	            	 rg_out_valid[i] <= True;
-	             end else rg_out_valid[i] <= False;
-	            end
-	            rg_z_cntr <= rg_z_size;
-	        end
-		end
-
-		
 		if(!lv_resp.rlast) begin
-			rg_burst <= True;
-			let lv_burst_addr = lv_sram_addr + (fromInteger(axidata_width) >> 3); 
+			rg_burst <= False;
+			SRAM_address lv_burst_addr = unpack(lv_sram_addr + (fromInteger(axi_width) >> 3));
 			rg_burst_addr <= lv_burst_addr;
 		end
 
-		ff_dest_addr.deq;  //dequeing this FIFO will cause start_Mem_Read to fire.
-
-	endrule
-
-	rule rl_burst_load(m_xactor.o_rd_data.first.rid == `rd_req_id && m_xactor.o_rd_data.first.rresp==AXI4_OKAY
-                        && rg_burst);
-
-		let lv_resp <- pop_o(m_xactor.o_rd_data);
-		let lv_data = lv_resp.rdata;
-		let lv_sram_addr = rg_burst_addr;
-
+		else if(!rg_burst) begin
+			ff_dest_addr.deq;
+			rg_burst <= True;
+		end
 
 		/* ----code for loading into buffer----*/
-
-	    if(False) begin //loading inputs -- //condn. yet to be defined based on sram address
-			
-			let {inp_index, bufferbank} = split_address_IBUF(lv_sram_addr);
-
-			if(rg_z_cntr >= fromInteger(numWords_Ibuf)) begin
-				for(Integer i=0; i<numWords_Ibuf; i=i+1)begin
-	             Bit#(TAdd#(`IBUF_Bankbits,1)) m = zeroExtend(bufferbank) + fromInteger(i);
-	             Bit#(`IBUF_INDEX) index = inp_index;
-	             Bit#(`IBUF_Bankbits) bank = truncate(m);
-	             if(bank < bufferbank)begin 
-	               index = index + 1;
-	             end
-	             Bit#(`INWIDTH) data = lv_data[(i+1)*`INWIDTH-1:i*`INWIDTH];
-	             // buffers.input_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data));
-	             rg_input_index[i] <= index;
-	             rg_input_bank[i] <= bank;
-	             rg_inbuf_data[i] <= data;
-	             rg_inp_valid[i] <= True;
-	            end
-	            rg_z_cntr <= rg_z_cntr - fromInteger(numWords_Ibuf);
-	        end
-	        else begin
-	        	for(Integer i=0; i<numWords_Ibuf; i=i+1)begin
-	             Bit#(TAdd#(`IBUF_Bankbits,1)) m = zeroExtend(bufferbank) + fromInteger(i);
-	             Bit#(`IBUF_INDEX) index = inp_index;
-	             Bit#(`IBUF_Bankbits) bank = truncate(m);
-	             if(bank < bufferbank)begin 
-	               index = index + 1;
-	             end
-	             Bit#(TAdd#(`IBUF_Bankbits,1)) n = zeroExtend(bufferbank) + truncate(rg_z_cntr);
-	             Bit#(`INWIDTH) data = lv_data[(i+1)*`INWIDTH-1:i*`INWIDTH];
-	             rg_input_index[i] <= index;
-	             rg_input_bank[i] <= bank;
-	             rg_inbuf_data[i] <= data;
-	             if(m <= n) begin	
-	             	// buffers.input_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data));
-	             	rg_inp_valid[i] <= True;
-	             end else rg_inp_valid[i] <= False;
-	            end
-	            rg_z_cntr <= rg_z_size;
-	        end
-		end
-
-		else if(False) begin //loading weights
-
-			let {wt_index, bufferbank} = split_address_WBUF(lv_sram_addr);
-
-			if(rg_z_cntr >= fromInteger(numWords_Ibuf)) begin
-				for(Integer i=0; i<numWords_Ibuf; i=i+1)begin
-	             Bit#(TAdd#(`WBUF_Bankbits,1)) m = zeroExtend(bufferbank) + fromInteger(i);
-	             Bit#(`WBUF_INDEX) index = wt_index;
-	             Bit#(`WBUF_Bankbits) bank = truncate(m);
-	             if(bank < bufferbank)begin 
-	               index = index + 1;
-	             end
-	             Bit#(`INWIDTH) data = lv_data[(i+1)*`INWIDTH-1:i*`INWIDTH];
-	             // buffers.weight_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data));
-	             rg_weight_index[i] <= index;
-	             rg_weight_bank[i] <= bank;
-	             rg_wbuf_data[i] <= data;
-	             rg_weight_valid[i] <= True;
-	            end	
-	            rg_z_cntr <= rg_z_cntr - fromInteger(numWords_Ibuf);
-	        end
-	        else begin
-	        	for(Integer i=0; i<numWords_Ibuf; i=i+1)begin
-	             Bit#(TAdd#(`WBUF_Bankbits,1)) m = zeroExtend(bufferbank) + fromInteger(i);
-	             Bit#(`WBUF_INDEX) index = wt_index;
-	             Bit#(`WBUF_Bankbits) bank = truncate(m);
-	             if(bank < bufferbank)begin 
-	               index = index + 1;
-	             end
-	             Bit#(TAdd#(`WBUF_Bankbits,1)) n = zeroExtend(bufferbank) + truncate(rg_z_cntr);
-	             Bit#(`INWIDTH) data = lv_data[(i+1)*`INWIDTH-1:i*`INWIDTH];
-	             rg_weight_index[i] <= index;
-	             rg_weight_bank[i] <= bank;
-	             rg_wbuf_data[i] <= data;
-	             if(m >= n) begin
-	            	// buffers.weight_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data));
-	            	rg_weight_valid[i] <= True;
-	             end else rg_weight_valid[i] <= False;
-	            end
-	            rg_z_cntr <= rg_z_size;
-	        end
-		end
-
-		else if(False) begin //loading outputs
 		
-			let {out_index, bufferbank} = split_address_OBUF(lv_sram_addr);
-
-			if(rg_z_cntr >= fromInteger(numWords_Obuf)) begin
-				for(Integer i=0; i<numWords_Obuf; i=i+1)begin
-	             Bit#(TAdd#(`OBUF_Bankbits,1)) m = zeroExtend(bufferbank) + fromInteger(i);
-	             Bit#(`OBUF_INDEX) index = out_index;
-	             Bit#(`OBUF_Bankbits) bank = truncate(m);
-	             if(bank < bufferbank)begin 
-	               index = index + 1;
-	             end
-	             Bit#(`OUTWIDTH) data = lv_data[(i+1)*`OUTWIDTH-1:i*`OUTWIDTH];
-	             // buffers.output_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data));
-	             rg_output_index[i] <= index;
-	             rg_output_bank[i] <= bank;
-	             rg_outbuf_data[i] <= data;
-	             rg_out_valid[i] <= True;
-	            end
-	            rg_z_cntr <= rg_z_cntr - fromInteger(numWords_Obuf);
-	        end
-	        else begin
-	        	for(Integer i=0; i<numWords_Obuf; i=i+1)begin
-	             Bit#(TAdd#(`OBUF_Bankbits,1)) m = zeroExtend(bufferbank) + fromInteger(i);
-	             Bit#(`OBUF_INDEX) index = out_index;
-	             Bit#(`OBUF_Bankbits) bank = truncate(m);
-	             if(bank < bufferbank)begin 
-	               index = index + 1;
-	             end
-	             Bit#(TAdd#(`OBUF_Bankbits,1)) n = zeroExtend(bufferbank) + truncate(rg_z_cntr);
-	             Bit#(`OUTWIDTH) data = lv_data[(i+1)*`OUTWIDTH-1:i*`OUTWIDTH];
-	             rg_output_index[i] <= index;
-	             rg_output_bank[i] <= bank;
-	             rg_outbuf_data[i] <= data;
-	             if (m >= n) begin
-	            	 // buffers.output_buffer[0][bank].portB.request.put(makeRequest(True, 'b1 , index, data));
-	            	 rg_out_valid[i] <= True;
-	             end else rg_out_valid[i] <= False;
-	            end
-	            rg_z_cntr <= rg_z_size;
-	        end
-		end
-
-
-		let lv_burst_addr = lv_sram_addr + (fromInteger(axidata_width)>>3); 
-		rg_burst_addr <= lv_burst_addr;
-
-		if(lv_resp.rlast) begin // last beat of current burst
-			rg_burst <= False;
-			if(rg_x_size==0 && rg_y_cntr==0) begin // end of current load instruction
-				rg_finish_load <= True;
+		if(False) begin //loading inputs -- //condn. yet to be defined based on sram address
+			Bit#(if_index) inp_index;
+      Bit#(if_bank) inp_bufferbank;
+      {inp_index, inp_bufferbank} = split_address_IBUF(lv_sram_addr);
+			for(Integer i=0; i<iWords; i=i+1) begin
+				if(fromInteger(i) < rg_z_cntr) begin
+					Bit#(max_index) index = extend(inp_index);
+					Bit#(max_bank) bank = extend(inp_bufferbank + fromInteger(i));
+					if(bank < extend(inp_bufferbank)) begin
+						index = index + 1;
+					end
+					Bit#(max_data) data = lv_data[(i+1)*ibuf_width-1:i*ibuf_width];
+					wr_buffer_req[i] <= SRAMReq{buffer: InputBuffer, index: index, bank: bank, data: data};
+				end
 			end
 		end
-
-	endrule
-
-	rule rl_invalid_bufferreq (rg_finish_load); //when load instruction is not active, buffer request are invalidated
-
-		for(Integer i=0; i<numWords_Ibuf; i=i+1) begin
-			rg_inp_valid[i] <= False;
-			rg_weight_valid[i] <= False;
+		else if(False) begin //loading weights			
+			Bit#(wt_index) wgt_index;
+      Bit#(wt_bank) wgt_bufferbank;
+      {wgt_index, wgt_bufferbank} = split_address_WBUF(lv_sram_addr);
+			for(Integer i=0; i<iWords; i=i+1) begin
+				if(fromInteger(i) < rg_z_cntr) begin
+					Bit#(max_index) index = extend(wgt_index);
+					Bit#(max_bank) bank = extend(wgt_bufferbank + fromInteger(i));
+					if(bank < extend(wgt_bufferbank)) begin
+						index = index + 1;
+					end
+					Bit#(max_data) data = lv_data[(i+1)*wbuf_width-1:i*wbuf_width];
+					wr_buffer_req[i] <= SRAMReq{buffer: WeightBuffer, index: index, bank: bank, data: data};
+				end
+			end
 		end
-		for(Integer i=0; i<numWords_Obuf; i=i+1) begin
-			rg_out_valid[i] <= False;
+		else if(False) begin //loading outputs			
+			Bit#(of_index) out_index;
+      Bit#(of_bank) out_bufferbank;
+      {out_index, out_bufferbank} = split_address_OBUF(lv_sram_addr);
+			for(Integer i=0; i<oWords; i=i+1) begin
+				if(fromInteger(i) < rg_z_cntr) begin
+					Bit#(max_index) index = extend(out_index);
+					Bit#(max_bank) bank = extend(out_bufferbank + fromInteger(i));
+					if(bank < extend(out_bufferbank)) begin
+						index = index + 1;
+					end
+					Bit#(max_data) data = lv_data[(i+1)*obuf_width-1:i*obuf_width];
+					wr_buffer_req[i] <= SRAMReq{buffer: OutputBuffer, index: index, bank: bank, data: data};
+				end
+			end
 		end
-
+	    //TODO: Updating rg_z_cntr, updating rg_burst_addr
+	    //rg_z_cntr <= rg_z_cntr - fromInteger(numWords_Ibuf);
 	endrule
 
 	interface master = m_xactor.axi_side;
 
 	interface Put subifc_get_loadparams;
-		
-		method Action put(Bit#(128) parameters) if(rg_finish_load);		//parameters assumed to be 128 bits for now 	
+		method Action put(Load_params parameters) if(rg_finish_load);
 			rg_finish_load <= False;
-
-			let temp = parameters;
-
-			rg_bitwidth <= (False) ? `INBYTES : `OUTBYTES; //yet to be defined based on sram address
-			rg_sram_addr_b <= temp[86:61]; //sram base address
-			rg_dram_addr_b <= temp[118:87]; //dram base address
-			rg_burst_len <= (False) ? truncate(((temp[36:25] *(`INBYTES)) >> 3)-1) : truncate(((temp[36:25] *(`OUTBYTES)) >> 3)-1); //yet to be defined based on sram address
-			rg_zy_size <= zeroExtend(temp[36:25] * temp[48:37]); //z_size * y_size
-			rg_x_size <= temp[60:49];
-			rg_y_size <= temp[48:37];
-			rg_z_size <= temp[36:25];
-			rg_z_cntr <= temp[36:25];
-			rg_xyz_size <= zeroExtend(temp[36:25] * temp[48:37] * temp[60:49]);
-			rg_isreset <= temp[0]==1'b1;
-			rg_sramaddr <= temp[86:61];
-			rg_dramaddr <= temp[118:87];
-			rg_z_stride <= temp[24:13];
-			rg_y_stride <= temp[12:1];
+			rg_params <= tagged Valid parameters;
+			if(parameters.is_reset)
+				rg_xyz_size <= truncate({pack(parameters.x_size), pack(parameters.y_size), pack(parameters.z_size)});
+			rg_dram_addr <= parameters.dram_address;
+			rg_sram_addr <= parameters.sram_address;
+			rg_burst_len <= truncate( unpack(parameters.z_size) * fromInteger(parameters.bitwidth ? iBytes : oBytes) ) >> 3 - 1;
+			rg_y_cntr <= parameters.y_size;
+			rg_x_cntr <= parameters.x_size;
+			rg_load_requests <= True;
 		endmethod
 	endinterface
 
 	interface Get subifc_send_loadfinish;
-
 		method ActionValue#(Bool) get if(rg_finish_load);
 			return rg_finish_load;
 		endmethod
-
 	endinterface
 
-	method Vector#(TDiv#(data_width,`INWIDTH), Tuple4#(Bool, Bit#(`IBUF_INDEX), Bit#(`IBUF_Bankbits), Bit#(`INWIDTH))) ibuf_wr_data;
-
-		Vector#(TDiv#(data_width,`INWIDTH), Tuple4#(Bool, Bit#(`IBUF_INDEX), Bit#(`IBUF_Bankbits), Bit#(`INWIDTH))) ibuf_write;
-
-		for(Integer i=0; i<numWords_Ibuf; i=i+1) begin
-			ibuf_write[i] = tuple4(rg_inp_valid[i], rg_input_index[i], rg_input_bank[i], rg_inbuf_data[i]);
+	method ActionValue#(Vector#(max_words, SRAMReq#(max_index, max_bank, max_data))) wr_data() if(rg_params matches tagged Valid .params);
+		Vector#(max_words, SRAMReq#(max_index, max_bank, max_data)) requests;
+		for(Integer i=0; i<maxnumwords; i=i+1)begin
+			requests[i] = wr_buffer_req[i];
 		end
-		return ibuf_write;
-	endmethod
-
-	method Vector#(TDiv#(data_width,`INWIDTH), Tuple4#(Bool, Bit#(`WBUF_INDEX), Bit#(`WBUF_Bankbits), Bit#(`INWIDTH))) wbuf_wr_data;
-
-		Vector#(TDiv#(data_width,`INWIDTH), Tuple4#(Bool, Bit#(`WBUF_INDEX), Bit#(`WBUF_Bankbits), Bit#(`INWIDTH))) wbuf_write;
-
-		for(Integer i=0; i<numWords_Ibuf; i=i+1) begin
-			wbuf_write[i] = tuple4(rg_weight_valid[i], rg_weight_index[i], rg_weight_bank[i], rg_wbuf_data[i]);
+		if(params.is_reset && rg_xyz_size < fromInteger(params.bitwidth ? iWords : oWords))begin
+			rg_xyz_size <= rg_xyz_size - fromInteger(params.bitwidth ? iWords: oWords);
+			rg_finish_load <= True;
 		end
-		return wbuf_write;
-	endmethod
 
-	method Vector#(TDiv#(data_width,`OUTWIDTH), Tuple4#(Bool, Bit#(`OBUF_INDEX), Bit#(`OBUF_Bankbits), Bit#(`OUTWIDTH))) obuf_wr_data; 
-
-		Vector#(TDiv#(data_width,`OUTWIDTH), Tuple4#(Bool, Bit#(`OBUF_INDEX), Bit#(`OBUF_Bankbits), Bit#(`OUTWIDTH))) obuf_write;
-
-		for(Integer i=0; i<numWords_Obuf; i=i+1) begin
-			obuf_write[i] = tuple4(rg_out_valid[i], rg_output_index[i], rg_output_bank[i], rg_outbuf_data[i]);
+		if(!params.is_reset && rg_x_cntr==0 && rg_y_cntr==0)begin
+			rg_load_requests <= False;
 		end
-		return obuf_write;
+
+		return requests;
 	endmethod
 
 endmodule
 
 (*synthesize*)
-  module mkload_Tb(Ifc_load_Module#(32,64));
+  module mkload_Tb(Ifc_load_Module#(32,64,24,5,5,8,6,5,8,7,5,16,7,5,16,8));
     let ifc();
     mk_load_Module inst1(ifc);
     return (ifc);
   endmodule
 
 endpackage
-
-
-
-	

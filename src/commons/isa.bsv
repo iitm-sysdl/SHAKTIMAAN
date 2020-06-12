@@ -23,27 +23,27 @@ typedef enum{
     SETUP,
     COMPUTE,
     ALU
-} Opcode;
+} Opcode deriving(Bits, Eq, FShow);
 
 typedef struct {
     Bit#(1) push_prev_dep;
     Bit#(1) pop_prev_dep;
     Bit#(1) push_next_dep;
     Bit#(1) pop_next_dep;
-} Dep_flags;
+} Dep_flags deriving(Bits, Eq, FShow);
 
 typedef struct {
     Opcode opcode;
     Dep_flags flags;
     DRAM_address address;
-} Instruction;
+} Instruction deriving(Bits, Eq, FShow);
 
 typedef enum {
     Max,
     Min,
     Add,
     Shift
-} ALU_Opcode deriving(Eq, Bits);
+} ALU_Opcode deriving(Eq, Bits, FShow);
 
 typedef struct {
   DRAM_address dram_address;
@@ -51,7 +51,8 @@ typedef struct {
   Dim1 x_size; Dim1 y_size; Dim1 z_size;
   Dim1 z_stride; Dim1 y_stride;
   Bool is_reset;
-} Mem_params;
+  Bool bitwidth;
+} Mem_params deriving(Bits, Eq, FShow);
 
 typedef Mem_params Load_params;
 typedef Mem_params Store_params;
@@ -64,7 +65,7 @@ typedef struct {
   Dim2 stride_h; Dim2 stride_w;
   Dim2 pad_left; Dim2 pad_right; Dim2 pad_top; Dim2 pad_bottom;
   Bool preload_output;
-} Compute_params;
+} Compute_params deriving(Bits, Eq, FShow);
 
 typedef struct {
     ALU_Opcode alu_opcode;
@@ -82,6 +83,6 @@ typedef struct {
     Dim1 num_of_filters; //Number of filters(M)
     Bool use_immediate;
     Dim1 immediate_value;// Modify the length of immediate value if required
-} ALU_params deriving(Bits);
+} ALU_params deriving(Bits, Eq, FShow);
 
 endpackage

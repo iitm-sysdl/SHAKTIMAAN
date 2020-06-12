@@ -49,3 +49,6 @@
 `define NUM_IBUF 2
 `define NUM_WBUF 2
 `define NUM_OBUF 2
+
+`define DRAM_ADDR_WIDTH 32
+`define SRAM_ADDR_WIDTH 24
