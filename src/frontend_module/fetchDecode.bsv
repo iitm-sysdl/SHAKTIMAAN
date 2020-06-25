@@ -17,6 +17,7 @@ import  FIFOF::*;
 
 `define LOAD  'h0
 `define STORE 'h1
+`define ALU 'h2 //Assuming, need to confirm the value for opcode
 `define SET_PC 'h0
 `define RESET_PC 'h1
 
@@ -34,6 +35,7 @@ interface Ifc_fetchDecode;
    interface Get#(Bit#(ILEN))  toloadQdep;
    interface Get#(Bit#(ILEN))  tocomputeQdep;
    interface Get#(Bit#(ILEN))  tostoreQdep;
+   interface Get#(Bit#(ILEN))  toaluQdep;
 
    //method Bit#(TAdd#(ILEN,1)) toDepResolver;
 endinterface
@@ -67,6 +69,7 @@ module mkfetchDecode(Ifc_fetchDecode);
   Wire#(Bit#(ILEN)) wr_loadQ  <- mkWire();
   Wire#(Bit#(ILEN)) wr_storeQ <- mkWire();
   Wire#(Bit#(ILEN)) wr_computeQ <- mkWire();
+  Wire#(Bit#(ILEN)) wr_aluQ <- mkWire();
 
   AXI4_Master_Xactor_IFC #(`ADDR_WIDTH, `DATA_WIDTH, 0) m_xactor <- mkAXI4_Master_Xactor;  
   AXI4_Slave_Xactor_IFC#(`ADDR_WIDTH,`DATA_WIDTH,0) s_xactor  <- mkAXI4_Slave_Xactor;
@@ -129,6 +132,9 @@ module mkfetchDecode(Ifc_fetchDecode);
     else if(opcodE == `STORE) begin
       wr_storeQ <= inst;
     end
+    else if(opcodE == `ALU) begin
+      wr_aluQ <= inst;
+    end
     else begin
       wr_computeQ <= inst;
     end  
@@ -154,6 +160,12 @@ module mkfetchDecode(Ifc_fetchDecode);
   interface Get tocomputeQdep;
     method ActionValue#(Bit#(ILEN)) get;
       return wr_computeQ;
+    endmethod
+   endinterface
+
+  interface Get toaluQdep;
+    method ActionValue#(Bit#(ILEN)) get;
+      return wr_aluQ;
     endmethod
    endinterface
 

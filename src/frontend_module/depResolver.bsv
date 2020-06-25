@@ -22,17 +22,22 @@ interface Ifc_depResolver;
  //Inputs
  interface Put#(Bit#(1)) gemmtoLoadpush;
  interface Put#(Bit#(1)) loadtoGemmpush;
- interface Put#(Bit#(1)) gemmtoStorepush;
- interface Put#(Bit#(1)) storetoGemmpush;
+ interface Put#(Bit#(1)) gemmtoAlupush;
+ interface Put#(Bit#(1)) alutoGemmpush;
+ interface Put#(Bit#(1)) alutoStorepush;
+ interface Put#(Bit#(1)) storetoAlupush;
+
 
  //method Action instrFromfetch(Bit#(ILEN) instruction);
  interface Put#(Bit#(ILEN)) fromloadDep;
  interface Put#(Bit#(ILEN)) fromstoreDep;
  interface Put#(Bit#(ILEN)) fromcomputeDep;
+ interface Put#(Bit#(ILEN)) fromaluDep;
 
  interface Get#(Bit#(ILEN)) toloadModule;
  interface Get#(Bit#(ILEN)) tostoreModule; 
- interface Get#(Bit#(ILEN)) tocomputeModule;  
+ interface Get#(Bit#(ILEN)) tocomputeModule;
+ interface Get#(Bit#(ILEN)) toaluModule; 
 
 endinterface 
 
@@ -59,15 +64,19 @@ module mkdepResolver(Ifc_depResolver);
   FIFOF#(Bit#(ILEN)) tloadQ     <- mkSizedFIFOF(valueOf(TloadQdepth));
   FIFOF#(Bit#(ILEN)) tstoreQ    <- mkSizedFIFOF(valueOf(TstoreQdepth));
   FIFOF#(Bit#(ILEN)) tcomputeQ  <- mkSizedFIFOF(valueOf(TcomputeQdepth));
+  FIFOF#(Bit#(ILEN)) taluQ      <- mkSizedFIFOF(valueOf(TaluQdepth));
 
   FIFOF#(Bit#(ILEN)) loadQ      <- mkSizedFIFOF(valueOf(LoadQdepth));
   FIFOF#(Bit#(ILEN)) storeQ     <- mkSizedFIFOF(valueOf(StoreQdepth));
   FIFOF#(Bit#(ILEN)) computeQ   <- mkSizedFIFOF(valueOf(ComputeQdepth));
+  FIFOF#(Bit#(ILEN)) aluQ       <- mkSizedFIFOF(valueOf(aluQdepth));
 
   FIFOF#(Bit#(1)) gemmtoloadQ   <- mkSizedFIFOF(valueOf(G2lQdepth));
-  FIFOF#(Bit#(1)) gemmtostoreQ  <- mkSizedFIFOF(valueOf(G2sQdepth));
+  FIFOF#(Bit#(1)) gemmtoaluQ    <- mkSizedFIFOF(valueOf(G2aQdepth));
   FIFOF#(Bit#(1)) loadtogemmQ   <- mkSizedFIFOF(valueOf(L2gQdepth));
-  FIFOF#(Bit#(1)) storetogemmQ  <- mkSizedFIFOF(valueOf(S2gQdepth));
+  FIFOF#(Bit#(1)) alutogemmQ    <- mkSizedFIFOF(valueOf(A2gQdepth));
+  FIFOF#(Bit#(1)) storetoaluQ   <- mkSizedFIFOF(valueOf(S2aQdepth));
+  FIFOF#(Bit#(1)) alutostoreQ   <- mkSizedFIFOF(valueOf(A2sQdepth));
 
  let iLEN = valueOf(ILEN);
  let opCode = valueOf(Opcode);
@@ -90,12 +99,12 @@ module mkdepResolver(Ifc_depResolver);
     let store_inst = tstoreQ.first;
     let deptFlags  = store_inst[iLEN-opCode-1:iLEN-opCode-dePT];
 
-    if((deptFlags == `Pop_prev_dep && gemmtostoreQ.notEmpty()) || deptFlags != `Pop_prev_dep) begin
+    if((deptFlags == `Pop_prev_dep && alutostoreQ.notEmpty()) || deptFlags != `Pop_prev_dep) begin
       tstoreQ.deq;
       storeQ.enq(store_inst);
 
       if(deptFlags == `Pop_prev_dep)
-        gemmtostoreQ.deq;
+        alutostoreQ.deq;
     end
   endrule 
 
@@ -104,7 +113,7 @@ module mkdepResolver(Ifc_depResolver);
     let deptFlags    = compute_inst[iLEN-opCode-1:iLEN-opCode-dePT];
 
     if(((deptFlags == `Pop_prev_dep && loadtogemmQ.notEmpty()) || deptFlags != `Pop_prev_dep) &&
-        ((deptFlags == `Pop_next_dep && storetogemmQ.notEmpty()) || deptFlags != `Pop_next_dep)) begin
+        ((deptFlags == `Pop_next_dep && alutogemmQ.notEmpty()) || deptFlags != `Pop_next_dep)) begin
         tcomputeQ.deq;
         computeQ.enq(compute_inst);
 
@@ -112,7 +121,24 @@ module mkdepResolver(Ifc_depResolver);
           loadtogemmQ.deq;
 
         if(deptFlags == `Pop_next_dep)
-          storetogemmQ.deq;
+          alutogemmQ.deq;
+    end
+  endrule
+
+  rule rl_schedalu;
+    let alu_inst     = taluQ.first;
+    let deptFlags    = alu_inst[iLEN-opCode-1:iLEN-opCode-dePT];
+
+    if(((deptFlags == `Pop_prev_dep && gemmtoaluQ.notEmpty()) || deptFlags != `Pop_prev_dep) &&
+        ((deptFlags == `Pop_next_dep && storetoaluQ.notEmpty()) || deptFlags != `Pop_next_dep)) begin
+        taluQ.deq;
+        aluQ.enq(alu_inst);
+
+        if(deptFlags == `Pop_prev_dep)
+          gemmtoaluQ.deq;
+
+        if(deptFlags == `Pop_next_dep)
+          storetoaluQ.deq;
     end
   endrule
 
@@ -142,6 +168,13 @@ module mkdepResolver(Ifc_depResolver);
     endmethod 
   endinterface 
 
+  interface Get toaluModule;
+    method ActionValue#(Bit#(ILEN)) get;
+      let alu_inst = aluQ.first;
+      aluQ.deq;
+      return alu_inst;
+    endmethod 
+  endinterface 
 
   interface Put fromloadDep;
     method Action put(Bit#(ILEN) loadinst);
@@ -161,29 +194,47 @@ module mkdepResolver(Ifc_depResolver);
     endmethod
   endinterface 
       
+   interface Put fromaluDep;
+    method Action put(Bit#(ILEN) aluinst);
+      taluQ.enq(aluinst);
+    endmethod
+  endinterface 
+
   interface Put gemmtoLoadpush;
     method Action put(Bit#(1) token);
       gemmtoloadQ.enq(token);
     endmethod
   endinterface
   
-  interface Put gemmtoStorepush;
+  interface Put gemmtoAlupush;
     method Action put(Bit#(1) token);
-      gemmtostoreQ.enq(token);
+      gemmtoaluQ.enq(token);
     endmethod
   endinterface
-  
+ 
+  interface Put alutoStorepush;
+    method Action put(Bit#(1) token);
+      alutostoreQ.enq(token);
+    endmethod
+  endinterface
+ 
   interface Put loadtoGemmpush;
     method Action put(Bit#(1) token);
       loadtogemmQ.enq(token);
     endmethod
   endinterface 
   
-  interface Put storetoGemmpush;
+  interface Put storetoAlupush;
     method Action put(Bit#(1) token);
-      storetogemmQ.enq(token);
+      storetoaluQ.enq(token);
     endmethod
-  endinterface 
+  endinterface
+
+  interface Put alutoGemmpush;
+    method Action put(Bit#(1) token);
+      alutogemmQ.enq(token);
+    endmethod
+  endinterface
 
 endmodule
 
