@@ -32,7 +32,7 @@ Details:
 package intMul_WS;
   import Vector::*;
   import LFSR::*;
-  import functions::*;
+  //import functions::*;
   import GetPut::*;
   import ConfigReg::*;
   import DReg::*;
@@ -46,6 +46,15 @@ package intMul_WS;
     interface Get#(Maybe#(Bit#(bWidth))) to_east;
   endinterface
 
+(*synthesize*)
+  module mkmac_tb(Ifc_intMul_WS#(8));
+    //let ifc();
+    //mk_mac_pe inst1(ifc);
+    //return (ifc);
+    Ifc_intMul_WS#(8) inst1 <- mkintMulWS(0, 0, 0);
+    return (inst1);
+  endmodule
+ 
 //  (*mutually_exclusive="mult_add_phase, from_west"*)
   module mkintMulWS#(Int#(8) row, Int#(8) col, parameter Integer coord)(Ifc_intMul_WS#(bWidth))
     provisos(

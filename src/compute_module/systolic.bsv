@@ -35,7 +35,7 @@ Optimization Status : Unoptimized
 --------------------------------------------------------------------------------------------------
 */
 package systolic;
-  import  intMul::*;
+  //import  intMul::*;
   import  intMul_WS::*;
   import  Connectable ::*;
   import  GetPut ::*;

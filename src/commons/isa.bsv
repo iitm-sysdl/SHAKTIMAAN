@@ -61,7 +61,9 @@ typedef struct {
   SRAM_address input_address;
   SRAM_address output_address;
   SRAM_address weight_address;
-  Dim1 in_fmap_height; Dim1 in_fmap_width;
+  Dim1 ifmap_height; Dim1 ifmap_width;
+  Dim1 ofmap_height; Dim1 ofmap_width;
+  Dim1 active_rows; Dim1 active_cols;
   Dim2 stride_h; Dim2 stride_w;
   Dim2 pad_left; Dim2 pad_right; Dim2 pad_top; Dim2 pad_bottom;
   Bool preload_output;
