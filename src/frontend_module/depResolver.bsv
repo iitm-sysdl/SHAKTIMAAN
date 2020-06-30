@@ -78,6 +78,13 @@ module mkdepResolver(Ifc_depResolver);
   FIFOF#(Bit#(1)) storetoaluQ   <- mkSizedFIFOF(valueOf(S2aQdepth));
   FIFOF#(Bit#(1)) alutostoreQ   <- mkSizedFIFOF(valueOf(A2sQdepth));
 
+  Wire#(Bit#(1)) gemmtoload_deq_req <- mkWire();
+  Wire#(Bit#(1)) loadtogemm_deq_req <- mkWire();
+  Wire#(Bit#(1)) gemmtoalu_deq_req  <- mkWire();
+  Wire#(Bit#(1)) alutogemm_deq_req  <- mkWire();
+  Wire#(Bit#(1)) alutostore_deq_req <- mkWire();
+  Wire#(Bit#(1)) storetoalu_deq_req <- mkWire();
+
  let iLEN = valueOf(ILEN);
  let opCode = valueOf(Opcode);
  let dePT   = valueOf(Dept);
@@ -90,9 +97,26 @@ module mkdepResolver(Ifc_depResolver);
     if(((deptFlags & `Pop_next_dep) == `Pop_next_dep && gemmtoloadQ.notEmpty()) || (deptFlags & `Pop_next_dep) != `Pop_next_dep) begin
       tloadQ.deq; 
       loadQ.enq(load_inst);
+
       if((deptFlags & `Pop_next_dep) == `Pop_next_dep)
-        gemmtoloadQ.deq;
+        gemmtoload_deq_req <= 1'b1;
+      else
+        gemmtoload_deq_req <= 1'b0;
     end
+    else
+    begin
+      gemmtoload_deq_req <= 1'b0;
+    end
+  endrule
+
+  rule rl_gemmtoload_deq;
+     if(gemmtoload_deq_req == 1'b1)
+       gemmtoloadQ.deq;
+  endrule  
+
+  rule rl_loadtogemm_deq;
+    if(loadtogemm_deq_req == 1'b1)
+      loadtogemmQ.deq;
   endrule
 
   rule rl_schedstore; 
@@ -104,9 +128,23 @@ module mkdepResolver(Ifc_depResolver);
       storeQ.enq(store_inst);
 
       if((deptFlags & `Pop_prev_dep) == `Pop_prev_dep)
-        alutostoreQ.deq;
+        alutostore_deq_req <= 1'b1;
+      else
+        alutostore_deq_req <= 1'b0;
     end
+    else
+      alutostore_deq_req <= 1'b0;
   endrule 
+
+  rule rl_alutostore_deq;
+    if(alutostore_deq_req == 1'b1)
+      alutostoreQ.deq;
+  endrule
+
+  rule rl_storetoalu_deq;
+    if(storetoalu_deq_req == 1'b1)
+      storetoaluQ.deq;
+  endrule
 
   rule rl_schedcompute;
     let compute_inst = tcomputeQ.first;
@@ -118,11 +156,30 @@ module mkdepResolver(Ifc_depResolver);
         computeQ.enq(compute_inst);
 
         if((deptFlags & `Pop_prev_dep) == `Pop_prev_dep)
-          loadtogemmQ.deq;
+          loadtogemm_deq_req <= 1'b1;
+        else
+          loadtogemm_deq_req <= 1'b0;
 
         if((deptFlags & `Pop_next_dep) == `Pop_next_dep)
-          alutogemmQ.deq;
+          alutogemm_deq_req <= 1'b1;
+        else
+          alutogemm_deq_req <= 1'b0;
     end
+    else
+    begin
+      alutogemm_deq_req <= 1'b0;
+      loadtogemm_deq_req <= 1'b0;
+    end
+  endrule
+
+  rule rl_gemmtoalu_deq;
+    if(gemmtoalu_deq_req == 1'b1)
+      gemmtoaluQ.deq;
+  endrule
+
+  rule rl_alutogemm_deq;
+    if(alutogemm_deq_req == 1'b1)
+      alutogemmQ.deq;
   endrule
 
   rule rl_schedalu;
@@ -135,10 +192,19 @@ module mkdepResolver(Ifc_depResolver);
         aluQ.enq(alu_inst);
 
         if((deptFlags & `Pop_prev_dep) == `Pop_prev_dep)
-          gemmtoaluQ.deq;
+          gemmtoalu_deq_req <= 1'b1;
+        else
+          gemmtoalu_deq_req <= 1'b0;
 
         if((deptFlags & `Pop_next_dep) == `Pop_next_dep)
-          storetoaluQ.deq;
+          storetoalu_deq_req <= 1'b1;
+        else
+          storetoalu_deq_req <= 1'b0;
+    end
+    else
+    begin
+      storetoalu_deq_req <= 1'b0;
+      gemmtoalu_deq_req <= 1'b0;
     end
   endrule
 
