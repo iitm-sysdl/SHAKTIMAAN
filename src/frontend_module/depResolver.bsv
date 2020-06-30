@@ -39,6 +39,13 @@ interface Ifc_depResolver;
  interface Get#(Bit#(ILEN)) tocomputeModule;
  interface Get#(Bit#(ILEN)) toaluModule; 
 
+ method Bit#(1) load_push_next;
+ method Bit#(1) compute_push_prev;
+ method Bit#(1) compute_push_next;
+ method Bit#(1) alu_push_prev;
+ method Bit#(1) alu_push_next;
+ method Bit#(1) store_push_prev;
+
 endinterface 
 
 interface Ifc_tb_slave;
@@ -85,6 +92,13 @@ module mkdepResolver(Ifc_depResolver);
   Wire#(Bit#(1)) alutostore_deq_req <- mkWire();
   Wire#(Bit#(1)) storetoalu_deq_req <- mkWire();
 
+  Reg#(Bit#(1)) load_push_next_flag <- mkReg(0);
+  Reg#(Bit#(1)) compute_push_prev_flag <- mkReg(0);
+  Reg#(Bit#(1)) compute_push_next_flag <- mkReg(0);
+  Reg#(Bit#(1)) alu_push_prev_flag <- mkReg(0);
+  Reg#(Bit#(1)) alu_push_next_flag <- mkReg(0);
+  Reg#(Bit#(1)) store_push_prev_flag <- mkReg(0);
+
  let iLEN = valueOf(ILEN);
  let opCode = valueOf(Opcode);
  let dePT   = valueOf(Dept);
@@ -93,6 +107,8 @@ module mkdepResolver(Ifc_depResolver);
   rule rl_schedload;
     let load_inst = tloadQ.first;
     let deptFlags = load_inst[iLEN-opCode-1:iLEN-opCode-dePT];  //deptFlags
+
+    load_push_next_flag <= ((deptFlags & `Push_next_dep) == `Push_next_dep);
    
     if(((deptFlags & `Pop_next_dep) == `Pop_next_dep && gemmtoloadQ.notEmpty()) || (deptFlags & `Pop_next_dep) != `Pop_next_dep) begin
       tloadQ.deq; 
@@ -123,6 +139,8 @@ module mkdepResolver(Ifc_depResolver);
     let store_inst = tstoreQ.first;
     let deptFlags  = store_inst[iLEN-opCode-1:iLEN-opCode-dePT];
 
+    store_push_prev_flag <= ((deptFlags & `Push_prev_dep) == `Push_prev_dep);
+
     if(((deptFlags & `Pop_prev_dep) == `Pop_prev_dep && alutostoreQ.notEmpty()) || (deptFlags & `Pop_prev_dep) != `Pop_prev_dep) begin
       tstoreQ.deq;
       storeQ.enq(store_inst);
@@ -149,6 +167,9 @@ module mkdepResolver(Ifc_depResolver);
   rule rl_schedcompute;
     let compute_inst = tcomputeQ.first;
     let deptFlags    = compute_inst[iLEN-opCode-1:iLEN-opCode-dePT];
+
+    compute_push_next_flag <= ((deptFlags & `Push_next_dep) == `Push_next_dep);
+    compute_push_prev_flag <= ((deptFlags & `Push_prev_dep) == `Push_prev_dep);
 
     if((((deptFlags & `Pop_prev_dep) == `Pop_prev_dep && loadtogemmQ.notEmpty()) || (deptFlags & `Pop_prev_dep) != `Pop_prev_dep) &&
         (((deptFlags & `Pop_next_dep) == `Pop_next_dep && alutogemmQ.notEmpty()) || (deptFlags & `Pop_next_dep) != `Pop_next_dep)) begin
@@ -185,6 +206,9 @@ module mkdepResolver(Ifc_depResolver);
   rule rl_schedalu;
     let alu_inst     = taluQ.first;
     let deptFlags    = alu_inst[iLEN-opCode-1:iLEN-opCode-dePT];
+
+    alu_push_next_flag <= ((deptFlags & `Push_next_dep) == `Push_next_dep);
+    alu_push_prev_flag <= ((deptFlags & `Push_prev_dep) == `Push_prev_dep);
 
     if((((deptFlags & `Pop_prev_dep) == `Pop_prev_dep && gemmtoaluQ.notEmpty()) || (deptFlags & `Pop_prev_dep) != `Pop_prev_dep) &&
         (((deptFlags & `Pop_next_dep) == `Pop_next_dep && storetoaluQ.notEmpty()) || (deptFlags & `Pop_next_dep) != `Pop_next_dep)) begin
@@ -301,6 +325,13 @@ module mkdepResolver(Ifc_depResolver);
       alutogemmQ.enq(token);
     endmethod
   endinterface
+
+  method Bit#(1)  load_push_next = load_push_next_flag;
+  method Bit#(1)  compute_push_prev = compute_push_prev_flag;
+  method Bit#(1)  compute_push_next = compute_push_next_flag;
+  method Bit#(1)  alu_push_prev = alu_push_prev_flag;
+  method Bit#(1)  alu_push_next = alu_push_next_flag;
+  method Bit#(1)  store_push_prev = store_push_prev_flag;
 
 endmodule
 
