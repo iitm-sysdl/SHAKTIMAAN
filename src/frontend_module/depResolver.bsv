@@ -108,11 +108,11 @@ module mkdepResolver(Ifc_depResolver);
     let load_inst = tloadQ.first;
     let deptFlags = load_inst[iLEN-opCode-1:iLEN-opCode-dePT];  //deptFlags
 
-    load_push_next_flag <= ((deptFlags & `Push_next_dep) == `Push_next_dep);
-   
     if(((deptFlags & `Pop_next_dep) == `Pop_next_dep && gemmtoloadQ.notEmpty()) || (deptFlags & `Pop_next_dep) != `Pop_next_dep) begin
       tloadQ.deq; 
       loadQ.enq(load_inst);
+
+      load_push_next_flag <= ((deptFlags & `Push_next_dep) == `Push_next_dep);
 
       if((deptFlags & `Pop_next_dep) == `Pop_next_dep)
         gemmtoload_deq_req <= 1'b1;
@@ -139,11 +139,11 @@ module mkdepResolver(Ifc_depResolver);
     let store_inst = tstoreQ.first;
     let deptFlags  = store_inst[iLEN-opCode-1:iLEN-opCode-dePT];
 
-    store_push_prev_flag <= ((deptFlags & `Push_prev_dep) == `Push_prev_dep);
-
     if(((deptFlags & `Pop_prev_dep) == `Pop_prev_dep && alutostoreQ.notEmpty()) || (deptFlags & `Pop_prev_dep) != `Pop_prev_dep) begin
       tstoreQ.deq;
       storeQ.enq(store_inst);
+
+      store_push_prev_flag <= ((deptFlags & `Push_prev_dep) == `Push_prev_dep);
 
       if((deptFlags & `Pop_prev_dep) == `Pop_prev_dep)
         alutostore_deq_req <= 1'b1;
@@ -168,13 +168,13 @@ module mkdepResolver(Ifc_depResolver);
     let compute_inst = tcomputeQ.first;
     let deptFlags    = compute_inst[iLEN-opCode-1:iLEN-opCode-dePT];
 
-    compute_push_next_flag <= ((deptFlags & `Push_next_dep) == `Push_next_dep);
-    compute_push_prev_flag <= ((deptFlags & `Push_prev_dep) == `Push_prev_dep);
-
     if((((deptFlags & `Pop_prev_dep) == `Pop_prev_dep && loadtogemmQ.notEmpty()) || (deptFlags & `Pop_prev_dep) != `Pop_prev_dep) &&
         (((deptFlags & `Pop_next_dep) == `Pop_next_dep && alutogemmQ.notEmpty()) || (deptFlags & `Pop_next_dep) != `Pop_next_dep)) begin
         tcomputeQ.deq;
         computeQ.enq(compute_inst);
+
+        compute_push_next_flag <= ((deptFlags & `Push_next_dep) == `Push_next_dep);
+        compute_push_prev_flag <= ((deptFlags & `Push_prev_dep) == `Push_prev_dep);
 
         if((deptFlags & `Pop_prev_dep) == `Pop_prev_dep)
           loadtogemm_deq_req <= 1'b1;
@@ -207,13 +207,13 @@ module mkdepResolver(Ifc_depResolver);
     let alu_inst     = taluQ.first;
     let deptFlags    = alu_inst[iLEN-opCode-1:iLEN-opCode-dePT];
 
-    alu_push_next_flag <= ((deptFlags & `Push_next_dep) == `Push_next_dep);
-    alu_push_prev_flag <= ((deptFlags & `Push_prev_dep) == `Push_prev_dep);
-
     if((((deptFlags & `Pop_prev_dep) == `Pop_prev_dep && gemmtoaluQ.notEmpty()) || (deptFlags & `Pop_prev_dep) != `Pop_prev_dep) &&
         (((deptFlags & `Pop_next_dep) == `Pop_next_dep && storetoaluQ.notEmpty()) || (deptFlags & `Pop_next_dep) != `Pop_next_dep)) begin
         taluQ.deq;
         aluQ.enq(alu_inst);
+
+        alu_push_next_flag <= ((deptFlags & `Push_next_dep) == `Push_next_dep);
+        alu_push_prev_flag <= ((deptFlags & `Push_prev_dep) == `Push_prev_dep);
 
         if((deptFlags & `Pop_prev_dep) == `Pop_prev_dep)
           gemmtoalu_deq_req <= 1'b1;
