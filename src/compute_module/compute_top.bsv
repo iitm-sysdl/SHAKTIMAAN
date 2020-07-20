@@ -27,7 +27,7 @@ package compute_top;
                                numeric type wt_index, numeric type wt_bank,
                                numeric type of_index, numeric type of_bank);
     interface Put#(Compute_params) subifc_put_compute_params;
-    interface Get#(Bool) subifc_get_compute_finish;
+    //interface Get#(Bool) subifc_get_compute_finish;
     method ActionValue#(Vector#(nRow, SRAMKRdReq#(if_index))) get_inp_addr;
     interface Vector#(nRow, Put#(Bit#(in_width))) put_inp_resp;
     method ActionValue#(Vector#(nCol, SRAMKRdReq#(wt_index))) get_wt_addr;
@@ -38,7 +38,7 @@ package compute_top;
   endinterface
 
   (*synthesize*)
-  module mkgemm_Tb(Ifc_compute_module#(32,26,8,16,16,16,5,5,6,5,7,5));
+  module mkgemm_Tb(Ifc_compute_module#(32,26,8,16,4,4,5,2,6,2,7,2));
     let ifc();
     mkgemm inst1(ifc);
     return (ifc);
@@ -112,8 +112,8 @@ package compute_top;
 
     Reg#(Dim1) rg_wt_cntr <- mkReg(0);
 
-    Vector#(nCol, Wire#(SRAMKRdReq#(wt_index)) wr_wt_reqs <- replicateM(mkWire());
-    Vector#(nRow, Wire#(SRAMKRdReq#(if_index)) wr_if_reqs <- replicateM(mkWire());
+    Vector#(nCol, Wire#(SRAMKRdReq#(wt_index))) wr_wt_reqs <- replicateM(mkWire());
+    Vector#(nRow, Wire#(SRAMKRdReq#(if_index))) wr_if_reqs <- replicateM(mkWire());
 
     Vector#(nRow, Reg#(SRAMKRdReq#(if_index))) rg_inp_addr <- replicateM(mkReg(?));
     Vector#(nRow, Reg#(Bool)) rg_valid_row <- replicateM(mkReg(False));
@@ -140,11 +140,7 @@ package compute_top;
 
       for(Integer i=0; i<cols; i=i+1)begin
         if(fromInteger(i) < params.active_cols)begin
-          Bit#(wt_index) index = lv_index;
-          if(bank < lv_bank)begin
-            index = index + 1;
-          end
-          wr_wt_reqs[i] <= SRAMKRdReq {index: index, valid: True};
+          wr_wt_reqs[i] <= SRAMKRdReq {index: lv_index, valid: True};
         end
         else begin
           wr_wt_reqs[i] <= SRAMKRdReq {index: ?, valid: False};
@@ -178,7 +174,7 @@ package compute_top;
     for(Integer i=0; i<cols; i=i+1)begin
       ifc_put_old_output[i] = (
         interface Put;
-          method Action put#(Bit#(out_width) value);
+          method Action put(Bit#(out_width) value);
             //send value to column i of systolic array
           endmethod
         endinterface
@@ -192,7 +188,7 @@ package compute_top;
           method ActionValue#(SRAMKWrReq#(of_index, out_width)) get if(rg_valid_col[i]);
             //let value = TODO: read output value from column i of systolic array
             rg_new_out_addr[i] <= rg_new_out_addr[i] + 1;
-            return SRAMKWrReq{index: rg_new_out_addr[i], data: value, valid: True};
+            return SRAMKWrReq{index: rg_new_out_addr[i], data: ?/*value*/, valid: True};
           endmethod
         endinterface
       );
@@ -202,7 +198,8 @@ package compute_top;
     interface put_old_out_resp = ifc_put_old_output;
     interface put_inp_resp = ifc_put_input;
     
-    method ActionValue#(Vector#(nCol, SRAMKRdReq#(of_index))) get_old_out_addr if(params.preload_output);
+    method ActionValue#(Vector#(nCol, SRAMKRdReq#(of_index))) get_old_out_addr
+            if(rg_params matches tagged Valid .params &&& params.preload_output);
       Vector#(nCol, SRAMKRdReq#(of_index)) addr;
       for(Integer i=0; i<rows; i=i+1)begin
         addr[i] = SRAMKRdReq{index: rg_old_out_addr[i], valid: rg_valid_col[i]};
@@ -251,8 +248,6 @@ package compute_top;
       for(Integer i=1; i<rows; i=i+1)begin
         let temp = rg_inp_addr[i-1];
         let index = temp.index;
-        if(bank < temp.bank)
-          index = index + 1;
         rg_inp_addr[i] <= SRAMKRdReq{index: index, valid: temp.valid && (fromInteger(i) < params.active_rows)};
       end
 
