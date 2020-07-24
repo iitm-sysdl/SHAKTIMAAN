@@ -18,8 +18,9 @@ import  FIFOF::*;
 `define LOAD  'h0
 `define STORE 'h1
 `define ALU 'h2 //Assuming, need to confirm the value for opcode
-`define SET_PC 'h0
-`define RESET_PC 'h1
+`define START_PC 'h0
+`define END_PC 'h1
+`define RESET_PC 'h2
 
 //Temporary defines -- will go off during integration
 `define ADDR_WIDTH 128
@@ -36,6 +37,8 @@ interface Ifc_fetchDecode;
    interface Get#(Bit#(ILEN))  tocomputeQdep;
    interface Get#(Bit#(ILEN))  tostoreQdep;
    interface Get#(Bit#(ILEN))  toaluQdep;
+
+   method Bool host_interrupt;
 
    //method Bit#(TAdd#(ILEN,1)) toDepResolver;
 endinterface
@@ -61,7 +64,11 @@ module mkfetchDecode(Ifc_fetchDecode);
   //iLEN = valueOf(ILEN);
   //opwidth = valueOf(opWidth);:
   //Data-structures required for fetch and Decode
-  Reg#(Bit#(ILEN)) pc <- mkReg(-1); 
+  Reg#(Bit#(ILEN)) pc <- mkReg(-1);
+  Reg#(Bit#(ILEN)) end_pc <- mkReg(-1);
+
+  Reg#(Bit#(1)) read_req <- mkReg(0);
+  Bool completion_interrupt;
 
   //Room for optimization.. Qwidth can be <ILEN, ILEN is overprovisioned
   FIFOF#(Bit#(ILEN)) instrQueue  <- mkSizedFIFOF(valueOf(InsSize));
@@ -78,9 +85,12 @@ module mkfetchDecode(Ifc_fetchDecode);
   function Action set_fetch(Bit#(`ADDR_WIDTH) addr, Bit#(`DATA_WIDTH) data);
     action
       case(addr)
-          `SET_PC  : pc <= extend(data);
-          `RESET_PC : pc <= '1;
+          `START_PC  : pc <= extend(data);
+          `END_PC    : end_pc <= extend(data);
+          `RESET_PC  : pc <= '1;
       endcase
+
+      read_req <= 1'b1;
     endaction
   endfunction
 
@@ -102,21 +112,43 @@ module mkfetchDecode(Ifc_fetchDecode);
 
   //Simple condition to check now pc!='1, can replace with regWriteSideEffect
   //TODO Normal fetch requests have a 3 cycle latency - should this be a burst? 
-  rule sendReqtoMem(pc!='1);
-        let nextPC = pc+fromInteger(valueOf(ILEN));
+  rule sendReqtoMem(pc!='1 && read_req == 1'b1);
+
+        Bit#(8) truncated_length;
+
+        let nextPC = pc+(fromInteger(valueOf(ILEN/8))*fromInteger(250)); //250 number of fetches needed for 4KB amount of data with size as 128 bits
         pc <= nextPC;
-        let read_request = AXI4_Rd_Addr {araddr: nextPC, 
-                         arid: {4'b0101}, arlen: 0,
-                         arsize: '1, arburst: 2'b00, //arburst: 00-FIXED 01-INCR 10-WRAP
-                         aruser: 0 };  //0101 --random id to mark the requests
-          
+
+        if(nextPC <= end_pc)
+         let read_request = AXI4_Rd_Addr {araddr: pc, 
+                          arid: {4'b0101}, arlen: 8'hF9,
+                          arsize: 3'b100, arburst: 2'b01, //arburst: 00-FIXED 01-INCR 10-WRAP
+                          aruser: 0 };  //0101 --random id to mark the requests
+	 
+	 read_req <= 1'b1;
+        else
+	begin
+	 let burst_length = end_pc - pc;
+         truncated_length = truncate(burst_length);
+
+	 let read_request = AXI4_Rd_Addr {araddr: pc, 
+                          arid: {4'b0101}, arlen: truncated_length,
+                          arsize: 3'b100, arburst: 2'b01, //arburst: 00-FIXED 01-INCR 10-WRAP
+                          aruser: 0 };  //0101 --random id to mark the requestsiiiii
+	
+	 read_req <= 1'b0;
+        end
         m_xactor.i_rd_addr.enq(read_request);
   endrule
 
   rule recvReqfromMem;
         let resp <- pop_o(m_xactor.o_rd_data);
         let inst = resp.rdata;
+	let last = resp.rlast;
+
         instrQueue.enq(inst);
+
+	completion_interrupt = last & ~read_req;
   endrule
 
   //This rule may not fire if any of the queue is full.. should use 
@@ -168,6 +200,10 @@ module mkfetchDecode(Ifc_fetchDecode);
       return wr_aluQ;
     endmethod
    endinterface
+
+  method Bool host_interrupt;
+     return completion_interrupt;
+  endmethod
 
 //Method going to Dependency Resolver Module
   //method Bit#(TAdd#(ILEN,1)) toDepResolver;
