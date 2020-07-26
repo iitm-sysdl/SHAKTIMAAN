@@ -17,38 +17,10 @@
 
 //------------Configuration of buffers---------------------
 
-`define IBUF_BANKS `NUMROWS
-`define WBUF_BANKS `NUMCOLS
-`define OBUF_BANKS `NUMCOLS
-`define PBUF_BANKS 4
-
-`define INWIDTH 8
-`define OUTWIDTH 32
-`define PBUF_WIDTH 64
-
-`define INBYTES	1
-`define OUTBYTES 4
-
-`define IBUF_ENTRIES 64
-`define WBUF_ENTRIES 64
-`define OBUF_ENTRIES 64
-`define PBUF_ENTRIES 64
-
-`define IBUF_INDEX 6
-`define WBUF_INDEX 6
-`define OBUF_INDEX 6
-`define PBUF_INDEX 6
-
-`define IBUF_Bankbits 4
-`define WBUF_Bankbits 4
-`define OBUF_Bankbits 4
-`define PBUF_Bankbits 2
-
-
-//Duplication of buffers to support double buffering
-`define NUM_IBUF 2
-`define NUM_WBUF 2
-`define NUM_OBUF 2
-
 `define DRAM_ADDR_WIDTH 32
-`define SRAM_ADDR_WIDTH 24
+`define SRAM_ADDR_WIDTH 26
+`define DIM_WIDTH1 8
+`define DIM_WIDTH2 4
+
+`define Buffer_wreq_id 4
+`define rd_req_id 5

@@ -22,8 +22,8 @@ IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISI
 OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 --------------------------------------------------------------------------------------------------
 
-Author: Gokulan Ravi
-Email id: gokulan97@gmail.com
+Author: Gokulan Ravi, Mohan Prasath G R
+Email id: gokulan97@gmail.com, mohanprasathr@gmail.com
 Details:
 
 --------------------------------------------------------------------------------------------------
@@ -40,133 +40,78 @@ package onchip_buffers;
   `include "systolic.defines"
   `define SRAM_ADDR_WIDTH 26
 
-
-
-  interface Ifc_onchip_buffers;
-    interface Vector#(`NUM_IBUF, Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 1))) input_buffer;
-    interface Vector#(`NUM_WBUF, Vector#(`WBUF_BANKS, BRAM2PortBE#(Bit#(`WBUF_INDEX), Bit#(`INWIDTH), 1))) weight_buffer;
-    interface Vector#(`NUM_OBUF, Vector#(`OBUF_BANKS, BRAM2PortBE#(Bit#(`OBUF_INDEX), Bit#(`OUTWIDTH), 4))) output_buffer;
-    interface Vector#(`PBUF_BANKS, BRAM2PortBE#(Bit#(`PBUF_INDEX), Bit#(`PBUF_WIDTH), 8)) param_buffer;
+  interface Ifc_onchip_buffers#(sram_addr_width, if_index, if_bank, wt_index, wt_bank, of_index, of_bank, in_width, out_width);
+    interface Vector#(if_bank, BRAM2Port#(Bit#(if_index), Bit#(in_width))) input_buffer;
+    interface Vector#(wt_bank, BRAM2Port#(Bit#(wt_index), Bit#(in_width))) weight_buffer;
+    interface Vector#(of_bank, BRAM2Port#(Bit#(of_index), Bit#(out_width))) output_buffer1;
+    interface Vector#(of_bank, BRAM2Port#(Bit#(of_index), Bit#(out_width))) output_buffer2;
   endinterface
 
-  function BRAMRequestBE#(Bit#(a), Bit#(d), n) makeRequest (Bool write, Bit#(n) wstrb, Bit#(a) addr, Bit#(d) data);
+  function BRAMRequest#(Bit#(a), Bit#(d)) makeRequest (Bool write, Bit#(a) addr, Bit#(d) data);
             return BRAMRequestBE{
-                                writeen: wstrb ,
+                                write: write,
                                 responseOnWrite: False,
-                                address   : addr,
+                                address : addr,
                                 datain : data
                               };
   endfunction
 
-  function Tuple2#(Bit#(`IBUF_INDEX),Bit#(`IBUF_Bankbits)) split_address_IBUF(Bit#(addr_width) addr);
-        Bit#(TSub#(`SRAM_ADDR_WIDTH,TSub#(`INBYTES,1))) alignAddr = addr[`SRAM_ADDR_WIDTH-1:`INBYTES-1];
-        Bit#(`IBUF_Bankbits) gbank = alignAddr[`IBUF_Bankbits-1:0];
-        Bit#(`IBUF_INDEX) gindex = alignAddr[`IBUF_INDEX+`IBUF_Bankbits-1:`IBUF_Bankbits];
-        return tuple2(gindex,gbank);
-  endfunction
-
-  function Tuple2#(Bit#(`WBUF_INDEX),Bit#(`WBUF_Bankbits)) split_address_WBUF(Bit#(addr_width) addr);
-        Bit#(TSub#(`SRAM_ADDR_WIDTH,TSub#(`INBYTES,1))) alignAddr = addr[`SRAM_ADDR_WIDTH-1:`INBYTES-1];
-        Bit#(`WBUF_Bankbits) gbank = alignAddr[`WBUF_Bankbits-1:0];
-        Bit#(`WBUF_INDEX) gindex = alignAddr[`WBUF_INDEX+`WBUF_Bankbits-1:`WBUF_Bankbits];
-        return tuple2(gindex,gbank);
-  endfunction
-
-  function Tuple2#(Bit#(`OBUF_INDEX),Bit#(`OBUF_Bankbits)) split_address_OBUF(Bit#(addr_width) addr);
-        Bit#(TSub#(`SRAM_ADDR_WIDTH,TSub#(`OUTBYTES,1))) alignAddr = addr[`SRAM_ADDR_WIDTH-1:`OUTBYTES-1];
-        Bit#(`OBUF_Bankbits) gbank = alignAddr[`OBUF_Bankbits-1:0];
-        Bit#(`OBUF_INDEX) gindex = alignAddr[`OBUF_INDEX+`OBUF_Bankbits-1:`OBUF_Bankbits];
-        return tuple2(gindex,gbank);
-  endfunction
-
-  function Tuple2#(Bit#(`PBUF_INDEX),Bit#(`PBUF_Bankbits)) split_address_PBUF(Bit#(addr_width) addr);
-        Bit#(TSub#(`SRAM_ADDR_WIDTH,1)) alignAddr = addr[`SRAM_ADDR_WIDTH-1:0];
-        Bit#(`PBUF_Bankbits) gbank = alignAddr[`PBUF_Bankbits-1:0];
-        Bit#(`PBUF_INDEX) gindex = alignAddr[`PBUF_INDEX+`PBUF_Bankbits-1:`PBUF_Bankbits];
-        return tuple2(gindex,gbank);
-  endfunction
-
-
-  module mkbuffers(Ifc_onchip_buffers)
+  module mkbuffers(Ifc_onchip_buffers#(sram_addr_width, if_index, if_bank, wt_index, wt_bank, of_index, of_bank, in_width, out_width)
     provisos(
+      Log#(if_bank, if_bankbits),
+      Log#(wt_bank, wt_bankbits),
+      Log#(of_bank, of_bankbits),
+      Mul#(in_bytes, 8, in_width),
+      Mul#(out_bytes, 8, out_width),
+      Log#(if_entries, if_index),
+      Log#(wt_entries, wt_index),
+      Log#(of_entries, of_index)
     );
-    
+
+    function Tuple2#(Bit#(if_index),Bit#(if_bankbits)) split_address_IBUF(Bit#(addr_width) addr);
+      Bit#(if_bankbits) gbank = addr[if_bankbits-1:0];
+      Bit#(if_index) gindex = addr[if_index+if_bankbits-1:if_bankbits];
+      return tuple2(gindex,gbank);
+    endfunction
+
+    function Tuple2#(Bit#(wt_index),Bit#(wt_bankbits)) split_address_WBUF(Bit#(addr_width) addr);
+      Bit#(wt_bankbits) gbank = addr[wt_bankbits-1:0];
+      Bit#(wt_index) gindex = addr[wt_index+wt_bankbits-1:wt_bankbits];
+      return tuple2(gindex,gbank);
+    endfunction
+
+    function Tuple2#(Bit#(of_index),Bit#(of_bankbits)) split_address_OBUF(Bit#(addr_width) addr);
+      Bit#(of_bankbits) gbank = addr[of_bankbits-1:0];
+      Bit#(of_index) gindex = addr[of_index+of_bankbits-1:of_bankbits];
+      return tuple2(gindex,gbank);
+    endfunction
 
     BRAM_Configure inputBufConfig = defaultValue;
-    inputBufConfig.memorySize = valueOf(`IBUF_ENTRIES);
+    inputBufConfig.memorySize = valueOf(if_entries);
     inputBufConfig.loadFormat = None; // can be used to load hex if needed
 
     BRAM_Configure weightBufConfig = defaultValue;
-    weightBufConfig.memorySize = `WBUF_ENTRIES;
+    weightBufConfig.memorySize = valueOf(wt_entries);
     weightBufConfig.loadFormat = None;
 
     BRAM_Configure outputBufConfig = defaultValue;
-    outputBufConfig.memorySize = `OBUF_ENTRIES;
+    outputBufConfig.memorySize = valueOf(of_entries);
     outputBufConfig.loadFormat = None;
 
-    Vector#(`NUM_IBUF, Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 1))) ibuf;
-    Vector#(`NUM_WBUF, Vector#(`WBUF_BANKS, BRAM2PortBE#(Bit#(`WBUF_INDEX), Bit#(`INWIDTH), 1))) wbuf;
-    Vector#(`NUM_OBUF, Vector#(`OBUF_BANKS, BRAM2PortBE#(Bit#(`OBUF_INDEX), Bit#(`OUTWIDTH), 4))) obuf;
-    Vector#(`PBUF_BANKS, BRAM2PortBE#(Bit#(`PBUF_INDEX), Bit#(`PBUF_WIDTH), 8)) pbuf <- replicateM(mkBRAM2ServerBE(inputBufConfig));
+    Vector#(if_bank, BRAM2Port#(Bit#(if_index), Bit#(in_width))) ibuf;
+    Vector#(wt_bank, BRAM2Port#(Bit#(wt_index), Bit#(in_width))) wbuf;
+    Vector#(of_bank, BRAM2Port#(Bit#(of_index), Bit#(out_width)) obuf1;
+    Vector#(of_bank, BRAM2Port#(Bit#(of_index), Bit#(out_width)) obuf2;
 
-    for(Integer i=0; i<`NUM_IBUF; i=i+1)begin
-      // for(Integer j=0; j<`IBUF_BANKS; j=j+1)begin
-        // ibuf[i][j] <- mkBRAM2ServerBE(inputBufConfig);
-      // end
-      ibuf[i] <- replicateM(mkBRAM2ServerBE(inputBufConfig));
-    end
+    ibuf <- replicateM(mkBRAM2Server(inputBufConfig));
+    wbuf <- replicateM(mkBRAM2Server(weightBufConfig));
+    obuf1 <- replicateM(mkBRAM2Server(outputBufConfig));
+    obuf2 <- replicateM(mkBRAM2Server(outputBufConfig));
 
-    for(Integer i=0; i<`NUM_WBUF; i=i+1)begin
-      // for(Integer j=0; j<`WBUF_BANKS; j=j+1)begin
-      //   wbuf[i][j] <- mkBRAM2ServerBE(weightBufConfig);
-      // end
-      wbuf[i] <- replicateM(mkBRAM2ServerBE(weightBufConfig));
-    end
-
-    for(Integer i=0; i<`NUM_OBUF; i=i+1)begin
-      // for(Integer j=0; j<`OBUF_BANKS; j=j+1)begin
-      //   obuf[i][j] <- mkBRAM2ServerBE(outputBufConfig);
-      // end
-      obuf[i] <- replicateM(mkBRAM2ServerBE(outputBufConfig));
-    end
-
-    Vector#(`NUM_IBUF, Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 1))) itemp;
-    Vector#(`NUM_WBUF, Vector#(`WBUF_BANKS, BRAM2PortBE#(Bit#(`WBUF_INDEX), Bit#(`INWIDTH), 1))) wtemp;
-    Vector#(`NUM_OBUF, Vector#(`OBUF_BANKS, BRAM2PortBE#(Bit#(`OBUF_INDEX), Bit#(`OUTWIDTH), 4))) otemp;
-    Vector#(`PBUF_BANKS, BRAM2PortBE#(Bit#(`PBUF_INDEX), Bit#(`PBUF_WIDTH), 8)) ptemp;
-
-    for(Integer i=0; i<`NUM_IBUF; i=i+1)begin
-      // Vector#(`IBUF_BANKS, BRAM2PortBE#(Bit#(`IBUF_INDEX), Bit#(`INWIDTH), 1)) itemp2;
-      // for(Integer j=0; j<`IBUF_BANKS; j=j+1)begin
-      //   itemp[i][j] = ibuf[i][j];
-      // end
-      itemp[i] = ibuf[i];
-    end
-
-    for(Integer i=0; i<`NUM_WBUF; i=i+1)begin
-      // Vector#(`WBUF_BANKS, BRAM2PortBE#(Bit#(`WBUF_INDEX), Bit#(`INWIDTH), 1)) wtemp2;
-      // for(Integer j=0; j<`WBUF_BANKS; j=j+1)begin
-      //   wtemp[i][j] = wbuf[i][j];
-      // end
-      // wtemp[i] = wtemp2;
-      wtemp[i] = wbuf[i];
-    end
-
-    for(Integer i=0; i<`NUM_OBUF; i=i+1)begin
-      // Vector#(`OBUF_BANKS, BRAM2PortBE#(Bit#(`OBUF_INDEX), Bit#(`OUTWIDTH), 4)) otemp2;
-      // for(Integer j=0; j<`OBUF_BANKS; j=j+1)begin
-      //   otemp[i][j] = obuf[i][j];
-      // end
-      // otemp[i] = otemp2;
-      otemp[i] = obuf[i];
-    end
-
-    ptemp = pbuf;
-
-    interface input_buffer = itemp;
-    interface weight_buffer = wtemp;
-    interface output_buffer = otemp;
-    interface param_buffer = ptemp;
+    interface input_buffer = ibuf;
+    interface weight_buffer = wbuf;
+    interface output_buffer1 = obuf1;
+    interface output_buffer2 = obuf2;
 
   endmodule
 

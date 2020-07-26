@@ -14,46 +14,21 @@ package store_module;
   import GetPut::*;
   import pipe_mul::*;
   import isa::*;
-
-  `define Buffer_wreq_id 4
-  `define DRAM_ADDR_WIDTH 32
-  `define SRAM_ADDR_WIDTH 26
-
-  typedef enum {Compute_conv_output_size, Pre_active, Active_new_burst, Active_burst_data, Done}
-  Col2im_state deriving(Bits, Eq, FShow);
-
-  typedef enum
-  {
-    Invalid,
-	  InputBuffer,
-	  OutputBuffer,
-	  WeightBuffer
-  }Buffer deriving(Bits, Eq, FShow);
-
-  typedef struct
-  {
-	  Buffer buffer;
-	  Bit#(a) index;
-	  Bit#(b) bank;
-  }SRAMRdReq#(numeric type a, numeric type b) deriving(Bits, Eq, FShow);
+  `include "systolic.defines"
 
   interface Ifc_col2im#(numeric type addr_width, numeric type data_width, 
                         numeric type sram_width, numeric type obuf_index,
                         numeric type obuf_banks, numeric type obuf_data,
-                        numeric type obuf_values);
+                        numeric type obuf_values, numeric type st_pad);
     
     method ActionValue#(Vector#(obuf_values, SRAMRdReq#(obuf_index, obuf_banks))) send_sram_req;
     method Action recv_sram_resp(Vector#(obuf_values, Bit#(obuf_data)) response);
-    interface Put#(Store_params) subifc_get_params;
+    interface Put#(Store_params#(st_pad)) subifc_get_params;
     interface Get#(Bool) subifc_send_store_finish;
-    interface AXI4_Master_IFC#(addr_width, data_width, 0) axi_buffer_wreq;
+    interface AXI4_Master_IFC#(addr_width, data_width, 0) master;
   endinterface
 
-  function Bit#(a) incr1(Bit#(a) inp);
-    return inp+1;
-  endfunction
-
-  module mkcol2im(Ifc_col2im#(addr_width, data_width, sram_width, of_index, of_banks, of_data, of_values))
+  module mkcol2im(Ifc_col2im#(addr_width, data_width, sram_width, of_index, of_banks, of_data, of_values, st_pad))
     provisos(
       Mul#(obuf_bytes, 8, of_data),
       Mul#(of_values, of_data, data_width),
@@ -71,12 +46,12 @@ package store_module;
     let burst_size = valueOf(awsz);
 
     function Tuple2#(Bit#(of_index),Bit#(of_banks)) split_address_OBUF(Bit#(sram_width) addr);
-		  Bit#(of_banks) gbank = addr[obuf_bankbits+oBytes-1:oBytes];
-		  Bit#(of_index) gindex = addr[obuf_index+obuf_bankbits+oBytes-1:obuf_bankbits+oBytes];
+		  Bit#(of_banks) gbank = addr[obuf_bankbits-1:0];
+		  Bit#(of_index) gindex = addr[obuf_index+obuf_bankbits-1:obuf_bankbits];
 		  return tuple2(gindex,gbank);
   	endfunction
 
-    Reg#(Maybe#(Store_params)) rg_params <- mkReg(tagged Invalid);
+    Reg#(Maybe#(Store_params#(st_pad))) rg_params <- mkReg(tagged Invalid);
     Reg#(Bool) rg_finish_store <- mkReg(False);
     
     Reg#(Dim1) rg_burst_len <- mkReg(0);
@@ -180,7 +155,7 @@ package store_module;
     endmethod
 
     interface Put subifc_get_params;
-      method Action put(Store_params params) if(rg_params matches tagged Invalid);
+      method Action put(Store_params#(st_pad) params) if(rg_params matches tagged Invalid);
         rg_params <= tagged Valid params;
         rg_finish_store <= False;
         rg_dram_address <= params.dram_address;
@@ -200,11 +175,11 @@ package store_module;
       endmethod
     endinterface
     
-    interface axi_buffer_wreq = memory_xactor.axi_side;
+    interface master = memory_xactor.axi_side;
   endmodule
 
   (*synthesize*)
-  module mkinst_col2im(Ifc_col2im#(32, 64, 26, 10, 6, 16, 4));
+  module mkinst_col2im(Ifc_col2im#(32, 64, 26, 15, 6, 16, 4, 20));
     let ifc();
     mkcol2im _temp(ifc);
     return ifc;

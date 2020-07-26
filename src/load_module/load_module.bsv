@@ -44,43 +44,20 @@ import AXI4_Fabric:: *;
 import Connectable::*;
 import isa::*;
 import FIFOF::*;
-import onchip_buffers::*;
-import BRAM::*;
-import BRAMCore::*;
 import Vector::*;
 `include "systolic.defines"
-
-`define INS_WIDTH 64
-`define rd_req_id 5
-`define DIM_WIDTH3 2*`DIM_WIDTH1
-
-typedef enum
-{
-	InputBuffer,
-	OutputBuffer,
-	WeightBuffer
-}Buffer deriving(Bits, Eq, FShow);
-
-typedef struct
-{
-	Buffer buffer;
-	Bit#(a) index;
-	Bit#(b) bank;
-	Bit#(c) data;
-} SRAMReq#(numeric type a, numeric type b, numeric type c) deriving(Bits, Eq, FShow);
 
 interface Ifc_load_Module#(numeric type dram_addr_width, numeric type data_width, numeric type sram_addr_width,
 						   numeric type wt_index, numeric type wt_bank, numeric type wt_data,
 						   numeric type if_index, numeric type if_bank, numeric type if_data,
 						   numeric type of_index, numeric type of_bank, numeric type of_data,
 						   numeric type max_index, numeric type max_bank, numeric type max_data,
-						   numeric type max_words);
+						   numeric type max_words, numeric type ld_pad);
 
 	interface AXI4_Master_IFC#(dram_addr_width, data_width, 0) master;
-	interface Put#(Load_params) subifc_get_loadparams;  //to get parameters from the dependency module
+	interface Put#(Load_params#(ld_pad)) subifc_get_loadparams;  //to get parameters from the dependency module
 	interface Get#(Bool) subifc_send_loadfinish;	//send the finish signal once the load is completed
-	method ActionValue#(Vector#(max_words, SRAMReq#(max_index, max_bank, max_data))) wr_data;
-
+  method ActionValue#(Vector#(max_words, SRAMReq#(max_index, max_bank, max_data))) write_data;
 endinterface
 
 module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
@@ -88,7 +65,7 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 									   if_index, if_bank, if_data,
 									   of_index, of_bank, of_data,
 									   max_index, max_bank, max_data,
-									   max_words))
+									   max_words, ld_pad))
 		provisos(
 			IsModule#(_m__, _c__),
 			Add#(a__, 32, addr_width),
@@ -139,29 +116,29 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 	let iBytes = valueOf(if_bytes);
 	let wBytes = valueOf(wt_bytes);
 	let oBytes = valueOf(of_bytes);
+  
+  function Tuple2#(Bit#(if_index),Bit#(if_bank)) split_address_IBUF(SRAM_address addr);
+    Bit#(if_bank) gbank = addr[ibuf_bankbits-1:0];
+    Bit#(if_index) gindex = addr[ibuf_index+ibuf_bankbits-1:ibuf_bankbits];
+    return tuple2(gindex,gbank);
+  endfunction
 
-	function Tuple2#(Bit#(if_index),Bit#(if_bank)) split_address_IBUF(Bit#(sram_width) addr);
-		Bit#(if_bank) gbank = addr[ibuf_bankbits+iBytes-1:iBytes];
-		Bit#(if_index) gindex = addr[ibuf_index+ibuf_bankbits+iBytes-1:iBytes+ibuf_bankbits];
-		return tuple2(gindex,gbank);
-	endfunction
+  function Tuple2#(Bit#(wt_index),Bit#(wt_bank)) split_address_WBUF(SRAM_address addr);
+    Bit#(wt_bank) gbank = addr[wbuf_bankbits-1:0];
+    Bit#(wt_index) gindex = addr[wbuf_index+wbuf_bankbits-1:wbuf_bankbits];
+    return tuple2(gindex,gbank);
+  endfunction
 
-	function Tuple2#(Bit#(wt_index),Bit#(wt_bank)) split_address_WBUF(Bit#(sram_width) addr);
-		Bit#(wt_bank) gbank = addr[wbuf_bankbits+wBytes-1:wBytes];
-		Bit#(wt_index) gindex = addr[wbuf_index+wbuf_bankbits+wBytes-1:wbuf_bankbits+wBytes];
-		return tuple2(gindex,gbank);
-	endfunction
+  function Tuple2#(Bit#(of_index),Bit#(of_bank)) split_address_OBUF(SRAM_address addr);
+    Bit#(of_bank) gbank = addr[obuf_bankbits-1:0];
+    Bit#(of_index) gindex = addr[obuf_index+obuf_bankbits-1:obuf_bankbits];
+    return tuple2(gindex,gbank);
+  endfunction
 
-	function Tuple2#(Bit#(of_index),Bit#(of_bank)) split_address_OBUF(Bit#(sram_width) addr);
-		Bit#(of_bank) gbank = addr[obuf_bankbits+oBytes-1:oBytes];
-		Bit#(of_index) gindex = addr[obuf_index+obuf_bankbits+oBytes-1:obuf_bankbits+oBytes];
-		return tuple2(gindex,gbank);
-	endfunction
-	
 	AXI4_Master_Xactor_IFC#(addr_width, data_width, 0) m_xactor <- mkAXI4_Master_Xactor;
 
 	FIFOF#(SRAM_address) ff_dest_addr <- mkSizedFIFOF(3) ;
-	Reg#(Maybe#(Load_params)) rg_params <- mkReg(tagged Invalid);
+	Reg#(Maybe#(Load_params#(ld_pad))) rg_params <- mkReg(tagged Invalid);
 
 	Reg#(SRAM_address) rg_zy_size <- mkReg(0); //zsize * ysize
 	Reg#(SRAM_address) rg_xyz_size <- mkReg(0); 
@@ -181,58 +158,9 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 	Reg#(Bool) rg_finish_load <- mkReg(True);
 	Reg#(SRAM_address) rg_paramaddr <- mkReg(0);
 
-	//registers to send data to buffers
+	//wires to send data to buffers
 	Vector#(max_words, Wire#(SRAMReq#(max_index, max_bank, max_data)))
 			wr_buffer_req <- replicateM(mkWire());
-
-	// LOAD immediate into SRAM
-//	rule rl_load_immediate(rg_params matches tagged Valid .params &&&
-//						   params.is_reset &&&
-//						   rg_xyz_size !=0);
-//
-//		// load immediate into input buffer
-//		if(False) begin  //yet to be define based on sram address
-//			Bit#(if_index) inp_index;
-//      Bit#(if_bank) inp_bufferbank;
-//      {inp_index, inp_bufferbank} = split_address_IBUF(rg_sram_addr);
-//
-//			for(Integer i=0; i<iWords; i=i+1) begin
-//				if(fromInteger(i) < rg_xyz_size) begin
-//					Bit#(max_index) index = extend(inp_index);
-//					Bit#(max_bank) bank = extend(inp_bufferbank+fromInteger(i));
-//					if(bank < extend(inp_bufferbank)) begin 
-//						index = index + 1;
-//					end
-//					Bit#(max_data) data = truncate(params.dram_address);
-//					wr_buffer_req[i] <= SRAMReq {buffer: InputBuffer, index: index, bank: bank, data: data};
-//				end
-//	    end
-//    end
-//		//TODO: These logic mark end of load immediate, should be implemented somewhere
-//		// rg_xyz_size <= rg_xyz_size - fromInteger(numWords_Ibuf);
-//		// rg_finish_load <= True; //end of load immmediate
-//		// rg_sram_addr_b <= rg_sram_addr_b + fromInteger(numWords_Ibuf * `INBYTES);
-//
-//		//load immmediate into output buffer
-//		else begin
-//      //Do
-//      Bit#(of_index) out_index;
-//      Bit#(of_bank) out_bufferbank;
-//			{out_index, out_bufferbank} = split_address_OBUF(rg_sram_addr);
-//
-//			for(Integer i=0; i<oWords; i=i+1) begin
-//				if(fromInteger(i) < rg_xyz_size) begin
-//					Bit#(max_index) index = extend(out_index);
-//					Bit#(max_bank) bank = extend(out_bufferbank+fromInteger(i));
-//					if(bank < extend(out_bufferbank))begin
-//						index = index + 1;
-//					end
-//					Bit#(max_data) data = truncate(params.dram_address);
-//					wr_buffer_req[i] <= SRAMReq{buffer: OutputBuffer, index: index, bank: bank, data: data};
-//				end
-//			end
-//		end
-//	endrule
 
 	//LOAD from DRAM to SRAM
 	rule rl_start_dram_Read(rg_params matches tagged Valid .params &&&
@@ -333,16 +261,13 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			end
 		end
 	endrule
-
-	interface master = m_xactor.axi_side;
+	
+  interface master = m_xactor.axi_side;
 
 	interface Put subifc_get_loadparams;
-		method Action put(Load_params parameters) if(rg_finish_load);
+		method Action put(Load_params#(ld_pad) parameters) if(rg_finish_load);
 			rg_finish_load <= False;
 			rg_params <= tagged Valid parameters;
-			//if(parameters.is_reset)begin
-			//	rg_xyz_size <= truncate({pack(parameters.x_size), pack(parameters.y_size), pack(parameters.z_size)});
-      //end
 			rg_dram_addr <= parameters.dram_address;
 			rg_sram_addr <= parameters.sram_address;
 			rg_burst_len <= truncate( unpack(parameters.z_size) * fromInteger(parameters.bitwidth ? iBytes : oBytes) ) >> 3 - 1;
@@ -352,6 +277,24 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			rg_load_requests <= True;
 		endmethod
 	endinterface
+  
+  method ActionValue#(Vector#(max_words, SRAMReq#(max_index, max_bank, max_data))) write_data if(rg_params matches tagged Valid .params);
+    Vector#(max_words, SRAMReq#(max_index, max_bank, max_data)) requests;
+    for(Integer i=0; i<maxnumwords; i=i+1)begin
+      requests[i] = wr_buffer_req[i];
+    end
+    //if(params.is_reset && rg_xyz_size < fromInteger(params.bitwidth ? iWords : oWords))begin
+    //      rg_xyz_size <= rg_xyz_size - fromInteger(params.bitwidth ? iWords: oWords);
+    //      rg_finish_load <= True;
+    //end
+
+    //if(!params.is_reset && rg_x_cntr==0 && rg_y_cntr==0)begin
+    if(rg_x_cntr == 0 &&& rg_y_cntr == 0)begin
+      rg_load_requests <= False;
+    end
+
+    return requests;
+  endmethod
 
 	interface Get subifc_send_loadfinish;
 		method ActionValue#(Bool) get if(rg_params matches tagged Valid .params &&&
@@ -359,29 +302,10 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			return True;
 		endmethod
 	endinterface
-
-	method ActionValue#(Vector#(max_words, SRAMReq#(max_index, max_bank, max_data))) wr_data() if(rg_params matches tagged Valid .params);
-		Vector#(max_words, SRAMReq#(max_index, max_bank, max_data)) requests;
-		for(Integer i=0; i<maxnumwords; i=i+1)begin
-			requests[i] = wr_buffer_req[i];
-		end
-		//if(params.is_reset && rg_xyz_size < fromInteger(params.bitwidth ? iWords : oWords))begin
-		//	rg_xyz_size <= rg_xyz_size - fromInteger(params.bitwidth ? iWords: oWords);
-		//	rg_finish_load <= True;
-		//end
-
-		//if(!params.is_reset && rg_x_cntr==0 && rg_y_cntr==0)begin
-		if(rg_x_cntr == 0 &&& rg_y_cntr == 0)
-      rg_load_requests <= False;
-		end
-
-		return requests;
-	endmethod
-
 endmodule
 
-(*synthesize*)
-  module mkload_Tb(Ifc_load_Module#(32,64,24,5,5,8,6,5,8,7,5,16,7,5,16,8));
+  (*synthesize*)
+  module mkload_Tb(Ifc_load_Module#(32,64,26,15,5,8,15,5,8,15,5,16,15,5,16,8,20));
     let ifc();
     mk_load_Module inst1(ifc);
     return (ifc);
