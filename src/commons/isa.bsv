@@ -20,7 +20,6 @@ typedef Bit#(`DIM_WIDTH2) Dim2;
 typedef enum{
     LOAD,
     STORE,
-    SETUP,
     COMPUTE,
     ALU
 } Opcode deriving(Bits, Eq, FShow);
@@ -32,18 +31,15 @@ typedef struct {
     Bit#(1) pop_next_dep;
 } Dep_flags deriving(Bits, Eq, FShow);
 
-typedef struct {
-    Opcode opcode;
-    Dep_flags flags;
-    DRAM_address address;
-} Instruction deriving(Bits, Eq, FShow);
-
 typedef enum {
     Max,
     Min,
     Add,
     Shift
 } ALU_Opcode deriving(Eq, Bits, FShow);
+
+typedef Bit#(a) SRAM_index#(numeric type a);
+typedef Bit#(a) pad_bits(numeric type a);
 
 typedef struct {
   DRAM_address dram_address;
@@ -52,39 +48,42 @@ typedef struct {
   Dim1 z_stride; Dim1 y_stride;
   Bool is_reset;
   Bool bitwidth;
+  pad_bits#(a) padding;
 } Mem_params deriving(Bits, Eq, FShow);
-
-typedef Mem_params Load_params;
-typedef Mem_params Store_params;
-
-typedef struct {
-  SRAM_address input_address;
-  SRAM_address output_address;
-  SRAM_address weight_address;
-  Dim1 ifmap_height; Dim1 ifmap_width;
-  Dim1 ofmap_height; Dim1 ofmap_width;
-  Dim1 active_rows; Dim1 active_cols;
-  Dim2 stride_h; Dim2 stride_w;
-  Dim2 pad_left; Dim2 pad_right; Dim2 pad_top; Dim2 pad_bottom;
+                  
+typedef Mem_para  ms Load_params;
+typedef Mem_para  ms Store_params;
+                  
+typedef struct {  
+  SRAM_index#(a)   input_address;
+  SRAM_index#(b)   output_address;
+  SRAM_index#(c)   weight_address;
+  Dim1 ifmap_hei  ght; Dim1 ifmap_width;
+  Dim1 ofmap_hei  ght; Dim1 ofmap_width;
+  Dim1 active_ro  ws; Dim1 active_cols;
+  Dim2 stride_h;   Dim2 stride_w;
+  Dim2 pad_left;   Dim2 pad_right; Dim2 pad_top; Dim2 pad_bottom;
   Bool preload_output;
-} Compute_params deriving(Bits, Eq, FShow);
+  pad_bits#(d) padding;
+} Compute_params#(numeric type a, numeric type b, numeric type c, numeric type d) deriving(Bits, Eq, FShow);
 
 typedef struct {
-    ALU_Opcode alu_opcode;
-    SRAM_address input_address;
-    SRAM_address output_address;
-    Dim1 output_height; // OH'
-    Dim1 output_width; // OW'
-    Dim2 window_height; // R
-    Dim2 window_width; // S
-    Dim1 mem_stride_OW; // S_OW
-    Dim1 mem_stride_R; // S_R
-    Dim1 mem_stride_S; // S_S
-    Dim2 stride_h; // Sx
-    Dim2 stride_w; // Sy
-    Dim1 num_of_filters; //Number of filters(M)
-    Bool use_immediate;
-    Dim1 immediate_value;// Modify the length of immediate value if required
-} ALU_params deriving(Bits, Eq, FShow);
+  ALU_Opcode alu_opcode;
+  SRAM_index#(a) input_address;
+  SRAM_index#(b) output_address;
+  Dim1 output_height; // OH'
+  Dim1 output_width; // OW'
+  Dim2 window_height; // R
+  Dim2 window_width; // S
+  Dim1 mem_stride_OW; // S_OW
+  Dim1 mem_stride_R; // S_R
+  Dim1 mem_stride_S; // S_S
+  Dim2 stride_h; // Sx
+  Dim2 stride_w; // Sy
+  Dim1 num_of_filters; //Number of filters(M)
+  Bool use_immediate;
+  Dim1 immediate_value;// Modify the length of immediate value if required
+  pad_bits#(c) padding;
+} ALU_params#(numeric type a, numeric type b, numeric type c) deriving(Bits, Eq, FShow);
 
 endpackage

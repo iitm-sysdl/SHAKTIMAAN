@@ -34,7 +34,7 @@ for load immediate, stores a constant value
 
 */
 
-package load_Module;
+package load_module;
 
 import GetPut::*;
 import FIFOF::*;
@@ -186,57 +186,57 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			wr_buffer_req <- replicateM(mkWire());
 
 	// LOAD immediate into SRAM
-	rule rl_load_immediate(rg_params matches tagged Valid .params &&&
-						   params.is_reset &&&
-						   rg_xyz_size !=0);
-
-		// load immediate into input buffer
-		if(False) begin  //yet to be define based on sram address
-			Bit#(if_index) inp_index;
-      Bit#(if_bank) inp_bufferbank;
-      {inp_index, inp_bufferbank} = split_address_IBUF(rg_sram_addr);
-
-			for(Integer i=0; i<iWords; i=i+1) begin
-				if(fromInteger(i) < rg_xyz_size) begin
-					Bit#(max_index) index = extend(inp_index);
-					Bit#(max_bank) bank = extend(inp_bufferbank+fromInteger(i));
-					if(bank < extend(inp_bufferbank)) begin 
-						index = index + 1;
-					end
-					Bit#(max_data) data = truncate(params.dram_address);
-					wr_buffer_req[i] <= SRAMReq {buffer: InputBuffer, index: index, bank: bank, data: data};
-				end
-	    end
-    end
-		//TODO: These logic mark end of load immediate, should be implemented somewhere
-		// rg_xyz_size <= rg_xyz_size - fromInteger(numWords_Ibuf);
-		// rg_finish_load <= True; //end of load immmediate
-		// rg_sram_addr_b <= rg_sram_addr_b + fromInteger(numWords_Ibuf * `INBYTES);
-
-		//load immmediate into output buffer
-		else begin
-      //Do
-      Bit#(of_index) out_index;
-      Bit#(of_bank) out_bufferbank;
-			{out_index, out_bufferbank} = split_address_OBUF(rg_sram_addr);
-
-			for(Integer i=0; i<oWords; i=i+1) begin
-				if(fromInteger(i) < rg_xyz_size) begin
-					Bit#(max_index) index = extend(out_index);
-					Bit#(max_bank) bank = extend(out_bufferbank+fromInteger(i));
-					if(bank < extend(out_bufferbank))begin
-						index = index + 1;
-					end
-					Bit#(max_data) data = truncate(params.dram_address);
-					wr_buffer_req[i] <= SRAMReq{buffer: OutputBuffer, index: index, bank: bank, data: data};
-				end
-			end
-		end
-	endrule
+//	rule rl_load_immediate(rg_params matches tagged Valid .params &&&
+//						   params.is_reset &&&
+//						   rg_xyz_size !=0);
+//
+//		// load immediate into input buffer
+//		if(False) begin  //yet to be define based on sram address
+//			Bit#(if_index) inp_index;
+//      Bit#(if_bank) inp_bufferbank;
+//      {inp_index, inp_bufferbank} = split_address_IBUF(rg_sram_addr);
+//
+//			for(Integer i=0; i<iWords; i=i+1) begin
+//				if(fromInteger(i) < rg_xyz_size) begin
+//					Bit#(max_index) index = extend(inp_index);
+//					Bit#(max_bank) bank = extend(inp_bufferbank+fromInteger(i));
+//					if(bank < extend(inp_bufferbank)) begin 
+//						index = index + 1;
+//					end
+//					Bit#(max_data) data = truncate(params.dram_address);
+//					wr_buffer_req[i] <= SRAMReq {buffer: InputBuffer, index: index, bank: bank, data: data};
+//				end
+//	    end
+//    end
+//		//TODO: These logic mark end of load immediate, should be implemented somewhere
+//		// rg_xyz_size <= rg_xyz_size - fromInteger(numWords_Ibuf);
+//		// rg_finish_load <= True; //end of load immmediate
+//		// rg_sram_addr_b <= rg_sram_addr_b + fromInteger(numWords_Ibuf * `INBYTES);
+//
+//		//load immmediate into output buffer
+//		else begin
+//      //Do
+//      Bit#(of_index) out_index;
+//      Bit#(of_bank) out_bufferbank;
+//			{out_index, out_bufferbank} = split_address_OBUF(rg_sram_addr);
+//
+//			for(Integer i=0; i<oWords; i=i+1) begin
+//				if(fromInteger(i) < rg_xyz_size) begin
+//					Bit#(max_index) index = extend(out_index);
+//					Bit#(max_bank) bank = extend(out_bufferbank+fromInteger(i));
+//					if(bank < extend(out_bufferbank))begin
+//						index = index + 1;
+//					end
+//					Bit#(max_data) data = truncate(params.dram_address);
+//					wr_buffer_req[i] <= SRAMReq{buffer: OutputBuffer, index: index, bank: bank, data: data};
+//				end
+//			end
+//		end
+//	endrule
 
 	//LOAD from DRAM to SRAM
 	rule rl_start_dram_Read(rg_params matches tagged Valid .params &&&
-							!params.is_reset &&&
+							//!params.is_reset &&&
 							rg_load_requests);
 
 		let lv_read_request = AXI4_Rd_Addr {araddr: rg_dram_addr, arid: `rd_req_id, arlen: rg_burst_len,
@@ -259,7 +259,7 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 		ff_dest_addr.enq(rg_sram_addr);
 		rg_sram_addr <= rg_sram_addr + zeroExtend(pack(params.z_size)) * fromInteger(params.bitwidth ? iBytes : oBytes);
 
-        m_xactor.i_rd_addr.enq(lv_read_request);
+    m_xactor.i_rd_addr.enq(lv_read_request);
 	endrule
 
 	rule rl_start_write(rg_params matches tagged Valid .params &&&
@@ -271,17 +271,18 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 		let lv_sram_addr = ff_dest_addr.first;
 
 		if(!lv_resp.rlast) begin
-			rg_burst <= False;
 			SRAM_address lv_burst_addr = unpack(lv_sram_addr + (fromInteger(axi_width) >> 3));
 			rg_burst_addr <= lv_burst_addr;
+      rg_z_cntr <= rg_z_cntr - fromInteger(params.bitwidth ? iWords : oWords);
 		end
-
-		else if(!rg_burst) begin
+    else begin
 			ff_dest_addr.deq;
-			rg_burst <= True;
+      rg_z_cntr <= params.z_size - 1;
+      if(rg_x_cntr == 0 && rg_y_cntr == 0)begin
+        rg_finish_load <= True;
+      end
 		end
-
-		/* ----code for loading into buffer----*/
+		/*----code for writing into buffer----*/
 		
 		if(False) begin //loading inputs -- //condn. yet to be defined based on sram address
 			Bit#(if_index) inp_index;
@@ -331,8 +332,6 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 				end
 			end
 		end
-	    //TODO: Updating rg_z_cntr, updating rg_burst_addr
-	    //rg_z_cntr <= rg_z_cntr - fromInteger(numWords_Ibuf);
 	endrule
 
 	interface master = m_xactor.axi_side;
@@ -341,20 +340,23 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 		method Action put(Load_params parameters) if(rg_finish_load);
 			rg_finish_load <= False;
 			rg_params <= tagged Valid parameters;
-			if(parameters.is_reset)
-				rg_xyz_size <= truncate({pack(parameters.x_size), pack(parameters.y_size), pack(parameters.z_size)});
+			//if(parameters.is_reset)begin
+			//	rg_xyz_size <= truncate({pack(parameters.x_size), pack(parameters.y_size), pack(parameters.z_size)});
+      //end
 			rg_dram_addr <= parameters.dram_address;
 			rg_sram_addr <= parameters.sram_address;
 			rg_burst_len <= truncate( unpack(parameters.z_size) * fromInteger(parameters.bitwidth ? iBytes : oBytes) ) >> 3 - 1;
-			rg_y_cntr <= parameters.y_size;
-			rg_x_cntr <= parameters.x_size;
+			rg_y_cntr <= parameters.y_size - 1;
+			rg_x_cntr <= parameters.x_size - 1;
+      rg_z_cntr <= parameters.z_size - 1;
 			rg_load_requests <= True;
 		endmethod
 	endinterface
 
 	interface Get subifc_send_loadfinish;
-		method ActionValue#(Bool) get if(rg_finish_load);
-			return rg_finish_load;
+		method ActionValue#(Bool) get if(rg_params matches tagged Valid .params &&&
+                                     !rg_load_requests &&& rg_finish_load);
+			return True;
 		endmethod
 	endinterface
 
@@ -363,13 +365,14 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 		for(Integer i=0; i<maxnumwords; i=i+1)begin
 			requests[i] = wr_buffer_req[i];
 		end
-		if(params.is_reset && rg_xyz_size < fromInteger(params.bitwidth ? iWords : oWords))begin
-			rg_xyz_size <= rg_xyz_size - fromInteger(params.bitwidth ? iWords: oWords);
-			rg_finish_load <= True;
-		end
+		//if(params.is_reset && rg_xyz_size < fromInteger(params.bitwidth ? iWords : oWords))begin
+		//	rg_xyz_size <= rg_xyz_size - fromInteger(params.bitwidth ? iWords: oWords);
+		//	rg_finish_load <= True;
+		//end
 
-		if(!params.is_reset && rg_x_cntr==0 && rg_y_cntr==0)begin
-			rg_load_requests <= False;
+		//if(!params.is_reset && rg_x_cntr==0 && rg_y_cntr==0)begin
+		if(rg_x_cntr == 0 &&& rg_y_cntr == 0)
+      rg_load_requests <= False;
 		end
 
 		return requests;
