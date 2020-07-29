@@ -23,7 +23,7 @@ for load immediate, stores a constant value
   	 to send the data and index of the buffers to top module
 
   Assumptions:
-	1. 
+	1. The precision of any operand will always be an exponent of 2
 
   TODO:
   	1. write Code for loading into buffers once finalized -- Done
@@ -75,9 +75,13 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			Mul#(iwords, wt_data, data_width),
 			Mul#(owords, of_data, data_width),
       Max#(iwords, owords, max_words),
+      Log#(data_width, d_shift),
 			Mul#(if_bytes, 8, if_data),
 			Mul#(wt_bytes, 8, wt_data),
 			Mul#(of_bytes, 8, of_data),
+      Log#(if_bytes, if_shift),
+      Log#(wt_bytes, wt_shift),
+      Log#(of_bytes, of_shift),
       //Compiler generated
       Add#(b__, max_data, addr_width),
       Add#(c__, of_index, max_index),
@@ -88,6 +92,8 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
       Add#(h__, wt_bank, max_bank)
       //Add#(c__, of_data, addr_width)
 		);
+
+  let burst_len_shift = valueOf(d_shift); //used to calculate burst length
 
 	let sram_width = valueOf(sram_addr_width);
 	let dram_width = valueOf(addr_width);
@@ -104,14 +110,17 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 	let ibuf_index = valueOf(if_index);
 	let ibuf_bankbits = valueOf(if_bank);
 	let ibuf_width = valueOf(if_data);
+  let ibuf_shift = valueOf(if_shift);
 
 	let wbuf_index = valueOf(wt_index);
 	let wbuf_bankbits = valueOf(wt_bank);
 	let wbuf_width = valueOf(wt_data);
+  let wbuf_shift = valueOf(wt_shift);
 
 	let obuf_index = valueOf(of_index);
 	let obuf_bankbits = valueOf(of_bank);
 	let obuf_width = valueOf(of_data);
+  let obuf_shift = valueOf(of_shift);
 
 	let iBytes = valueOf(if_bytes);
 	let wBytes = valueOf(wt_bytes);
@@ -177,15 +186,15 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 		else if(rg_y_cntr == 0) begin
 			rg_y_cntr <= params.y_size;
 			rg_x_cntr <= rg_x_cntr - 1;
-			rg_dram_addr <= rg_dram_addr + zeroExtend(pack(params.y_stride)) * fromInteger(params.bitwidth ? iBytes : oBytes);
+			rg_dram_addr <= rg_dram_addr + zeroExtend(pack(params.y_stride) << (params.bitwidth ? ibuf_shift : obuf_shift));
 		end
 		else begin
 			rg_y_cntr <= rg_y_cntr - 1;
-			rg_dram_addr <= rg_dram_addr + zeroExtend(pack(params.z_stride)) * fromInteger(params.bitwidth ? iBytes : oBytes);
+			rg_dram_addr <= rg_dram_addr + zeroExtend(pack(params.z_stride) << (params.bitwidth ? ibuf_shift : obuf_shift));
 		end
 
 		ff_dest_addr.enq(rg_sram_addr);
-		rg_sram_addr <= rg_sram_addr + zeroExtend(pack(params.z_size)) * fromInteger(params.bitwidth ? iBytes : oBytes);
+		rg_sram_addr <= rg_sram_addr + zeroExtend(pack(params.z_size) << (params.bitwidth ? ibuf_shift : obuf_shift));
 
     m_xactor.i_rd_addr.enq(lv_read_request);
 	endrule
@@ -270,7 +279,8 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			rg_params <= tagged Valid parameters;
 			rg_dram_addr <= parameters.dram_address;
 			rg_sram_addr <= parameters.sram_address;
-			rg_burst_len <= truncate( unpack(parameters.z_size) * fromInteger(parameters.bitwidth ? iBytes : oBytes) ) >> 3 - 1;
+      rg_burst_len <= truncate( 
+            (pack(parameters.z_size) << (parameters.bitwidth ? if_shift : of_shift)) >> burst_len_shift );
 			rg_y_cntr <= parameters.y_size - 1;
 			rg_x_cntr <= parameters.x_size - 1;
       rg_z_cntr <= parameters.z_size - 1;
@@ -283,12 +293,7 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
     for(Integer i=0; i<maxnumwords; i=i+1)begin
       requests[i] = wr_buffer_req[i];
     end
-    //if(params.is_reset && rg_xyz_size < fromInteger(params.bitwidth ? iWords : oWords))begin
-    //      rg_xyz_size <= rg_xyz_size - fromInteger(params.bitwidth ? iWords: oWords);
-    //      rg_finish_load <= True;
-    //end
 
-    //if(!params.is_reset && rg_x_cntr==0 && rg_y_cntr==0)begin
     if(rg_x_cntr == 0 &&& rg_y_cntr == 0)begin
       rg_load_requests <= False;
     end

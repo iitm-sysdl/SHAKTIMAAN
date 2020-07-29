@@ -113,7 +113,6 @@ package compute_top;
     Reg#(Dim1) rg_wt_cntr <- mkReg(0);
 
     Vector#(nCol, Wire#(SRAMKRdReq#(wt_index))) wr_wt_reqs <- replicateM(mkWire());
-    Vector#(nRow, Wire#(SRAMKRdReq#(if_index))) wr_if_reqs <- replicateM(mkWire());
 
     Vector#(nRow, Reg#(SRAMKRdReq#(if_index))) rg_inp_addr <- replicateM(mkReg(?));
     Vector#(nRow, Reg#(Bool)) rg_valid_row <- replicateM(mkReg(False));

@@ -59,12 +59,10 @@ package dnn_accelerator;
                   in_width, out_width) buffers <- mkbuffers;
 
     rule rl_write_data_ld_to_buf;
-      Vector#(max_words, SRAMReq#(max_index, max_bank, max_data)) requests <- ld_module. write_data;
+      Vector#(max_words, SRAMReq#(max_index, max_bank, max_data)) requests <- ld_module.write_data;
     endrule
 
     interface ifc_load_master = ld_module.master;
     interface ifc_store_master = st_module.master;
   endmodule
-
-
 endpackage
