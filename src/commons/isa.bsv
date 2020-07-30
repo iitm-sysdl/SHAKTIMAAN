@@ -74,13 +74,12 @@ typedef struct {                                                  //120 Total
   SRAM_index#(a) input_address;                                   // 15
   SRAM_index#(b) output_address;                                  // 15
   SRAM_index#(c) weight_address;                                  // 15
-  Dim1 ifmap_height; Dim1 ifmap_width;                            // 16
   Dim1 ofmap_height; Dim1 ofmap_width;                            // 16
   Dim1 active_rows; Dim1 active_cols;                             // 16
   Dim2 stride_h; Dim2 stride_w;                                   //  8
   Dim2 pad_left; Dim2 pad_right; Dim2 pad_top; Dim2 pad_bottom;   // 16
   Bool preload_output;                                            //  1
-  Pad_bits#(d) padding;                                           //  2
+  Pad_bits#(d) padding;                                           // 18
 } Compute_params#(numeric type a, numeric type b, numeric type c, numeric type d) deriving(Bits, Eq, FShow);
 
 typedef struct {                                      // 120 Total
