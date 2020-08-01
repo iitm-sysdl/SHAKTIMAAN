@@ -55,7 +55,7 @@ interface Ifc_load_Module#(numeric type dram_addr_width, numeric type data_width
 						   numeric type max_words, numeric type ld_pad);
 
 	interface AXI4_Master_IFC#(dram_addr_width, data_width, 0) master;
-	interface Put#(Load_params#(ld_pad)) subifc_get_loadparams;  //to get parameters from the dependency module
+	interface Put#(Load_params#(ld_pad)) subifc_put_loadparams;  //to get parameters from the dependency module
 	interface Get#(Bool) subifc_send_loadfinish;	//send the finish signal once the load is completed
   method ActionValue#(Vector#(max_words, SRAMReq#(max_index, max_bank, max_data))) write_data;
 endinterface
@@ -273,7 +273,7 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 	
   interface master = m_xactor.axi_side;
 
-	interface Put subifc_get_loadparams;
+	interface Put subifc_put_loadparams;
 		method Action put(Load_params#(ld_pad) parameters) if(rg_finish_load);
 			rg_finish_load <= False;
 			rg_params <= tagged Valid parameters;

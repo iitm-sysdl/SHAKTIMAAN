@@ -32,7 +32,7 @@ package compute_top;
                                numeric type wt_index, numeric type wt_bank,
                                numeric type of_index, numeric type of_bank);
     interface Put#(Compute_params) subifc_put_compute_params;
-    //interface Get#(Bool) subifc_get_compute_finish;
+    interface Get#(Bool) subifc_get_compute_finish;
     method ActionValue#(Vector#(nRow, SRAMKRdReq#(if_index))) get_inp_addr;
     interface Vector#(nRow, Put#(Bit#(in_width))) put_inp_resp;
     method ActionValue#(Vector#(nCol, SRAMKRdReq#(wt_index))) get_wt_addr;

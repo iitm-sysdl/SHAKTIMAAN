@@ -30,7 +30,7 @@ package dependency_resolver;
     interface Put#(Bool) ifc_put_alu_complete;
   endinterface 
   
-  module mkdepResolver(Ifc_dependency_resolver#(if_index, of_index, wt_index, ld_pad, st_pad, cp_pad, alu_pad));
+  module mkdependency_resolver(Ifc_dependency_resolver#(if_index, of_index, wt_index, ld_pad, st_pad, cp_pad, alu_pad));
   
     FIFOF#(Dep_flags) ff_load_queue  <- mkSizedFIFOF(valueOf(`INS_QUEUE_SIZE));
     FIFOF#(Dep_flags) ff_gemm_queue  <- mkSizedFIFOF(valueOf(`INS_QUEUE_SIZE));

@@ -23,7 +23,7 @@ package store_module;
     
     method ActionValue#(Vector#(obuf_values, SRAMRdReq#(obuf_index, obuf_banks))) send_sram_req;
     method Action recv_sram_resp(Vector#(obuf_values, Bit#(obuf_data)) response);
-    interface Put#(Store_params#(st_pad)) subifc_get_params;
+    interface Put#(Store_params#(st_pad)) subifc_put_storeparams;
     interface Get#(Bool) subifc_send_store_finish;
     interface AXI4_Master_IFC#(addr_width, data_width, 0) master;
   endinterface
@@ -154,7 +154,7 @@ package store_module;
       memory_xactor.i_wr_data.enq(write_data);
     endmethod
 
-    interface Put subifc_get_params;
+    interface Put subifc_put_storeparams;
       method Action put(Store_params#(st_pad) params) if(rg_params matches tagged Invalid);
         rg_params <= tagged Valid params;
         rg_finish_store <= False;

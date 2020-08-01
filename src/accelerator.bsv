@@ -4,6 +4,8 @@ Email id: gokulan97@gmail.com
 */
 
 package dnn_accelerator;
+  import fetch_decode::*;
+  import dependency_resolver::*;
   import load_module::*;
   import store_module::*;
   import compute_top::*;
@@ -14,12 +16,15 @@ package dnn_accelerator;
 
   import GetPut::*;
   import AXI4_Fabric::*;
+  import Connection::*;
 
   interface Ifc_accelerator#(dram_addr_width, sram_addr_width, data_width,
                              wt_index, wt_bank, if_index, if_bank, of_index, of_bank,
                              in_width, out_width, nRow, nCol);
     interface AXI4_Master_IFC#(dram_addr_width, data_width, 0) ifc_load_master;
     interface AXI4_Master_IFC#(dram_addr_width, data_width, 0) ifc_store_master;
+    interface AXI4_Master_IFC#(dram_addr_width, data_width, 0) ifc_fetch_master;
+    interface AXI4_Slave_IFC#(dram_addr_width, data_width, 0) ifc_fetch_slave;
   endinterface
 
   module mk_accelerator(Ifc_accelerator#(dram_addr_width, sram_addr_width, data_width,
@@ -44,6 +49,9 @@ package dnn_accelerator;
              Add#(q__, r__, s__), Add#(s__, alu_pad, 120)
              );
 
+    Ifc_fetch_decode#(dram_addr_width, data_width) fetch_module <- mkfetch_decode;
+    Ifc_dependency_resolver#(if_index, of_index, wt_index, mem_pad, mem_pad, gemm_pad, alu_pad)
+                                                  dependency_module <- mkdependency_resolver;
     Ifc_load_Module#(dram_addr_width, data_width, sram_addr_width,
                    wt_index, wt_bank, in_width,
                    if_index, if_bank, in_width,
@@ -58,11 +66,34 @@ package dnn_accelerator;
                   of_index, of_bank, 
                   in_width, out_width) buffers <- mkbuffers;
 
+    Ifc_compute_module#(dram_addr_width, sram_addr_width,
+                  in_width, out_width, nRow, nCol,
+                  if_index, if_bank,
+                  wt_index, wt_bank,
+                  of_index, of_bank) gemm_module <- mkgemm;
+
+    mkConnection(fetch_decode.ifc_get_load_params, dependency_module.ifc_put_load_params);
+    mkConnection(fetch_decode.ifc_get_store_params, dependency_module.ifc_put_store_params);
+    mkConnection(fetch_decode.ifc_get_compute_params, dependency_module.ifc_put_compute_params);
+    mkConnection(fetch_decode.ifc_get_alu_params, dependency_module.ifc_put_alu_params);
+
+    mkConnection(dependency_module.ifc_get_load_instruction, ld_module.subifc_put_loadparams);
+    mkConnection(ld_module.subifc_send_loadfinish, dependency_module.ifc_put_load_complete);
+
+    mkConnection(dependency_module.ifc_get_store_instruction, st_module.subifc_put_storeparams);
+    mkConnection(st_module.subifc_send_store_finish, dependency_module.ifc_put_store_complete);
+
+    mkConnection(dependency_module.ifc_get_gemm_instruction, gemm_module.subifc_put_compute_params);
+    mkConnection(gemm_module.subifc_get_compute_finish, dependency_module.ifc_put_gemm_complete);
+
+
     rule rl_write_data_ld_to_buf;
       Vector#(max_words, SRAMReq#(max_index, max_bank, max_data)) requests <- ld_module.write_data;
     endrule
 
     interface ifc_load_master = ld_module.master;
     interface ifc_store_master = st_module.master;
+    interface ifc_fetch_master = fetch_module.master;
+    interface ifc_fetch_slave = fetch_module.slave;
   endmodule
 endpackage
