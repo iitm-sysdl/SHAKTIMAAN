@@ -85,7 +85,7 @@ typedef struct {                                                  //120 Total
 typedef struct {                                      // 120 Total
   ALU_Opcode alu_opcode;                              //   2
   SRAM_index#(a) input_address;                       //  15
-  SRAM_index#(b) output_address;                      //  15
+  SRAM_index#(a) output_address;                      //  15
   Dim1 output_height; // OH'                          //   8
   Dim1 output_width; // OW'                           //   8
   Dim2 window_height; // R                            //   4
@@ -93,12 +93,10 @@ typedef struct {                                      // 120 Total
   Dim1 mem_stride_OW; // S_OW                         //   8
   Dim1 mem_stride_R; // S_R                           //   8
   Dim1 mem_stride_S; // S_S                           //   8
-  Dim2 stride_h; // Sx                                //   4
-  Dim2 stride_w; // Sy                                //   4
-  Dim1 num_of_filters; //Number of filters(M)         //   8
+  Dim1 num_active;     //Number of filters(M)         //   8
   Bool use_immediate;                                 //   1
   Dim1 immediate_value;                               //   8
-  Pad_bits#(c) padding;                               //  15
-} ALU_params#(numeric type a, numeric type b, numeric type c) deriving(Bits, Eq, FShow);
+  Pad_bits#(b) padding;                               //  23
+} ALU_params#(numeric type a, numeric type b) deriving(Bits, Eq, FShow);
 
 endpackage

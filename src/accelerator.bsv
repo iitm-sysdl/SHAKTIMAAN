@@ -44,7 +44,7 @@ package dnn_accelerator;
              Add#(of_index, if_index, f__), Add#(wt_index, f__, g__),
              Mul#(6, D1, h__), Mul#(6, D2, i__), Add#(g__, h__, j__),
              Add#(j__, i__, k__), Add#(k__, boo, l__), Add#(l__, gemm_pad, 120),
-             Mul#(2, of_index, m__), Mul#(7, D1, n__), Mul#(4, D2, o__),
+             Mul#(2, of_index, m__), Mul#(7, D1, n__), Mul#(2, D2, o__),
              Add#(m__, n__, p__), Add#(p__, o__, q__), Mul#(2, bo, r__),
              Add#(q__, r__, s__), Add#(s__, alu_pad, 120)
              );
@@ -72,6 +72,8 @@ package dnn_accelerator;
                   wt_index, wt_bank,
                   of_index, of_bank) gemm_module <- mkgemm;
 
+		Ifc_tensor_alu#(out_width, nCol, of_index, alu_pad) tensor_alu <- mk_tensor_alu; 
+
     mkConnection(fetch_decode.ifc_get_load_params, dependency_module.ifc_put_load_params);
     mkConnection(fetch_decode.ifc_get_store_params, dependency_module.ifc_put_store_params);
     mkConnection(fetch_decode.ifc_get_compute_params, dependency_module.ifc_put_compute_params);
@@ -86,6 +88,8 @@ package dnn_accelerator;
     mkConnection(dependency_module.ifc_get_gemm_instruction, gemm_module.subifc_put_compute_params);
     mkConnection(gemm_module.subifc_get_compute_finish, dependency_module.ifc_put_gemm_complete);
 
+		mkConnection(dependency_module.ifc_get_alu_instruction, tensor_alu.subifc_put_alu_params);
+		mkConnection(tensor_alu.subifc_get_alu_complete, dependency_module.if_put_alu_complete);
 
     rule rl_write_data_ld_to_buf;
       Vector#(max_words, SRAMReq#(max_index, max_bank, max_data)) requests <- ld_module.write_data;
