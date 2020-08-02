@@ -46,14 +46,11 @@ package intMul_WS;
     interface Get#(Maybe#(Bit#(in_width))) to_east;
   endinterface
 
-(*synthesize*)
-  module mkmac_tb(Ifc_intMul_WS#(8));
-    //let ifc();
-    //mk_mac_pe inst1(ifc);
-    //return (ifc);
-    Ifc_intMul_WS#(8) inst1 <- mkintMulWS(0, 0, 0);
-    return (inst1);
-  endmodule
+//(*synthesize*)
+//  module mkmac_tb(Ifc_intMul_WS#(8, 16));
+//    Ifc_intMul_WS#(8) inst1 <- mkintMulWS(0, 0, 0);
+//    return (inst1);
+//  endmodule
  
 //  (*mutually_exclusive="mult_add_phase, from_west"*)
   module mkintMulWS#(Int#(8) row, Int#(8) col, parameter Integer coord)(Ifc_intMul_WS#(in_width, out_width))

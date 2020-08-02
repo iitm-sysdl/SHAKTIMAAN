@@ -156,49 +156,49 @@ package systolic;
 
 
   //TODO: the following Tb has not been updated after changes to interfaces above.
-  module mkTb_systolic(Empty);
-    Ifc_systolic#(3,3,16) systolic_array <- mksystolic;  
-    
-    Reg#(Bit#(3)) rg_state <- mkReg(0);
-    Reg#(Bit#(8)) rg_counter <- mkReg(1);
-    Reg#(Maybe#(Bit#(16))) rg_weight_dummy <- mkReg(tagged Valid 'd45);
-    Reg#(Bit#(16)) rg_act_dummy <- mkReg('d33);
-
-    rule load_weights(rg_state == 0);
-      Bit#(16) x = fromMaybe(0,rg_weight_dummy);
-      $display($time,"\t TB: Sending Weight: %d co-ordinate : %d",x, rg_counter);
-      if(rg_counter == 3) begin
-        rg_weight_dummy <= tagged Invalid;
-        rg_state <= 'd1;
-        rg_counter <= 0;
-      //  $finish(0);
-      end
-      else begin
-        rg_weight_dummy <= tagged Valid (x+3);
-        rg_counter <= rg_counter + 1;
-        $display("\t TB: Tag Valid");
-      end
-      for(Integer i = 0; i < 3; i=i+1) begin
-        systolic_array.cfifo[i].send_colbuf_value(tuple4(rg_weight_dummy,5,rg_counter,2'b00));
-      end
-    endrule
-
-    rule send_acts(rg_state == 1);
-       rg_counter <= rg_counter+1;
-       rg_act_dummy <= rg_act_dummy + 3;
-       for(Integer i = 0; i <3; i=i+1) begin
-         systolic_array.rfifo[i].send_rowbuf_value(tagged Valid rg_act_dummy);
-       end
-       if(rg_counter == 'd10)
-         $finish(0);
-    endrule
-
-    rule print_activations;
-      for(Integer i = 0; i < 3; i=i+1) begin
-        let x <- systolic_array.cfifo[i].send_accumbuf_value;
-        $display($time,"\tColNo: %d val: %d\n", i,x);
-      end
-    endrule
-
-  endmodule
+//  module mkTb_systolic(Empty);
+//    Ifc_systolic#(3,3,16) systolic_array <- mksystolic;  
+//    
+//    Reg#(Bit#(3)) rg_state <- mkReg(0);
+//    Reg#(Bit#(8)) rg_counter <- mkReg(1);
+//    Reg#(Maybe#(Bit#(16))) rg_weight_dummy <- mkReg(tagged Valid 'd45);
+//    Reg#(Bit#(16)) rg_act_dummy <- mkReg('d33);
+//
+//    rule load_weights(rg_state == 0);
+//      Bit#(16) x = fromMaybe(0,rg_weight_dummy);
+//      $display($time,"\t TB: Sending Weight: %d co-ordinate : %d",x, rg_counter);
+//      if(rg_counter == 3) begin
+//        rg_weight_dummy <= tagged Invalid;
+//        rg_state <= 'd1;
+//        rg_counter <= 0;
+//      //  $finish(0);
+//      end
+//      else begin
+//        rg_weight_dummy <= tagged Valid (x+3);
+//        rg_counter <= rg_counter + 1;
+//        $display("\t TB: Tag Valid");
+//      end
+//      for(Integer i = 0; i < 3; i=i+1) begin
+//        systolic_array.cfifo[i].send_colbuf_value(tuple4(rg_weight_dummy,5,rg_counter,2'b00));
+//      end
+//    endrule
+//
+//    rule send_acts(rg_state == 1);
+//       rg_counter <= rg_counter+1;
+//       rg_act_dummy <= rg_act_dummy + 3;
+//       for(Integer i = 0; i <3; i=i+1) begin
+//         systolic_array.rfifo[i].send_rowbuf_value(tagged Valid rg_act_dummy);
+//       end
+//       if(rg_counter == 'd10)
+//         $finish(0);
+//    endrule
+//
+//    rule print_activations;
+//      for(Integer i = 0; i < 3; i=i+1) begin
+//        let x <- systolic_array.cfifo[i].send_accumbuf_value;
+//        $display($time,"\tColNo: %d val: %d\n", i,x);
+//      end
+//    endrule
+//
+//  endmodule
 endpackage

@@ -28,22 +28,22 @@ package compute_top;
   interface Ifc_compute_module#(numeric type dram_addr_width, numeric type sram_addr_width,
                                numeric type in_width, numeric type out_width,
                                numeric type nRow, numeric type nCol,
-                               numeric type if_index, numeric type if_bank,
-                               numeric type wt_index, numeric type wt_bank,
-                               numeric type of_index, numeric type of_bank);
-    interface Put#(Compute_params) subifc_put_compute_params;
+                               numeric type if_index,
+                               numeric type wt_index,
+                               numeric type of_index, numeric type cp_pad);
+    interface Put#(Compute_params#(if_index, of_index, wt_index, cp_pad)) subifc_put_compute_params;
     interface Get#(Bool) subifc_get_compute_finish;
     method ActionValue#(Vector#(nRow, SRAMKRdReq#(if_index))) get_inp_addr;
     interface Vector#(nRow, Put#(Bit#(in_width))) put_inp_resp;
     method ActionValue#(Vector#(nCol, SRAMKRdReq#(wt_index))) get_wt_addr;
     method Action put_wt_resp(Vector#(nCol, Bit#(in_width)) weights);
-    Vector#(nCol, Get#(SRAMKRdReq#(of_index))) get_old_out_addr;
+    interface Vector#(nCol, Get#(SRAMKRdReq#(of_index))) get_old_out_addr;
     interface Vector#(nCol, Put#(Bit#(out_width))) put_old_out_resp;
     interface Vector#(nCol, Get#(SRAMKWrReq#(of_index, out_width))) get_new_output_data;
   endinterface
 
   (*synthesize*)
-  module mkgemm_Tb(Ifc_compute_module#(32,26,8,16,4,4,5,2,6,2,7,2));
+  module mkgemm_Tb(Ifc_compute_module#(32,26,8,16,4,4,5,6,7,18));
     let ifc();
     mkgemm inst1(ifc);
     return (ifc);
@@ -51,29 +51,21 @@ package compute_top;
   
   module mkgemm(Ifc_compute_module#(dram_addr_width, sram_addr_width,
                                    in_width, out_width,
-                                   nRow, nCol,
-                                   if_index, if_bank,
-                                   wt_index, wt_bank,
-                                   of_index, of_bank))
-    provisos(Add#(dram_addr_width, 0, `DRAM_ADDR_WIDTH),
-             Add#(sram_addr_width, 0, `SRAM_ADDR_WIDTH),
+                                   nRow, nCol, if_index, wt_index, of_index, cp_pad))
+    provisos(//Add#(dram_addr_width, 0, `DRAM_ADDR_WIDTH),
+             //Add#(sram_addr_width, 0, `SRAM_ADDR_WIDTH),
              Mul#(ibytes, 8, in_width),
              Mul#(wbytes, 8, in_width),
              Mul#(obytes, 8, out_width),
-             Add#(a__, in_width, TMul#(in_width, 2))
+             //Add#(a__, in_width, TMul#(in_width, 2),
+						 Add#(b__, in_width, out_width)
              );
 
-    let iBits = valueOf(if_bank);
-    let oBits = valueOf(of_bank);
-
     let ibuf_index = valueOf(if_index);
-    let ibuf_bankbits = valueOf(if_bank);
     
     let wbuf_index = valueOf(wt_index);
-    let wbuf_bankbits = valueOf(wt_bank);
 
     let obuf_index = valueOf(of_index);
-    let obuf_bankbits = valueOf(of_bank);
 
     let rows = valueOf(nRow);
     let cols = valueOf(nCol);
@@ -82,25 +74,7 @@ package compute_top;
     let wBytes = valueOf(wbytes);
     let oBytes = valueOf(obytes);
       
-    function Tuple2#(Bit#(if_index),Bit#(if_bank)) split_address_IBUF(Bit#(sram_width) addr);
-	  	Bit#(if_bank) gbank = addr[ibuf_bankbits+iBytes-1:iBytes];
-	  	Bit#(if_index) gindex = addr[ibuf_index+ibuf_bankbits+iBytes-1:iBytes+ibuf_bankbits];
-	  	return tuple2(gindex,gbank);
-	  endfunction
-
-	  function Tuple2#(Bit#(wt_index),Bit#(wt_bank)) split_address_WBUF(Bit#(sram_width) addr);
-	  	Bit#(wt_bank) gbank = addr[wbuf_bankbits+wBytes-1:wBytes];
-	  	Bit#(wt_index) gindex = addr[wbuf_index+wbuf_bankbits+wBytes-1:wbuf_bankbits+wBytes];
-	  	return tuple2(gindex,gbank);
-	  endfunction
-
-	  function Tuple2#(Bit#(of_index),Bit#(of_bank)) split_address_OBUF(Bit#(sram_width) addr);
-	  	Bit#(of_bank) gbank = addr[obuf_bankbits+oBytes-1:oBytes];
-	  	Bit#(of_index) gindex = addr[obuf_index+obuf_bankbits+oBytes-1:obuf_bankbits+oBytes];
-	  	return tuple2(gindex,gbank);
-	  endfunction
-	
-    Reg#(Maybe#(Compute_params)) rg_params <- mkReg(tagged Invalid);
+    Reg#(Maybe#(Compute_params#(if_index, of_index, wt_index, cp_pad))) rg_params <- mkReg(tagged Invalid);
     Reg#(Bool) rg_weightload <- mkReg(False);
     
     Reg#(SRAM_index#(wt_index)) rg_wt_addr <- mkReg(?);
@@ -211,20 +185,20 @@ package compute_top;
     method ActionValue#(Vector#(nRow, SRAMKRdReq#(if_index))) get_inp_addr
         if(rg_params matches tagged Valid .params &&& 
           !rg_weightload &&& // compute phase
-          ((rg_h_cntr == params.output_width-1 && rg_w_cntr == params.output_width-1) || // Input feeding phase
+          ((rg_h_cntr == params.ofmap_height-1 && rg_w_cntr == params.ofmap_width-1) || // Input feeding phase
           rg_inp_traingle_cntr > 1)); //Final triangle while feeding inputs
 
-      Bool lv_pad_zero = (rg_h_cntr < params.pad_top) || (rg_w_cntr < params.pad_left) 
-                          || (params.output_height - rg_h_cntr < params.pad_bottom)
-                          || (params.output_width - rg_w_cntr < params.pad_right); 
+      Bool lv_pad_zero = (rg_h_cntr < zeroExtend(params.pad_top)) || (rg_w_cntr < zeroExtend(params.pad_left)) 
+                          || (params.ofmap_height - rg_h_cntr < zeroExtend(params.pad_bottom))
+                          || (params.ofmap_width - rg_w_cntr < zeroExtend(params.pad_right));
 
       Bool is_triangle = (pack(rg_inp_traingle_cntr) == fromInteger(rows));
       
-      if(rg_h_cntr == params.output_height-1 && rg_w_cntr == params.output_width-1)begin
+      if(rg_h_cntr == params.ofmap_height-1 && rg_w_cntr == params.ofmap_width-1)begin
         //end of sending values, start sending invalids
         rg_inp_traingle_cntr <= rg_inp_traingle_cntr - 1;
       end
-      else if(rg_w_cntr == params.output_width-1)begin
+      else if(rg_w_cntr == params.ofmap_width-1)begin
         rg_w_cntr <= 0;
         rg_h_cntr <= rg_h_cntr + 1;
         let lv_addr = rg_inp_row_addr + params.stride_h;
@@ -282,7 +256,7 @@ package compute_top;
     endmethod
 
     interface Put subifc_put_compute_params;
-      method Action put(Compute_params params) if(rg_params matches tagged Invalid);
+      method Action put(Compute_params#(if_index, of_index, wt_index, cp_pad) params) if(rg_params matches tagged Invalid);
         
         rg_params <= tagged Valid params;
         
@@ -314,7 +288,7 @@ package compute_top;
           rg_valid_col[i] <= fromInteger(i) < params.active_cols;
         end
 
-        let time_values = params.output_width * params.output_height;
+        let time_values = params.ofmap_width * params.ofmap_height;
         
         if(params.preload_output)begin
           for(Integer i=0; i<cols; i=i+1)begin
