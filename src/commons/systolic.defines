@@ -1,6 +1,5 @@
 // slave_bound: ??
-`define START_PC      'hB0000000
-`define END_PC        'hB0000004
+`define CONFIG_ADDR   'hB0000000
 `define WeightStart   'hB0010000      
 `define WeightEnd     'hB001ffff
 `define AccumBufStart 'hB0200000
@@ -11,6 +10,10 @@
 `define NUMROWS 16
 `define NUMCOLS 16
 
+`define DRAM_ADDR_WIDTH 32
+`define SRAM_ADDR_WIDTH 26
+`define DIM_WIDTH1 8
+`define DIM_WIDTH2 4
 //------------Configuration of buffers---------------------
 
 `define Buffer_wreq_id 4

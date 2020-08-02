@@ -29,8 +29,19 @@ package dependency_resolver;
     interface Put#(Bool) ifc_put_gemm_complete;
     interface Put#(Bool) ifc_put_alu_complete;
   endinterface 
-  
-  module mkdependency_resolver(Ifc_dependency_resolver#(if_index, of_index, wt_index, ld_pad, st_pad, cp_pad, alu_pad));
+ 
+ (*synthesize*)
+  module mkdep_Tb(Ifc_dependency_resolver#(15,15,15,20,20,18,23));
+    let ifc();
+    mkdependency_resolver inst1(ifc);
+    return (ifc);
+  endmodule
+
+  module mkdependency_resolver(Ifc_dependency_resolver#(if_index, of_index, wt_index, ld_pad, st_pad, cp_pad, alu_pad))
+		provisos(Add#(if_index, TAdd#(of_index, TAdd#(wt_index, cp_pad)), 63),
+						 Add#(of_index, TAdd#(of_index, alu_pad), 53),
+						 Add#(ld_pad, 0, 20),
+						 Add#(st_pad, 0, 20));
   
     FIFOF#(Dep_flags) ff_load_queue  <- mkSizedFIFOF(valueOf(`INS_QUEUE_SIZE));
     FIFOF#(Dep_flags) ff_gemm_queue  <- mkSizedFIFOF(valueOf(`INS_QUEUE_SIZE));
@@ -52,30 +63,34 @@ package dependency_resolver;
   
     function Bool fn_resolve_prev_pop(FIFOF#(Dep_flags) flag_queue, FIFOF#(Bool) dep_queue);
       Dep_flags flags = flag_queue.first;
-      return !flags.pop_prev_dep || (flags.pop_prev_dep && queue.notEmpty());
+      return !flags.pop_prev_dep || (flags.pop_prev_dep && dep_queue.notEmpty());
     endfunction
   
-    function Bool fn_resolve_next_pop(FIFOF#(Dep_flags) flag_queue, FIFOF#(Bool) queue);
+    function Bool fn_resolve_next_pop(FIFOF#(Dep_flags) flag_queue, FIFOF#(Bool) dep_queue);
       Dep_flags flags = flag_queue.first;
-      return !flags.pop_next_dep || (flags.pop_next_dep && queue.notEmpty());
+      return !flags.pop_next_dep || (flags.pop_next_dep && dep_queue.notEmpty());
     endfunction
   
-    function void fn_push_prev(FIFOF#(Dep_flags) flag_queue, FIFOF#(Bool) prev_queue);
-      Dep_flags flags = flag_queue.first;
-      if(flags.push_prev_dep)begin
-        prev_queue.enq(True);
-      end
+    function Action fn_push_prev(FIFOF#(Dep_flags) flag_queue, FIFOF#(Bool) prev_queue);
+      action
+				Dep_flags flags = flag_queue.first;
+				if(flags.push_prev_dep)begin
+					prev_queue.enq(True);
+				end
+			endaction
     endfunction
   
-    function void fn_push_next(FIFOF#(Dep_flags) flag_queue, FIFOF#(Bool) next_queue);
-      Dep_flags flags = flag_queue.first;
-      if(flags.push_next_dep)begin
-        next_queue.enq(True);
-      end
+    function Action fn_push_next(FIFOF#(Dep_flags) flag_queue, FIFOF#(Bool) next_queue);
+      action
+				Dep_flags flags = flag_queue.first;
+				if(flags.push_next_dep)begin
+					next_queue.enq(True);
+				end
+			endaction
     endfunction
   
     interface Put ifc_put_load_params;
-      method ActionValue put(Tuple2#(Dep_flags, Params) ins);
+      method Action put(Tuple2#(Dep_flags, Params) ins);
         Dep_flags flags = tpl_1(ins);
         Params params   = tpl_2(ins);
         Load_params#(ld_pad) ld_params = unpack(pack(params));
@@ -85,7 +100,7 @@ package dependency_resolver;
     endinterface
   
     interface Put ifc_put_store_params;
-      method ActionValue put(Tuple2#(Dep_flags, Params) ins);
+      method Action put(Tuple2#(Dep_flags, Params) ins);
         Dep_flags flags = tpl_1(ins);
         Params params   = tpl_2(ins);
         Store_params#(st_pad) st_params = unpack(pack(params));
@@ -95,7 +110,7 @@ package dependency_resolver;
     endinterface
         
     interface Put ifc_put_compute_params;
-      method ActionValue put(Tuple2#(Dep_flags, Params) ins);
+      method Action put(Tuple2#(Dep_flags, Params) ins);
         Dep_flags flags = tpl_1(ins);
         Params params   = tpl_2(ins);
         Compute_params#(if_index, of_index, wt_index, cp_pad) cp_params = unpack(pack(params));
@@ -105,12 +120,12 @@ package dependency_resolver;
     endinterface
   
     interface Put ifc_put_alu_params;
-      method ActionValue put(Tuple2#(Dep_flags, Params) ins);
+      method Action put(Tuple2#(Dep_flags, Params) ins);
         Dep_flags flags = tpl_1(ins);
         Params params   = tpl_2(ins);
         ALU_params#(of_index, alu_pad) alu_params = unpack(pack(params));
         ff_alu_queue.enq(flags);
-        ff_alu_params.enq(cp_params);
+        ff_alu_params.enq(alu_params);
       endmethod
     endinterface
   
@@ -122,7 +137,7 @@ package dependency_resolver;
     endinterface
   
     interface Put ifc_put_load_complete;
-      method ActionValue put(Bool complete);
+      method Action put(Bool complete);
         fn_push_next(ff_load_queue, ff_load_to_gemm);
         ff_load_queue.deq();
       endmethod
@@ -136,7 +151,7 @@ package dependency_resolver;
     endinterface
   
     interface Put ifc_put_store_complete;
-      method ActionValue put(Bool complete);
+      method Action put(Bool complete);
         fn_push_prev(ff_store_queue, ff_store_to_alu);
         ff_store_queue.deq();
       endmethod
@@ -152,7 +167,7 @@ package dependency_resolver;
     endinterface
   
     interface Put ifc_put_gemm_complete;
-      method ActionValue put(Bool complete);
+      method Action put(Bool complete);
         fn_push_prev(ff_gemm_queue, ff_gemm_to_load);
         fn_push_next(ff_gemm_queue, ff_gemm_to_alu);
         ff_gemm_queue.deq();
@@ -169,7 +184,7 @@ package dependency_resolver;
     endinterface
   
     interface Put ifc_put_alu_complete;
-      method ActionValue put(Bool complete);
+      method Action put(Bool complete);
         fn_push_prev(ff_alu_queue, ff_alu_to_gemm);
         fn_push_next(ff_alu_queue, ff_alu_to_store);
         ff_alu_queue.deq();

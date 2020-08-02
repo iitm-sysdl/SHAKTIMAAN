@@ -11,6 +11,7 @@ typedef Bit#(`SRAM_ADDR_WIDTH) SRAM_address;
 typedef Bit#(`DIM_WIDTH1) Dim1;
 typedef Bit#(`DIM_WIDTH2) Dim2;
 
+typedef Bit#(120) Params;
 typedef enum
 {
   Invalid,
@@ -35,17 +36,17 @@ typedef struct
 }SRAMRdReq#(numeric type a, numeric type b) deriving(Bits, Eq, FShow);
 
 typedef enum{
-    LOAD,
+    LOAD = 8,
     STORE,
     COMPUTE,
     ALU
 } Opcode deriving(Bits, Eq, FShow);
 
 typedef struct {
-    Bit#(1) push_prev_dep;
-    Bit#(1) pop_prev_dep;
-    Bit#(1) push_next_dep;
-    Bit#(1) pop_next_dep;
+    Bool push_prev_dep;
+    Bool pop_prev_dep;
+    Bool push_next_dep;
+    Bool pop_next_dep;
 } Dep_flags deriving(Bits, Eq, FShow);
 
 typedef enum {

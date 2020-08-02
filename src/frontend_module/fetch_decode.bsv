@@ -7,14 +7,15 @@ Details:
 
 package fetch_decode;
 
-  import  GetPut::*;
-  import  AXI4_Types  ::*;
-  import  AXI4_Fabric ::*;
-  import  FIFOF::*;
+  import GetPut::*;
+  import AXI4_Types  ::*;
+  import AXI4_Fabric ::*;
+	import Semi_FIFOF::*;
+  import FIFOF::*;
   import isa::*;
   `include "systolic.defines"
   
-  interface Ifc_fetch_decode#(addr_width, data_width);
+  interface Ifc_fetch_decode#(numeric type addr_width, numeric type data_width);
     interface AXI4_Slave_IFC#(addr_width, data_width, 0) slave;
     interface AXI4_Master_IFC#(addr_width, data_width, 0) master;
     interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_load_params;
@@ -23,16 +24,24 @@ package fetch_decode;
     interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_alu_params;
     method Bool is_complete;
   endinterface
-  
+ 
+ (*synthesize*)
+  module mkfd_tb(Ifc_fetch_decode#(32,128));
+    let ifc();
+    mkfetch_decode inst1(ifc);
+    return (ifc);
+  endmodule
+ 
   module mkfetch_decode(Ifc_fetch_decode#(addr_width, data_width))
-    provisos(Mul#(128, N, data_width));
+    provisos(
+						 Add#(a__, 8, addr_width));
   
     Reg#(Bit#(addr_width)) rg_pc <- mkReg(?);
     Reg#(Bit#(16)) rg_num_ins <- mkReg(?);
   
     Reg#(Bool) rg_complete <- mkReg(True);
   
-    FIFOF#(data_width) ff_fetch_data <- mkSizedFIFOF(valueOf(`FETCH_QUEUE_SIZE));
+    FIFOF#(Bit#(data_width)) ff_fetch_data <- mkSizedFIFOF(valueOf(`FETCH_QUEUE_SIZE));
   
     Wire#(Dep_flags) wr_flags <- mkWire();
   
@@ -54,23 +63,23 @@ package fetch_decode;
       Bool valid = lv_addr == `CONFIG_ADDR;
   
       if(valid)begin
-        rg_start_pc <= lv_data[valueOf(addr_width)-1:0];
-        rg_ins_len <= lv_data[16+valueOf(addr_width)-1:valueOf(addr_width)];
+        rg_pc <= lv_data[valueOf(addr_width)-1:0];
+        rg_num_ins <= lv_data[16+valueOf(addr_width)-1:valueOf(addr_width)];
         rg_complete <= False;
       end
        
-      let resp = AXI4_Wr_Resp {bresp: (valid ? AXI4_OKAY : AXI4_ERROR), buser: aw.awuser, bid:aw.awid};
+      let resp = AXI4_Wr_Resp {bresp: AXI4_OKAY, buser: aw.awuser, bid:aw.awid};
       s_xactor.i_wr_resp.enq (resp);
     endrule
   
     rule rl_send_request(rg_num_ins > 0);
-      Bit#(8) burst_len = min(255, rg_num_ins-1);
+      Bit#(8) burst_len = min(8'd255, truncate(rg_num_ins-1));
       
-      Bit#(addr_width) next_pc = rg_start_pc + zeroExtend(burst_len << 7);
-      rg_start_pc <= nextPC;
-      rg_num_ins <= rg_num_ins - burst_len - 1;
+      Bit#(addr_width) next_pc = rg_pc + zeroExtend(burst_len << 7);
+      rg_pc <= next_pc;
+      rg_num_ins <= rg_num_ins - zeroExtend(burst_len - 1);
         
-      let read_request = AXI4_Rd_Addr{ araddr: rg_start_pc, arid: `AXI_FETCH_MASTER, arlen: burst_len,
+      let read_request = AXI4_Rd_Addr{ araddr: rg_pc, arid: `AXI_FETCH_MASTER, arlen: burst_len,
                                        arsize: 3'b100, arburst: 2'b01, aruser: 0};
       m_xactor.i_rd_addr.enq(read_request);
     endrule
@@ -91,7 +100,7 @@ package fetch_decode;
       ff_fetch_data.deq();
   
       Opcode opcode = unpack(inst[3:0]);
-      Params params = unpack(inst[:8]);
+      Params params = unpack(inst[127:8]);
   
       wr_flags <= unpack(inst[7:4]);
       if(opcode == LOAD) begin
@@ -108,28 +117,28 @@ package fetch_decode;
       end
     endrule
     
-    interface fetch_slave = s_xactor.axi_side; 
+    interface slave = s_xactor.axi_side; 
     interface master = m_xactor.axi_side;
   
-    interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_load_params;
+    interface Get ifc_get_load_params;
       method ActionValue#(Tuple2#(Dep_flags, Params)) get;
         return tuple2(wr_flags, wr_load);
       endmethod
     endinterface
   
-    interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_store_params;
+    interface Get ifc_get_store_params;
       method ActionValue#(Tuple2#(Dep_flags, Params)) get;
         return tuple2(wr_flags, wr_store);
       endmethod
     endinterface
   
-    interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_compute_params;
+    interface Get ifc_get_compute_params;
       method ActionValue#(Tuple2#(Dep_flags, Params)) get;
         return tuple2(wr_flags, wr_compute);
       endmethod
     endinterface
   
-    interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_alu_params;
+    interface Get ifc_get_alu_params;
       method ActionValue#(Tuple2#(Dep_flags, Params)) get;
         return tuple2(wr_flags, wr_alu);
       endmethod
