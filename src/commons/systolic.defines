@@ -1,10 +1,5 @@
 // slave_bound: ??
-`define IfmapDims     'hB0000000
-`define sysConfig     'hB0000002
-`define CoordCount    'hB0000004
-`define weightCount   'hB0000006
-`define FilterDims    'hB0000008
-`define InputAddr     'hB000000A
+`define CONFIG_ADDR   'hB0000000
 `define WeightStart   'hB0010000      
 `define WeightEnd     'hB001ffff
 `define AccumBufStart 'hB0200000
@@ -15,16 +10,21 @@
 `define NUMROWS 16
 `define NUMCOLS 16
 
+`define DRAM_ADDR_WIDTH 32
+`define SRAM_ADDR_WIDTH 26
+`define DIM_WIDTH1 8
+`define DIM_WIDTH2 4
 //------------Configuration of buffers---------------------
+
+`define Buffer_wreq_id 4
+`define rd_req_id 5
 
 `define IBUF_BANKS `NUMROWS
 `define WBUF_BANKS `NUMCOLS
 `define OBUF_BANKS `NUMCOLS
-`define PBUF_BANKS 4
 
 `define INWIDTH 8
 `define OUTWIDTH 32
-`define PBUF_WIDTH 64
 
 `define INBYTES	1
 `define OUTBYTES 4
@@ -32,20 +32,19 @@
 `define IBUF_ENTRIES 64
 `define WBUF_ENTRIES 64
 `define OBUF_ENTRIES 64
-`define PBUF_ENTRIES 64
 
 `define IBUF_INDEX 6
 `define WBUF_INDEX 6
 `define OBUF_INDEX 6
-`define PBUF_INDEX 6
 
 `define IBUF_Bankbits 4
 `define WBUF_Bankbits 4
 `define OBUF_Bankbits 4
-`define PBUF_Bankbits 2
 
+//-----------Configuration for frontend structures--------
+`define FETCH_QUEUE_SIZE 8
+`define INS_QUEUE_SIZE 8
+`define PARAMS_QUEUE_SIZE 8
+`define DEP_QUEUE_SIZE 4
 
-//Duplication of buffers to support double buffering
-`define NUM_IBUF 2
-`define NUM_WBUF 2
-`define NUM_OBUF 2
+`define AXI_FETCH_MASTER 'b0101

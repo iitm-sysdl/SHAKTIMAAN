@@ -20,8 +20,6 @@ endinterface
   
 module mk_scalar_alu(Ifc_scalar_alu#(alu_width));
   
-  let dLEN = valueOf(alu_width);
-
   method ActionValue#(Bit#(alu_width)) mav_inp_operands(Bit#(alu_width) op1, Bit#(alu_width) op2, ALU_Opcode op_type);
     Int#(alu_width) lv_signed_op1 = unpack(op1);
     Int#(alu_width) lv_signed_op2 = unpack(op2);
