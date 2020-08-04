@@ -1,6 +1,6 @@
 /* 
-Author: Gokulan Ravi
-Email id: gokulan97@gmail.com
+Author: Gokulan Ravi, Vinod Ganesan
+Email id: gokulan97@gmail.com, g.vinod1993@gmail.com
 */
 
 package dnn_accelerator;
@@ -18,6 +18,14 @@ package dnn_accelerator;
   import AXI4_Fabric::*;
   import Connection::*;
 
+	/*
+  This is the top interface of the systolic accelrator. It contains 4 sub-interfaces: 
+	1. A load master interface to the external bus for sending load requests
+	2. A store master interface to the external bus for sending store requests
+	3. A fetch master interface to the external bus for sending instruction fetch requests
+	4. A fetch slave interface to the external bus for receiving read/write requests from the host
+		 processor.
+	*/
   interface Ifc_accelerator#(dram_addr_width, sram_addr_width, data_width,
                              wt_index, wt_bank, if_index, if_bank, of_index, of_bank,
                              in_width, out_width, nRow, nCol);
@@ -48,6 +56,8 @@ package dnn_accelerator;
              Add#(m__, n__, p__), Add#(p__, o__, q__), Mul#(2, bo, r__),
              Add#(q__, r__, s__), Add#(s__, alu_pad, 120)
              );
+
+		let maxW = valueOf(max_words);
 
     Ifc_fetch_decode#(dram_addr_width, data_width) fetch_module <- mkfetch_decode;
     Ifc_dependency_resolver#(if_index, of_index, wt_index, mem_pad, mem_pad, gemm_pad, alu_pad)
@@ -91,9 +101,108 @@ package dnn_accelerator;
 		mkConnection(dependency_module.ifc_get_alu_instruction, tensor_alu.subifc_put_alu_params);
 		mkConnection(tensor_alu.subifc_get_alu_complete, dependency_module.if_put_alu_complete);
 
-    rule rl_write_data_ld_to_buf;
-      Vector#(max_words, SRAMReq#(max_index, max_bank, max_data)) requests <- ld_module.write_data;
-    endrule
+    function BRAMRequestBE#(Bit#(a), Bit#(d), n) makeRequest (Bool write,Bit#(n) wstrb,Bit#(a) addr, Bit#(d)
+        data);
+            return BRAMRequestBE{
+                                writeen: wstrb ,
+                                responseOnWrite: True,
+                                address   : addr,
+                                datain : data
+                              };
+      endfunction
+		
+		//Making an assumption that the load module can only write into weight or input buffer!
+		//Using PortA for Load to Input and Weight Buffer
+		//Assuming no Byte enabled writes - so strobe is always 1 -- for non BE BRAMs is the makeRequest
+		//function correct?
+		rule rl_send_write_req_ld_to_buf;
+			Vector#(max_words, SRAMReq#(max_index, max_bank, max_data)) request <- ld_module.write_data();
+			if(request[0].buffer == InputBuffer) begin
+				for(Integer i=0; i < maxW; i=i+1) begin
+					buffers.ibuf[request[i].bank].portA.request.put(makeRequest(True, '1, request[i].index, request[i].data));
+				end
+			end
+			else if(request[0].buffer == WeightBuffer) begin
+				for(Integer i=0; i < maxW; i=i+1) begin
+					buffers.wbuf[request[i].bank].portA.request.put(makeRequest(True, '1, request[i].index, request[i].data));
+				end
+			end
+		endrule
+
+		//Rule to take a compute read request and giving it to the Input or weight buffer! 
+		//Using portB for Input and Weight buffers to Compute
+		(*mutually_exclusive = "rl_recv_read_req_ibuf_from_compute, rl_recv_read_req_wbuf_from_compute"*)
+		rule rl_recv_read_req_ibuf_from_compute;
+			Vector#(nRow, SRAMKRdReq#(if_index)) request <- gemm_module.get_inp_addr();
+			for(Integer i = 0; i < vnRow; i=i+1) begin
+				buffers.ibuf[i].portB.request.put(makeRequest(False, '0, request[i].index, ?));  
+			end
+		endrule
+		
+		(*mutually_exclusive = "rl_send_read_rsp_ibuf_compute, rl_send_read_rsp_wbuf_compute"*)
+		rule rl_send_read_rsp_ibuf_compute;
+			for(Integer i = 0; i < vnRow; i=i+1) begin
+				let val <- buffers.ibuf[i].portB.response.get();
+				gemm_module.put_inp_resp[i].put(val);
+			end
+		endrule
+
+		rule rl_recv_read_req_wbuf_from_compute;
+			Vector#(nRow, SRAMKRdReq#(wt_index)) request <- gemm_module.get_wt_addr();
+			for(Integer i = 0; i < vnRow; i=i+1) begin
+				buffers.wbuf[i].portB.request.put(makeRequest(False, '0, request[i].index, ?));
+			end
+		endrule
+
+
+		rule rl_send_read_rsp_wbuf_compute;
+			for(Integer i = 0; i < vnRow; i=i+1) begin
+				let val <- buffers.wbuf[i].portB.response.get();
+				gemm_module.put_wt_resp[i].put(val);
+			end
+		endrule
+
+
+		//Rules to connect the output buffers
+		//Using PortA for compute to obuf write 
+		//Using PortB for compute to obuf read
+		rule rl_send_write_req_obuf1_from_compute;
+			Vector#(nCol, Get#(SRAMKWrReq#(of_index, out_width))) request <- gemm_module.get_new_output_data();
+			for(Integer i = 0; i < vnCol; i=i+1) begin
+				buffers.obuf1[i].portA.request.put(makeRequest(True, '1, request[i].index, request[i].data));
+			end
+		endrule
+
+		rule rl_send_read_req_obuf1_from_compute;
+			Vector#(nCol, Get#(SRAMKRdReq#(of_index)))	 request <- gemm_module.get_old_out_addr();
+			for(Integer i = 0; i < vnCol; i=i+1) begin
+				buffers.obuf1[i].portB.request.put(makeRequest(False, '1, request[i].index, request[i].data));
+			end
+		endrule
+
+		rule rl_send_read_rsp_obuf1_to_compute;
+			for(Integer i = 0; i < vnCol; i=i+1) begin
+				let val <- buffers.obuf1[i].portB.response.get(); 
+				gemm_module.put_old_out_resp[i].put(val);	
+			end
+		endrule
+
+		rule rl_send_read_req_obuf1_from_talu;
+		endrule
+
+		rule rl_send_read_rsp_obuf1_to_talu;
+		endrule
+
+		rule rl_send_write_req_talu_to_obuf2;
+		endrule
+
+		rule rl_send_read_req_obuf2_from_store;
+		endrule
+
+		rule rl_send_read_rsp_obuf2_to_store;
+		endrule
+
+
 
     interface ifc_load_master = ld_module.master;
     interface ifc_store_master = st_module.master;

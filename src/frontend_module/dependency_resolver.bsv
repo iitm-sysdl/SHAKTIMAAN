@@ -12,6 +12,12 @@ package dependency_resolver;
   import isa::*;
   `include "systolic.defines"
 
+	//The interface contains sub-interfaces to connect Dependency resolvers with the fetch stage 
+	//and the load, store and compute modules
+	//The interface contains numeric types: if_index - addressing bits for input buffer 
+	//of_index - addressing bits for output buffer, wt_index - addressing bits for weight buffer 
+	//st_pad, cp_pad, ld_pad and alu_pad - Extra padding bits for the params to make it 128 bits 
+	//The pad bits are numeric types since buffer sizes are variables!
   interface Ifc_dependency_resolver#(numeric type if_index, numeric type of_index, numeric type wt_index,
       numeric type ld_pad, numeric type st_pad, numeric type cp_pad, numeric type alu_pad);
     interface Put#(Tuple2#(Dep_flags, Params)) ifc_put_load_params;
@@ -43,6 +49,7 @@ package dependency_resolver;
 						 Add#(ld_pad, 0, 20),
 						 Add#(st_pad, 0, 20));
   
+		//Instantiating the load, store, gemm and ALU queue 
     FIFOF#(Dep_flags) ff_load_queue  <- mkSizedFIFOF(valueOf(`INS_QUEUE_SIZE));
     FIFOF#(Dep_flags) ff_gemm_queue  <- mkSizedFIFOF(valueOf(`INS_QUEUE_SIZE));
     FIFOF#(Dep_flags) ff_alu_queue   <- mkSizedFIFOF(valueOf(`INS_QUEUE_SIZE));

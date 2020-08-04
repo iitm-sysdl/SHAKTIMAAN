@@ -1,5 +1,5 @@
 /*
-Author: Vinod Ganesan, Gokulan Ravi
+Author: Vinod Ganesan, Gokulan Ravi, Sadhana
 Email ID: g.vinod1993@gmail.com, gokulan97@gmail.com
 Details: Top Module of Vector ALU
 */

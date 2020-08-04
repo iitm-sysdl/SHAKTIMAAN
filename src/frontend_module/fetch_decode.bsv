@@ -53,7 +53,9 @@ package fetch_decode;
     AXI4_Master_Xactor_IFC#(addr_width, data_width, 0) m_xactor <- mkAXI4_Master_Xactor;  
     AXI4_Slave_Xactor_IFC#(addr_width, data_width,0) s_xactor  <- mkAXI4_Slave_Xactor;
    
-    //Configuration Space to write PC
+    //Configuration Space to write start PC from the host 
+		//It also provides the number of instructions in the current program to be executed which is 
+		//used to generate appropriate burst requests to fetch the data 
     rule rl_axi_set_config;
       let aw <- pop_o(s_xactor.o_wr_addr);
       let w  <- pop_o(s_xactor.o_wr_data);
@@ -71,9 +73,13 @@ package fetch_decode;
       let resp = AXI4_Wr_Resp {bresp: AXI4_OKAY, buser: aw.awuser, bid:aw.awid};
       s_xactor.i_wr_resp.enq (resp);
     endrule
-  
+
+
+		//This rule is used to send burst fetch request to the memory 
+		//Each burst length can maximum do 256 contiguous fetches
+		//num_ins/256 is the total number of fetch requests sent to the memory
     rule rl_send_request(rg_num_ins > 0);
-      Bit#(8) burst_len = min(8'd255, truncate(rg_num_ins-1));
+      Bit#(8) burst_len = min(8'd255, truncate(rg_num_ins-1)); 
       
       Bit#(addr_width) next_pc = rg_pc + zeroExtend(burst_len << 7);
       rg_pc <= next_pc;
@@ -83,7 +89,10 @@ package fetch_decode;
                                        arsize: 3'b100, arburst: 2'b01, aruser: 0};
       m_xactor.i_rd_addr.enq(read_request);
     endrule
-  
+
+
+		//This rule receives the burst fashion and keeps enqueueing it into the fetch queue, until
+		//all instructions in the program are fetched!
     rule rl_recv_data;
       let resp <- pop_o(m_xactor.o_rd_data);
       let inst = resp.rdata;
@@ -94,15 +103,18 @@ package fetch_decode;
   
       ff_fetch_data.enq(inst);
     endrule
-  
+
+		//The fetched data is enqueued into the fetch pipeline FIFO, which is dequeued by 
+		//decode stage, which will decode the instructions and decide which command queue 
+		//the instructions' decoded params are enqueued
     rule rl_decode;
       Bit#(data_width) inst = ff_fetch_data.first;
       ff_fetch_data.deq();
   
       Opcode opcode = unpack(inst[3:0]);
-      Params params = unpack(inst[127:8]);
+      Params params = unpack(inst[127:8]); //Padded instruction parameters
   
-      wr_flags <= unpack(inst[7:4]);
+      wr_flags <= unpack(inst[7:4]); //Dependency flags 
       if(opcode == LOAD) begin
         wr_load <= params;
       end
@@ -117,9 +129,13 @@ package fetch_decode;
       end
     endrule
     
+		//Exposing the master and slave fetch interface to the outer world 
     interface slave = s_xactor.axi_side; 
     interface master = m_xactor.axi_side;
-  
+
+		//These interfaces get the respective interface parameters and based on decode's signalling, 
+		//Will send it to the respective interface within the dependency resolver module
+
     interface Get ifc_get_load_params;
       method ActionValue#(Tuple2#(Dep_flags, Params)) get;
         return tuple2(wr_flags, wr_load);
@@ -143,7 +159,9 @@ package fetch_decode;
         return tuple2(wr_flags, wr_alu);
       endmethod
     endinterface
-  
+
+		//Exposing a complete signal to the top -- this can be sent as an interrupt to the host
+		//processor signalling completion 
     method Bool is_complete if(rg_complete);
        return True;
     endmethod
