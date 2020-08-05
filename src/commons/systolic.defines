@@ -19,6 +19,21 @@
 `define Buffer_wreq_id 4
 `define rd_req_id 5
 
+`define IBUF_START 'h01000000
+`define IBUF_END	 'h01ffffff
+
+`define WBUF_START 'h02000000
+`define WBUF_END	 'h02ffffff
+
+`define OBUF1_START 'h03000000
+`define OBUF1_END		'h037fffff
+
+`define OBUF2_START 'h03800000
+`define OBUF2_END		'h03ffffff
+
+`define OBUF_START `OBUF1_START
+`define OBUF_END `OBUF2_END
+
 `define IBUF_BANKS `NUMROWS
 `define WBUF_BANKS `NUMCOLS
 `define OBUF_BANKS `NUMCOLS
