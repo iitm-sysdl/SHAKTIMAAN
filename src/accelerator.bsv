@@ -60,7 +60,6 @@ package dnn_accelerator;
              Add#(q__, r__, s__), Add#(s__, alu_pad, 120)
              );
 
-
     Ifc_fetch_decode#(dram_addr_width, data_width) fetch_module <- mkfetch_decode;
     Ifc_dependency_resolver#(if_index, of_index, wt_index, mem_pad, mem_pad, gemm_pad, alu_pad)
                                                   dependency_module <- mkdependency_resolver;
@@ -158,6 +157,7 @@ package dnn_accelerator;
 		//Rule to take a compute read request and giving it to the Input or weight buffer! 
 		//Using portB for Input and Weight buffers to Compute
 		//2 port SRAMs are not required for Input and Output Buffer -- TODO: Optimize it 
+
 		(*mutually_exclusive = "rl_recv_read_req_ibuf_from_compute, rl_recv_read_req_wbuf_from_compute"*)
 		rule rl_recv_read_req_ibuf_from_compute;
 			Vector#(nRow, SRAMKRdReq#(if_index)) request <- gemm_module.get_inp_addr();
