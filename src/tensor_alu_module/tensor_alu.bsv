@@ -10,6 +10,7 @@ import GetPut::*;
 import Vector::*;
 import isa::*;
 `include "Logger.bsv"
+`include "systolic.defines"
 
 //Assumptions:
 //1. Each ALU instruction is aligned to the vector width. If there are C channels and Vector length
@@ -46,22 +47,30 @@ interface Ifc_tensor_alu#(numeric type alu_width, numeric type num_col, numeric 
 	interface Get#(Bool) subifc_get_alu_complete;
 endinterface
 
+	(*synthesize*)
+  module mktalu_Tb(Ifc_tensor_alu#(16, 4, 8, 23));
+    let ifc();
+    mk_tensor_alu inst1(ifc);
+    return (ifc);
+  endmodule
+
 module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
 	provisos(Bits#(Dim1,a),
 			  Add#(b,a,alu_width),
-			  Add#(c,TLog#(num_col),a)
+			  Add#(c,TLog#(num_col),a),
+				Add#(8, a__, of_index)
 			);
 
 	Integer vnum_col = valueOf(num_col);
 
-	Reg#(Maybe#(ALU_params#(of_index, alu_pad)) rg_alu_packet <- mkReg(tagged Invalid);
+	Reg#(Maybe#(ALU_params#(of_index, alu_pad))) rg_alu_packet <- mkReg(tagged Invalid);
 	Reg#(SRAM_index#(of_index)) rg_irow_addr <- mkReg(0);
 	Reg#(SRAM_index#(of_index)) rg_icol_addr <- mkReg(0);
 	Reg#(SRAM_index#(of_index)) rg_srow_addr <- mkReg(0);
 	Reg#(SRAM_index#(of_index)) rg_scol_addr <- mkReg(0);
 	Reg#(SRAM_index#(of_index)) rg_output_addr <- mkReg(0);
 	
-	Wire#(SRAM_address#(of_index)) wr_send_req <- mkWire();
+	Wire#(SRAM_index#(of_index)) wr_send_req <- mkWire();
 	
 	Vector#(num_col, Reg#(Bit#(alu_width))) v_operand_out <- replicateM(mkReg(0));
 	Vector#(num_col, Wire#(Bit#(alu_width))) wr_v_operand <- replicateM(mkWire());
@@ -161,7 +170,7 @@ module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
 	endrule
 
 	interface Put subifc_put_alu_params;
-	  method Action ma_get_params(ALU_params params) if(rg_alu_packet matches tagged Invalid);
+	  method Action put(ALU_params#(of_index, alu_pad) params) if(rg_alu_packet matches tagged Invalid);
 		rg_alu_packet <= tagged Valid params;
 		let lv_in_base_addr = params.input_address;
 		rg_irow_addr <= lv_in_base_addr;
@@ -170,16 +179,17 @@ module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
 		rg_srow_addr <= lv_in_base_addr;
 		rg_output_addr <= params.output_address;
 		rg_alu_complete <= False;
-		rg_which_buffer <= (params.input_address <= `OBUF1_END);
-		if(params.use_immediate)
-		  for(Integer i=0; i<vnum_col; i=i+1) 
-			v_operand_out[i] <= extend(params.immediate_value);
+		rg_which_buffer <= True; //TODO: finding which buffer is used(zeroExtend(params.input_address) <= `OBUF1_END);
+		if(params.use_immediate)begin
+		  for(Integer i=0; i<vnum_col; i=i+1)begin
+				v_operand_out[i] <= extend(params.immediate_value);
+			end
 		end
 	  endmethod
 	endinterface
 
 	method TALUOpReq#(of_index) mv_send_req_op if(rg_alu_packet matches tagged Valid .alu_packet);
-	  return TALUOpReq{ index: wr_send_req, num_valid: params.num_active, buffer: rg_which_buffer};
+	  return TALUOpReq{ index: wr_send_req, num_valid: alu_packet.num_active, buffer: rg_which_buffer};
 	endmethod
 
 	method Action ma_recv_op(Vector#(num_col, Bit#(alu_width)) vec_data) if(rg_alu_packet matches tagged Valid .alu_packet);
@@ -192,13 +202,13 @@ module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
 
 	method ActionValue#(TALUOutReq#(of_index, alu_width, num_col)) mav_put_result
 				if(rg_alu_packet matches tagged Valid .alu_packet);
-	  Vector#(num_col,Bit#(alu_width)) lv_temp = 0;
+	  Vector#(nCol, Bit#(alu_width)) lv_temp = replicate(0);
 	  for(Integer i=0; i< vnum_col; i= i+1) begin
 			if(fromInteger(i) < alu_packet.num_active)begin
 				lv_temp[i] = wr_v_operand_out[i];
 			end
 	  end
-		return TALUOutReq{index: rg_output_addr, values: lv_temp, num_valid: params.num_active, buffer: rg_which_buffer};
+		return TALUOutReq{index: rg_output_addr, values: lv_temp, num_valid: alu_packet.num_active, buffer: rg_which_buffer};
 	endmethod
 
 	interface Get subifc_get_alu_complete;
@@ -207,7 +217,6 @@ module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
 			return True;
 		endmethod
 	endinterface
-	endmethod
 
 endmodule
 
