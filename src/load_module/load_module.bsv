@@ -57,7 +57,6 @@ interface Ifc_load_Module#(numeric type dram_addr_width, numeric type data_width
 	interface AXI4_Master_IFC#(dram_addr_width, data_width, 0) master;
 	interface Put#(Load_params#(ld_pad)) subifc_put_loadparams;  //to get parameters from the dependency module
 	interface Get#(Bool) subifc_send_loadfinish;	//send the finish signal once the load is completed
-  //method ActionValue#(Vector#(max_words, SRAMReq#(max_index, max_bank, max_data))) write_data;
 	method ActionValue#(SRAMReq#(max_index, max_bank, data_width)) write_data;
 endinterface
 
@@ -242,7 +241,8 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
       Bit#(of_bank) out_bufferbank;
       {out_index, out_bufferbank} = split_address_OBUF(lv_sram_addr);
 			Dim2 num_valid = truncate(min(rg_z_cntr, fromInteger(oWords)));
-			wr_buffer_req <= SRAMReq{buffer: OutputBuffer, index: zeroExtend(out_index), bank: zeroExtend(out_bufferbank), data: lv_data, num_valid: num_valid};
+			wr_buffer_req <= SRAMReq{buffer: (is_address_within_range(`OBUF1_START, `OBUF1_END, lv_sram_addr) ? OutputBuffer1 : OutputBuffer2), 
+																	index: zeroExtend(out_index), bank: zeroExtend(out_bufferbank), data: lv_data, num_valid: num_valid};
 		end
 	endrule
 	

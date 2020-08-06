@@ -106,7 +106,7 @@ package dnn_accelerator;
 			return BRAMRequest{
 				write: write,
 				responseOnWrite: False,
-				address   : addr,
+				address : addr,
 				datain : data
 			};
     endfunction
@@ -123,7 +123,7 @@ package dnn_accelerator;
 				let req = ff_ld_module_requests.first;
 				for(Integer j=0; j<in_words; j=j+1)begin
 					if(fromInteger(j) < req.num_valid)begin
-						buffers.ibuf[i*in_words+j].portA.request.put(makeRequest(truncate(index), req.data[(j+1)*in_width-1:j*in_width]));
+						buffers.ibuf[i*in_words+j].portB.request.put(makeRequest(truncate(req.index), req.data[(j+1)*in_width-1:j*in_width]));
 					end
 				end
 				ff_ld_module_requests.deq();
@@ -135,7 +135,7 @@ package dnn_accelerator;
 				let req = ff_ld_module_requests.first;
 				for(Integer j=0; j<in_words; j=j+1)begin
 					if(fromInteger(j) < req.num_valid)begin
-						buffers.wbuf[i*in_words+j].portA.request.put(makeRequest(truncate(index), req.data[(j+1)*in_width-1:j*in_width]));
+						buffers.wbuf[i*in_words+j].portB.request.put(makeRequest(truncate(req.index), req.data[(j+1)*in_width-1:j*in_width]));
 					end
 				end
 				ff_ld_module_requests.deq();
@@ -143,11 +143,23 @@ package dnn_accelerator;
 		end
 
 		for(Integer i=0; i<valueOf(of_nfolds); i=i+1)begin
-			rule rl_ld_ofmap(ff_ld_module_requests.first.buffer == OutputBuffer && ff_ld_module_requests.first.bank == fromInteger(i*out_words));
+			rule rl_ld_ofmap(ff_ld_module_requests.first.buffer == OutputBuffer1 && ff_ld_module_requests.first.bank == fromInteger(i*out_words));
 				let req = ff_ld_module_requests.first;
 				for(Integer j=0; j<out_words; j=j+1)begin
 					if(fromInteger(j) < req.num_valid)begin
-						buffers.obuf1[i*out_words+j].portA.request.put(makeRequest(truncate(index), req.data[(j+1)*out_width-1:j*out_width]));
+						buffers.obuf1[i*out_words+j].portB.request.put(makeRequest(truncate(req.index), req.data[(j+1)*out_width-1:j*out_width]));
+					end
+				end
+				ff_ld_module_requests.deq();
+			endrule
+		end
+
+		for(Integer i=0; i<valueOf(of_nfolds); i=i+1)begin
+			rule rl_ld_ofmap2(ff_ld_module_requests.first.buffer == OutputBuffer2 && ff_ld_module_requests.first.bank == fromInteger(i*out_words));
+				let req = ff_ld_module_requests.first;
+				for(Integer j=0; j<out_words; j=j+1)begin
+					if(fromInteger(j) < req.num_valid)begin
+						buffers.obuf2[i*out_words+j].portB.request.put(makeRequest(truncate(req.index), req.data[(j+1)*out_width-1:j*out_width]));
 					end
 				end
 				ff_ld_module_requests.deq();
@@ -239,21 +251,75 @@ package dnn_accelerator;
 			end
 		endrule
 
-		rule rl_send_read_req_obuf2_from_store;
-			Vector#(of_values, SRAMRdReq#(of_index, of_banks)) request <- st_module.send_sram_req();
-			for(Integer i = 0; i < vnCol; i=i+1) begin
-				buffers.obuf2[i].portA.request.put(makeRequest(False, '0, request[i].index, ?));
-			end
+		FIFOF#(SRAMRdReq#(of_index, of_banks)) ff_req_from_store <- mkFIFOF();
+		FIFOF#(Dim2) ff_num_valid_values <- mkFIFOF();
+
+		rule rl_get_request_from_store;
+			let req <- st_module.send_sram_req();
+			ff_req_from_store.enq(req);
 		endrule
 
-		rule rl_send_read_rsp_obuf2_to_store;
-			Vector#(of_values, Bit#(of_data)) vec_data = 0;
-			for(Integer i = 0; i < vnCol; i=i+1) begin
-				let val <- buffers.obuf2[i].portA.response.get();
-				vec_data = val;
-			end
-			st_module.recv_sram_resp(val);
-		endrule
+		for(Integer i=0; i<valueOf(of_nfolds); i=i+1)begin
+			rule rl_st_ofmap(ff_req_from_store.first.buffer == OutputBuffer1 && ff_req_from_store.first.bank == fromInteger(i*out_words));
+				let req = ff_req_from_store.first;
+				let index = req.index;
+				for(Integer j=0; j<out_words; j=j+1)begin
+					if(fromInteger(j) < req.num_valid)begin
+						buffers.obuf1[i*out_words+j].portB.request.put(makeRequest(index, ?));
+					end
+				end
+				ff_req_from_store.deq();
+				ff_num_valid_values.enq(req.num_valid);
+			endrule
+		end
+
+		for(Integer i=0; i<valueOf(of_nfolds); i=i+1)begin
+			rule rl_ld_ofmap2(ff_req_from_store.first.buffer == OutputBuffer2 && ff_req_from_store.first.bank == fromInteger(i*out_words));
+				let req = ff_req_from_store.first;
+				let index = req.index;
+				for(Integer j=0; j<out_words; j=j+1)begin
+					if(fromInteger(j) < req.num_valid)begin
+						buffers.obuf2[i*out_words+j].portB.request.put(makeRequest(index, ?));
+					end
+				end
+				ff_ld_module_requests.deq();
+				ff_num_valid_values.enq(req.num_valid);
+			endrule
+		end
+
+		for(Integer i=0; i<valueOf(of_nfolds); i=i+1)begin
+			rule rl_send_resp_to_st_module;
+				Vector#(out_words, Bit#(out_width)) values;
+				Dim2 num_valid = ff_num_valid_values.first;
+				for(Integer i=0; i<valueOf(out_words); i=i+1)begin
+					if(fromInteger(i) < num_valid)begin
+						values[i] <- buffers.obuf1.portB.response.get();
+					end
+					else begin
+						values[i] = 'b0;
+					end
+				end
+				ff_num_valid_values.deq();
+				st_module.recv_sram_resp(values);
+			endrule
+		end
+
+		for(Integer i=0; i<valueOf(of_nfolds); i=i+1)begin
+			rule rl_send_resp_to_st_module2;
+				Vector#(out_words, Bit#(out_width)) values;
+				Dim2 num_valid = ff_num_valid_values.first;
+				for(Integer i=0; i<valueOf(out_words); i=i+1)begin
+					if(fromInteger(i) < num_valid)begin
+						values[i] <- buffers.obuf2.portB.response.get();
+					end
+					else begin
+						values[i] = 'b0;
+					end
+				end
+				ff_num_valid_values.deq();
+				st_module.recv_sram_resp(values);
+			endrule
+		end
 
     interface ifc_load_master = ld_module.master;
     interface ifc_store_master = st_module.master;

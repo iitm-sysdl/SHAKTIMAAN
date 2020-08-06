@@ -47,15 +47,6 @@ package onchip_buffers;
     interface Vector#(of_bank, BRAM2Port#(Bit#(of_index), Bit#(out_width))) output_buffer2;
   endinterface
 
-  function BRAMRequest#(Bit#(a), Bit#(d)) makeRequest (Bool write, Bit#(a) addr, Bit#(d) data);
-            return BRAMRequestBE{
-                                write: write,
-                                responseOnWrite: False,
-                                address : addr,
-                                datain : data
-                              };
-  endfunction
-
   module mkbuffers(Ifc_onchip_buffers#(sram_addr_width, if_index, if_bank, wt_index, wt_bank, of_index, of_bank, in_width, out_width)
     provisos(
       Log#(if_bank, if_bankbits),
@@ -67,24 +58,6 @@ package onchip_buffers;
       Log#(wt_entries, wt_index),
       Log#(of_entries, of_index)
     );
-
-    function Tuple2#(Bit#(if_index),Bit#(if_bankbits)) split_address_IBUF(Bit#(addr_width) addr);
-      Bit#(if_bankbits) gbank = addr[if_bankbits-1:0];
-      Bit#(if_index) gindex = addr[if_index+if_bankbits-1:if_bankbits];
-      return tuple2(gindex,gbank);
-    endfunction
-
-    function Tuple2#(Bit#(wt_index),Bit#(wt_bankbits)) split_address_WBUF(Bit#(addr_width) addr);
-      Bit#(wt_bankbits) gbank = addr[wt_bankbits-1:0];
-      Bit#(wt_index) gindex = addr[wt_index+wt_bankbits-1:wt_bankbits];
-      return tuple2(gindex,gbank);
-    endfunction
-
-    function Tuple2#(Bit#(of_index),Bit#(of_bankbits)) split_address_OBUF(Bit#(addr_width) addr);
-      Bit#(of_bankbits) gbank = addr[of_bankbits-1:0];
-      Bit#(of_index) gindex = addr[of_index+of_bankbits-1:of_bankbits];
-      return tuple2(gindex,gbank);
-    endfunction
 
     BRAM_Configure inputBufConfig = defaultValue;
     inputBufConfig.memorySize = valueOf(if_entries);

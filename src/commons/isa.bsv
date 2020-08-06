@@ -14,10 +14,10 @@ typedef Bit#(`DIM_WIDTH2) Dim2;
 typedef Bit#(120) Params;
 typedef enum
 {
-  Invalid,
   InputBuffer,
-  OutputBuffer,
-  WeightBuffer
+  WeightBuffer,
+	OutputBuffer1,
+	OutputBuffer2
 }Buffer deriving(Bits, Eq, FShow);
 
 typedef struct
@@ -34,6 +34,7 @@ typedef struct
   Buffer buffer;
   Bit#(a) index;
   Bit#(b) bank;
+	Dim2 num_valid;
 }SRAMRdReq#(numeric type a, numeric type b) deriving(Bits, Eq, FShow);
 
 typedef enum{
