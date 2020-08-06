@@ -199,7 +199,7 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 
     m_xactor.i_rd_addr.enq(lv_read_request);
 	endrule
-
+	
 	rule rl_start_write(rg_params matches tagged Valid .params &&&
 						m_xactor.o_rd_data.first.rid == `rd_req_id &&&
 						m_xactor.o_rd_data.first.rresp==AXI4_OKAY);
@@ -249,7 +249,7 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
   interface master = m_xactor.axi_side;
 
 	interface Put subifc_put_loadparams;
-		method Action put(Load_params#(ld_pad) parameters) if(rg_finish_load);
+		method Action put(Load_params#(ld_pad) parameters) if(rg_params matches tagged Invalid &&& rg_finish_load);
 			rg_finish_load <= False;
 			rg_params <= tagged Valid parameters;
 			rg_dram_addr <= parameters.dram_address;

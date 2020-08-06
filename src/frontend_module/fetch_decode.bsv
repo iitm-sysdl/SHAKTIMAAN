@@ -56,7 +56,9 @@ package fetch_decode;
     //Configuration Space to write start PC from the host 
 		//It also provides the number of instructions in the current program to be executed which is 
 		//used to generate appropriate burst requests to fetch the data 
-    rule rl_axi_set_config;
+		(*mutually_exclusive="rl_axi_set_config, rl_send_request"*)
+		(*mutually_exclusive="rl_axi_set_config, rl_recv_data"*)
+		rule rl_axi_set_config;
       let aw <- pop_o(s_xactor.o_wr_addr);
       let w  <- pop_o(s_xactor.o_wr_data);
       let lv_addr = aw.awaddr;
@@ -85,7 +87,7 @@ package fetch_decode;
       rg_pc <= next_pc;
       rg_num_ins <= rg_num_ins - zeroExtend(burst_len - 1);
         
-      let read_request = AXI4_Rd_Addr{ araddr: rg_pc, arid: `AXI_FETCH_MASTER, arlen: burst_len,
+      let read_request = AXI4_Rd_Addr{ araddr: rg_pc, arid: `AXI_FETCH_MASTER, arlen: burst_len, arprot: ?, //TODO: fix arprot
                                        arsize: 3'b100, arburst: 2'b01, aruser: 0};
       m_xactor.i_rd_addr.enq(read_request);
     endrule

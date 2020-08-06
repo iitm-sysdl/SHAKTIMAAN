@@ -29,7 +29,7 @@ typedef struct
 	Bit#(a) index;
 	Bit#(b) bank;
 	Bit#(c) data;
-	Dim1 num_valid;
+	Dim2 num_valid;
 } SRAMReq#(numeric type a, numeric type b, numeric type c) deriving(Bits, Eq, FShow);
 
 typedef struct
