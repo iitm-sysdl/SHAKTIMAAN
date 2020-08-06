@@ -123,7 +123,7 @@ package dnn_accelerator;
 				let req = ff_ld_module_requests.first;
 				for(Integer j=0; j<in_words; j=j+1)begin
 					if(fromInteger(j) < req.num_valid)begin
-						buffers.ibuf[i*in_words+j].portB.request.put(makeRequest(truncate(req.index), req.data[(j+1)*in_width-1:j*in_width]));
+						buffers.ibuf[i*in_words+j].portA.request.put(makeRequest(truncate(req.index), req.data[(j+1)*in_width-1:j*in_width]));
 					end
 				end
 				ff_ld_module_requests.deq();
@@ -135,7 +135,7 @@ package dnn_accelerator;
 				let req = ff_ld_module_requests.first;
 				for(Integer j=0; j<in_words; j=j+1)begin
 					if(fromInteger(j) < req.num_valid)begin
-						buffers.wbuf[i*in_words+j].portB.request.put(makeRequest(truncate(req.index), req.data[(j+1)*in_width-1:j*in_width]));
+						buffers.wbuf[i*in_words+j].portA.request.put(makeRequest(truncate(req.index), req.data[(j+1)*in_width-1:j*in_width]));
 					end
 				end
 				ff_ld_module_requests.deq();
@@ -174,7 +174,9 @@ package dnn_accelerator;
 		rule rl_recv_read_req_ibuf_from_compute;
 			Vector#(nRow, SRAMKRdReq#(if_index)) request <- gemm_module.get_inp_addr();
 			for(Integer i = 0; i < vnRow; i=i+1) begin
-				buffers.ibuf[i].portB.request.put(makeRequest(False, '0, request[i].index, ?));  
+				if(request[i].valid)begin
+					buffers.ibuf[i].portB.request.put(makeRequest(False, request[i].index, ?));
+				end
 			end
 		endrule
 		
@@ -186,44 +188,79 @@ package dnn_accelerator;
 			end
 		endrule
 
-		rule rl_recv_read_req_wbuf_from_compute;
-			Vector#(nRow, SRAMKRdReq#(wt_index)) request <- gemm_module.get_wt_addr();
-			for(Integer i = 0; i < vnRow; i=i+1) begin
-				buffers.wbuf[i].portB.request.put(makeRequest(False, '0, request[i].index, ?));
-			end
-		endrule
+		FIFOF#(Dim2) ff_wt_valid_cols <- mkFIFOF();
 
+		rule rl_recv_read_req_wbuf_from_compute;
+			let {index, num_valid} <- gemm_module.get_wt_addr();
+			for(Integer i = 0; i < vnCol; i=i+1) begin
+				if(fromInteger(i) < num_valid)begin
+					buffers.wbuf[i].portB.request.put(makeRequest(False, index, ?));
+				end
+			end
+			ff_wt_valid_cols.enq(num_valid);
+		endrule
 
 		rule rl_send_read_rsp_wbuf_compute;
+			Vector#(nCol, Bit#(in_width)) weights = 0;
+			let num_valid = ff_wt_valid_cols.first;
 			for(Integer i = 0; i < vnRow; i=i+1) begin
-				let val <- buffers.wbuf[i].portB.response.get();
-				gemm_module.put_wt_resp[i].put(val);
+				if(fromInteger(i) < num_valid)begin
+					weights[i] <- buffers.wbuf[i].portB.response.get();
+				end
 			end
+			gemm_module.put_wt_resp(weights);
+			ff_wt_valid_cols.deq();
 		endrule
 
-		//Rules to connect the output buffers
-		//Using PortA for compute to obuf write 
-		//Using PortB for compute to obuf read
-		rule rl_send_write_req_obuf1_from_compute;
-			Vector#(nCol, Get#(SRAMKWrReq#(of_index, out_width))) request <- gemm_module.get_new_output_data();
-			for(Integer i = 0; i < vnCol; i=i+1) begin
-				buffers.obuf1[i].portA.request.put(makeRequest(True, '1, request[i].index, request[i].data));
-			end
-		endrule
+		Vector#(nCol, FIFOF#(SRAMKRdReq#(of_index))) ff_old_out_reqs <- replicateM(mkFIFOF());
 
-		rule rl_send_read_req_obuf1_from_compute;
-			Vector#(nCol, Get#(SRAMKRdReq#(of_index))) request <- gemm_module.get_old_out_addr();
-			for(Integer i = 0; i < vnCol; i=i+1) begin
-				buffers.obuf1[i].portB.request.put(makeRequest(False, '1, request[i].index, request[i].data));
-			end
-		endrule
+		for(Integer i=0; i<valueOf(nCol); i=i+1)begin
+			rule rl_get_read_req_from_gemm;
+				let req <- gemm_module.get_old_out_addr[i]();
+				ff_old_out_reqs[i].enq(req);
+			endrule
+			
+			rule rl_send_gemm_read_req_to_obuf1(ff_old_out_reqs[i].first.valid);
+				buffers.obuf1[i].portA.request.put(makeRequest(False, req.index, ?));
+				ff_old_out_reqs[i].deq;
+			endrule
 
-		rule rl_send_read_rsp_obuf1_to_compute;
-			for(Integer i = 0; i < vnCol; i=i+1) begin
-				let val <- buffers.obuf1[i].portB.response.get(); 
-				gemm_module.put_old_out_resp[i].put(val);	
-			end
-		endrule
+			rule rl_send_gemm_read_req_to_obuf2(!ff_old_out_reqs[i].first.valid);
+				buffers.obuf2[i].portA.request.put(makeRequest(False, req.index, ?));
+				ff_old_out_reqs[i].deq();
+			endrule
+
+			rule rl_forward_old_output_from_obuf1_to_gemm;
+				let value <- buffers.obuf1[i].portA.response.get();
+				gemm_module.put_old_out_resp.put(value);
+			endrule
+
+			rule rl_forward_old_output_from_obuf2_to_gemm;
+				let value <- buffers.obuf2[i].portA.response.get();
+				gemm_module.put_old_out_resp.put(value);
+			endrule
+		end
+
+		Vector#(nCol, FIFOF#(SRAMKWrReq#(of_index, out_width))) ff_new_out_reqs <- replicateM(mkFIFOF());
+
+		for(Integer i=0; i<valueOf(nCol); i=i+1)begin
+			rule rl_get_write_req_from_gemm;
+				let req <- gemm_module.get_new_output_data[i]();
+				ff_new_out_reqs[i].enq(req);
+			endrule
+
+			rule rl_write_out_from_gemm(ff_new_out_reqs[i].first.valid);
+				let req = ff_new_out_reqs[i].first;
+				buffers.obuf1[i].portB.request.put(makeRequest(True, req.index, req.data));
+				ff_new_out_reqs[i].deq();
+			endrule
+
+			rule rl_write_out_from_gemm_to_obuf2(!ff_new_out_reqs[i].first.valid);
+				let req = ff_new_out_reqs[i].first;
+				buffers.obuf2[i].portB.request.put(makeRequest(True, req.index, req.data));
+				ff_new_out_reqs[i].deq();
+			endrule
+		end
 
 		FIFOF#(TALUOpReq#(of_index)) ff_req_in_tensor_alu <- mkFIFOF();
 		FIFOF#(Tuple2#(Dim1, Bool)) ff_num_active_talu <- mkFIFOF();

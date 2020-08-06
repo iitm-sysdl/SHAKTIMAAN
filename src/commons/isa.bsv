@@ -5,7 +5,10 @@ Details: ISA typedefs for Systolic Array
 */
 
 package isa;
-  `include "systolic.defines"
+  
+	import Vector::*;
+
+	`include "systolic.defines"
 typedef Bit#(`DRAM_ADDR_WIDTH) DRAM_address;
 typedef Bit#(`SRAM_ADDR_WIDTH) SRAM_address;
 typedef Bit#(`DIM_WIDTH1) Dim1;
@@ -51,6 +54,19 @@ typedef struct
 	Vector#(nCol, Bit#(out_width)) values;
 	Dim1 num_valid;
 } TALUOutReq#(numeric type a, numeric type out_width, numeric type nCol) deriving(Bits, Eq, FShow);
+
+typedef struct 
+{
+  Bit#(a) index;
+  Bool valid;
+} SRAMKRdReq#(numeric type a) deriving(Bits, Eq, FShow);
+
+typedef struct
+{
+  Bit#(a) index;
+  Bit#(b) data;
+  Bool valid;
+} SRAMKWrReq#(numeric type a, numeric type b) deriving(Bits, Eq, FShow);
 
 typedef enum{
     LOAD = 8,
