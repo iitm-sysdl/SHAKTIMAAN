@@ -225,34 +225,82 @@ package dnn_accelerator;
 			end
 		endrule
 
-		//Using PortA for tensorALU to obuf2 write
-		rule rl_send_read_req_obuf1_from_talu;
-			let request <- tensor_alu.mv_send_req_op();
-			for(Integer i = 0; i < vnCol; i=i+1) begin
-				buffers.obuf1[i].portA.request.put(makeRequest(False, '0, tpl_1(request), ?)); 
-			end
+		FIFOF#(TALUOpReq#(of_index)) ff_req_in_tensor_alu <- mkFIFOF();
+		FIFOF#(Tuple2#(Dim1, Bool)) ff_num_active_talu <- mkFIFOF();
+
+		rule rl_recv_req_from_talu;
+			let req <- tensor_alu.mv_send_req_op();
+			ff_req_in_tensor_alu.enq(req);
 		endrule
 
-		rule rl_send_read_rsp_obuf1_to_talu;
-			Vector#(num_col, Bit#(alu_width)) vec_data = 0;
-			for(Integer i = 0; i < vnCol; i=i+1) begin
-				let val <- buffers.obuf1[i].portA.response.get(); 
+		rule rl_send_in_req_talu(ff_req_in_tensor_alu.first.buffer);
+			let req = ff_req_in_tensor_alu.first;
+			for(Integer i=0; i<valueOf(nCol); i=i+1)begin
+				if(fromInteger(i) < req.num_valid)begin
+					buffers.obuf1.portA.request.put(makeRequest(False, req.index, ?));
+				end
+			end
+			ff_req_in_tensor_alu.deq();
+			ff_num_active_talu.enq(tuple2(req.num_valid, True));
+		endrule
+
+		rule rl_send_in_req_talu2(!ff_req_in_tensor_alu.first.buffer);
+			let req = ff_req_in_tensor_alu.first;
+			for(Integer i=0; i<valueOf(nCol); i=i+1)begin
+				if(fromInteger(i) < req.num_valid)begin
+					buffers.obuf2.portA.request.put(makeRequest(False, req.index, ?));
+				end
+			end
+			ff_req_in_tensor_alu.deq();
+			ff_num_active_talu.enq(tuple2(req.num_valid, False));
+		endrule
+
+		rule rl_send_read_rsp_obuf1_to_talu(tpl_2(ff_num_active_talu.first));
+			Vector#(nCol, Bit#(alu_width)) vec_data = 0;
+			for(Integer i = 0; i < valueOf(nCol); i=i+1) begin
+				let val <- buffers.obuf1[i].portA.response.get();
+				vec_data[i] = val;
+			end
+			tensor_alu.ma_recv_op(vec_data);
+			ff_num_active_talu.deq();
+		endrule
+
+		rule rl_send_read_rsp_obuf2_to_talu(!tpl_2(ff_num_active_talu.first));
+			Vector#(nCol, Bit#(alu_width)) vec_data = 0;
+			for(Integer i = 0; i < valueOf(nCol); i=i+1) begin
+				let val <- buffers.obuf2[i].portA.response.get();
 				vec_data[i] = val;
 			end
 			tensor_alu.ma_recv_op(vec_data);
 		endrule
 
-		//TODO: Not sure what to do with the dim1 parameter coming out from tensorALU
-		//Need to resolve this!
-		rule rl_send_write_req_talu_to_obuf2;
-			let res <- tensor_alu.mav_put_result();
-			for(Integer i = 0; i < vnCol; i=i+1) begin
-				buffers.obuf2[i].portB.request.put(makeRequest(True, '1, tpl_1(res), tpl_2(res)));
+		FIFOF#(TALUOutReq#(of_index, out_width, nCol)) ff_out_req_from_talu <- mkFIFOF();
+
+		rule rl_recv_write_from_talu;
+			let req <- tensor_alu.mav_put_result();
+			ff_out_req_from_talu.enq(req);
+		endrule
+
+		rule rl_write_talu_output_to_obuf1(ff_out_req_from_talu.first.buffer);
+			let req <- ff_out_req_from_talu.first;
+			for(Integer i=0; i<valueOf(nCol); i=i+1)begin
+				if(fromInteger(i) < req.num_valid)begin
+					buffers.obuf1.portB.request.put(makeRequest(True, req.index, req.values[i]));
+				end
+			end
+		endrule
+
+		rule rl_write_talu_output_to_obuf2(!ff_out_req_from_talu.first.buffer);
+			let req <- ff_out_req_from_talu.first;
+			for(Integer i=0; i<valueOf(nCol); i=i+1)begin
+				if(fromInteger(i) < req.num_valid)begin
+					buffers.obuf2.portB.request.put(makeRequest(True, req.index, req.values[i]));
+				end
 			end
 		endrule
 
 		FIFOF#(SRAMRdReq#(of_index, of_banks)) ff_req_from_store <- mkFIFOF();
-		FIFOF#(Dim2) ff_num_valid_values <- mkFIFOF();
+		FIFOF#(Dim1) ff_num_valid_values <- mkFIFOF();
 
 		rule rl_get_request_from_store;
 			let req <- st_module.send_sram_req();
@@ -265,7 +313,7 @@ package dnn_accelerator;
 				let index = req.index;
 				for(Integer j=0; j<out_words; j=j+1)begin
 					if(fromInteger(j) < req.num_valid)begin
-						buffers.obuf1[i*out_words+j].portB.request.put(makeRequest(index, ?));
+						buffers.obuf1[i*out_words+j].portB.request.put(makeRequest(False, index, ?));
 					end
 				end
 				ff_req_from_store.deq();
@@ -279,7 +327,7 @@ package dnn_accelerator;
 				let index = req.index;
 				for(Integer j=0; j<out_words; j=j+1)begin
 					if(fromInteger(j) < req.num_valid)begin
-						buffers.obuf2[i*out_words+j].portB.request.put(makeRequest(index, ?));
+						buffers.obuf2[i*out_words+j].portB.request.put(makeRequest(False, index, ?));
 					end
 				end
 				ff_ld_module_requests.deq();
@@ -290,7 +338,7 @@ package dnn_accelerator;
 		for(Integer i=0; i<valueOf(of_nfolds); i=i+1)begin
 			rule rl_send_resp_to_st_module;
 				Vector#(out_words, Bit#(out_width)) values;
-				Dim2 num_valid = ff_num_valid_values.first;
+				Dim1 num_valid = ff_num_valid_values.first;
 				for(Integer i=0; i<valueOf(out_words); i=i+1)begin
 					if(fromInteger(i) < num_valid)begin
 						values[i] <- buffers.obuf1.portB.response.get();
@@ -307,7 +355,7 @@ package dnn_accelerator;
 		for(Integer i=0; i<valueOf(of_nfolds); i=i+1)begin
 			rule rl_send_resp_to_st_module2;
 				Vector#(out_words, Bit#(out_width)) values;
-				Dim2 num_valid = ff_num_valid_values.first;
+				Dim1 num_valid = ff_num_valid_values.first;
 				for(Integer i=0; i<valueOf(out_words); i=i+1)begin
 					if(fromInteger(i) < num_valid)begin
 						values[i] <- buffers.obuf2.portB.response.get();

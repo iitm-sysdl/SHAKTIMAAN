@@ -26,7 +26,7 @@ typedef struct
 	Bit#(a) index;
 	Bit#(b) bank;
 	Bit#(c) data;
-	Dim2 num_valid;
+	Dim1 num_valid;
 } SRAMReq#(numeric type a, numeric type b, numeric type c) deriving(Bits, Eq, FShow);
 
 typedef struct
@@ -36,6 +36,21 @@ typedef struct
   Bit#(b) bank;
 	Dim2 num_valid;
 }SRAMRdReq#(numeric type a, numeric type b) deriving(Bits, Eq, FShow);
+
+typedef struct
+{
+	Bool buffer;
+	Bit#(a) index;
+	Dim1 num_valid;
+} TALUOpReq#(numeric type a) deriving(Bits, Eq, FShow);
+
+typedef struct
+{
+	Bool buffer;
+	Bit#(a) index;
+	Vector#(nCol, Bit#(out_width)) values;
+	Dim1 num_valid;
+} TALUOutReq#(numeric type a, numeric type out_width, numeric type nCol) deriving(Bits, Eq, FShow);
 
 typedef enum{
     LOAD = 8,
