@@ -55,10 +55,9 @@ endinterface
   endmodule
 
 module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
-	provisos(Bits#(Dim1,a),
-			  Add#(b,a,alu_width),
-			  Add#(c,TLog#(num_col),a),
-				Add#(8, a__, of_index)
+	provisos(
+				Add#(8, a__, of_index),
+				Add#(8, b__, alu_width)
 			);
 
 	Integer vnum_col = valueOf(num_col);

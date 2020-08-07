@@ -42,7 +42,7 @@ package accelerator;
   endinterface
 
 	(*synthesize*)
-  module mktop_tb(Ifc_accelerator#(32, 26, 128, 256, 4, 256, 4, 256, 4, 8, 16, 4, 4));
+  module mktop_tb(Ifc_accelerator#(32, 26, 128, 32768, 16, 32768, 16, 32768, 16, 16, 32, 16, 16));
     let ifc();
     mk_accelerator inst1(ifc);
     return (ifc);
@@ -64,15 +64,29 @@ package accelerator;
              Mul#(out_width, out_words, data_width),
              Max#(in_words, out_words, max_words),
 						 Mul#(if_nfolds, in_words, if_nbanks), Mul#(wt_nfolds, in_words, wt_nbanks), Mul#(of_nfolds, out_words, of_nbanks),
-             Add#(d1, 0, 8), Add#(d2, 0, 4), Add#(boo, 0, 1),
-             Add#(dram_addr_width, sram_addr_width, a__), Mul#(d1, 5, b__), Mul#(boo, 2, c__),
-             Add#(a__, b__, d__), Add#(d__, c__, e__), Add#(e__, mem_pad, 120),
-             Add#(of_index, if_index, f__), Add#(wt_index, f__, g__),
-             Mul#(6, d1, h__), Mul#(6, d2, i__), Add#(g__, h__, j__),
-             Add#(j__, i__, k__), Add#(k__, boo, l__), Add#(l__, gemm_pad, 120),
-             Mul#(2, of_index, m__), Mul#(7, d1, n__), Mul#(2, d2, o__),
-             Add#(m__, n__, p__), Add#(p__, o__, q__), Mul#(2, boo, r__),
-             Add#(q__, r__, s__), Add#(s__, alu_pad, 120)
+             //Add#(d1, 0, 8), Add#(d2, 0, 4), Add#(boo, 0, 1),
+             //Add#(dram_addr_width, sram_addr_width, a__), Mul#(d1, 5, b__), Mul#(boo, 2, c__),
+             //Add#(a__, b__, d__), Add#(d__, c__, e__), Add#(e__, mem_pad, 120),
+             //Add#(of_index, if_index, f__), Add#(wt_index, f__, g__),
+             //Mul#(4, d1, h__), Mul#(6, d2, i__), Add#(g__, h__, j__),
+             //Add#(j__, i__, k__), Add#(k__, boo, l__), Add#(l__, gemm_pad, 120),
+             //Mul#(2, of_index, m__), Mul#(7, d1, n__), Mul#(2, d2, o__),
+             //Add#(m__, n__, p__), Add#(p__, o__, q__), Mul#(3, boo, r__),
+             //Add#(q__, r__, s__), Add#(s__, alu_pad, 120),
+						 Add#(sram_addr_width, 0, 26), Add#(dram_addr_width, 0, 32),
+						 Add#(8, xa__, of_index),
+						 Add#(8, xb__, out_width),
+						 Add#(xc__, in_width, out_width),
+						 Add#(4, xd__, if_index),
+						 Add#(xe__, out_width, data_width),
+						 Add#(xf__, of_index, 26),
+						 Add#(xg__, if_index, max_index), Add#(xh__, if_bank, max_bank),
+						 Add#(xi__, wt_index, max_index), Add#(xj__, wt_bank, max_bank),
+						 Add#(xk__, of_index, max_index), Add#(xl__, of_bank, max_bank),
+						 Mul#(xm__, 8, in_width), Mul#(xn__, 8, out_width),
+						 Add#(mem_pad, 0, 20),
+						 Add#(if_index, TAdd#(of_index, TAdd#(wt_index, gemm_pad)), 63),
+						 Add#(of_index, TAdd#(of_index, alu_pad), 53)
              );
 
     Ifc_fetch_decode#(dram_addr_width, data_width) fetch_decode <- mkfetch_decode;
@@ -88,8 +102,8 @@ package accelerator;
                    out_words, mem_pad) st_module <- mkcol2im;
     Ifc_onchip_buffers#(sram_addr_width, 
                   if_index, if_bank, if_entries,
-                  wt_entries, wt_bank, wt_entries,
-                  of_entries, of_bank, of_entries,
+                  wt_index, wt_bank, wt_entries,
+                  of_index, of_bank, of_entries,
                   in_width, out_width) buffers <- mkbuffers;
 
     Ifc_compute_module#(dram_addr_width, sram_addr_width,
