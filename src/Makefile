@@ -37,7 +37,7 @@ generate_verilog:
 	@mkdir -p $(BSVBUILDDIR); 
 	@mkdir -p $(VERILOGDIR); 
 	@bsc -u -verilog -elab -vdir $(VERILOGDIR) -bdir $(BSVBUILDDIR) -info-dir $(BSVBUILDDIR)\
-  $(define_macros) -D verilog=True -D VERBOSITY=0 $(BSVCOMPILEOPTS) -p $(BSVINCDIR) -g $(TOP_MODULE) $(TOP_DIR)/$(TOP_FILE)\
+  $(define_macros) -D verilog=True -D VERBOSITY=0 $(BSVCOMPILEOPTS) -no-warn-action-shadowing -p $(BSVINCDIR) -g $(TOP_MODULE) $(TOP_DIR)/$(TOP_FILE)\
   || (echo "BSC COMPILE ERROR"; exit 1) 
 
 .PHONY: simulate
@@ -48,9 +48,9 @@ simulate:
 
 .PHONY: vivado_build
 vivado_build: 
-	@vivado -mode tcl -source $(HOMEDIR)/../tcl/create_project.tcl -tclargs $(TOP_MODULE) $(FPGA) || (echo "Could \
+	@vivado -mode tcl -source $(HOMEDIR)/tcl/create_project.tcl -tclargs $(TOP_MODULE) $(FPGA) || (echo "Could \
 not create core project"; exit 1)
-	@vivado -mode tcl -source $(HOMEDIR)/../tcl/run.tcl || (echo "ERROR: While running synthesis")
+	@vivado -mode tcl -source $(HOMEDIR)/tcl/run.tcl || (echo "ERROR: While running synthesis")
 
 .PHONY: clean
 clean:

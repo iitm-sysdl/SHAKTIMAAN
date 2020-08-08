@@ -101,9 +101,9 @@ package accelerator;
                    of_index, of_bank, out_width,
                    out_words, mem_pad) st_module <- mkcol2im;
     Ifc_onchip_buffers#(sram_addr_width, 
-                  if_index, if_bank, if_entries,
-                  wt_index, wt_bank, wt_entries,
-                  of_index, of_bank, of_entries,
+                  if_index, if_nbanks, if_entries,
+                  wt_index, wt_nbanks, wt_entries,
+                  of_index, of_nbanks, of_entries,
                   in_width, out_width) buffers <- mkbuffers;
 
     Ifc_compute_module#(dram_addr_width, sram_addr_width,
@@ -204,7 +204,7 @@ package accelerator;
 		//Using portB for Input and Weight buffers to Compute
 		//2 port SRAMs are not required for Input and Output Buffer -- TODO: Optimize it 
 
-		(*mutually_exclusive = "rl_recv_read_req_ibuf_from_compute, rl_recv_read_req_wbuf_from_compute"*)
+		//(*mutually_exclusive = "rl_recv_read_req_ibuf_from_compute, rl_recv_read_req_wbuf_from_compute"*)
 		rule rl_recv_read_req_ibuf_from_compute;
 			Vector#(nRow, SRAMKRdReq#(if_index)) request <- gemm_module.get_inp_addr();
 			for(Integer i = 0; i < vnRow; i=i+1) begin
@@ -214,7 +214,7 @@ package accelerator;
 			end
 		endrule
 		
-		(*mutually_exclusive = "rl_send_read_rsp_ibuf_compute, rl_send_read_rsp_wbuf_compute"*)
+		//(*mutually_exclusive = "rl_send_read_rsp_ibuf_compute, rl_send_read_rsp_wbuf_compute"*)
 		rule rl_send_read_rsp_ibuf_compute;
 			for(Integer i = 0; i < vnRow; i=i+1) begin
 				let val <- buffers.ibuf[i].portB.response.get();
@@ -337,6 +337,9 @@ package accelerator;
 			tensor_alu.ma_recv_op(vec_data);
 			ff_num_active_talu.deq();
 		endrule
+		
+		(*mutually_exclusive="rl_forward_old_output_from_obuf1_to_gemm, rl_send_read_rsp_obuf1_to_talu"*)
+		(*mutually_exclusive="rl_forward_old_output_from_obuf2_to_gemm, rl_send_read_rsp_obuf2_to_talu"*)
 
 		rule rl_send_read_rsp_obuf2_to_talu(!tpl_2(ff_num_active_talu.first));
 			Vector#(nCol, Bit#(out_width)) vec_data = replicate(0);
