@@ -34,7 +34,7 @@ add_files -norecurse -fileset [get_filesets sources_1] "/home/vin/hw_tools/blues
 set_property include_dirs $home_dir/verilog/ [get_filesets sources_1]
 
 # Set 'sources_1' fileset properties
-set_property "TOP" "mksystolic" [get_filesets sources_1]
+set_property "TOP" "mktop_tb" [get_filesets sources_1]
 
 # Create 'constrs_1' fileset (if not found)
 if {[string equal [get_filesets -quiet constrs_1] ""]} {

@@ -5,7 +5,10 @@ Details: ISA typedefs for Systolic Array
 */
 
 package isa;
-  `include "systolic.defines"
+  
+	import Vector::*;
+
+	`include "systolic.defines"
 typedef Bit#(`DRAM_ADDR_WIDTH) DRAM_address;
 typedef Bit#(`SRAM_ADDR_WIDTH) SRAM_address;
 typedef Bit#(`DIM_WIDTH1) Dim1;
@@ -14,10 +17,10 @@ typedef Bit#(`DIM_WIDTH2) Dim2;
 typedef Bit#(120) Params;
 typedef enum
 {
-  Invalid,
   InputBuffer,
-  OutputBuffer,
-  WeightBuffer
+  WeightBuffer,
+	OutputBuffer1,
+	OutputBuffer2
 }Buffer deriving(Bits, Eq, FShow);
 
 typedef struct
@@ -26,6 +29,7 @@ typedef struct
 	Bit#(a) index;
 	Bit#(b) bank;
 	Bit#(c) data;
+	Dim2 num_valid;
 } SRAMReq#(numeric type a, numeric type b, numeric type c) deriving(Bits, Eq, FShow);
 
 typedef struct
@@ -33,7 +37,36 @@ typedef struct
   Buffer buffer;
   Bit#(a) index;
   Bit#(b) bank;
+	Dim2 num_valid;
 }SRAMRdReq#(numeric type a, numeric type b) deriving(Bits, Eq, FShow);
+
+typedef struct
+{
+	Bool buffer;
+	Bit#(a) index;
+	Dim1 num_valid;
+} TALUOpReq#(numeric type a) deriving(Bits, Eq, FShow);
+
+typedef struct
+{
+	Bool buffer;
+	Bit#(a) index;
+	Vector#(nCol, Bit#(out_width)) values;
+	Dim1 num_valid;
+} TALUOutReq#(numeric type a, numeric type out_width, numeric type nCol) deriving(Bits, Eq, FShow);
+
+typedef struct 
+{
+  Bit#(a) index;
+  Bool valid;
+} SRAMKRdReq#(numeric type a) deriving(Bits, Eq, FShow);
+
+typedef struct
+{
+  Bit#(a) index;
+  Bit#(b) data;
+  Bool valid;
+} SRAMKWrReq#(numeric type a, numeric type b) deriving(Bits, Eq, FShow);
 
 typedef enum{
     LOAD = 8,

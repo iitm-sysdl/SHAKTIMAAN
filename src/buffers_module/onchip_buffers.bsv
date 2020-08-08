@@ -40,23 +40,17 @@ package onchip_buffers;
   `include "systolic.defines"
   `define SRAM_ADDR_WIDTH 26
 
-  interface Ifc_onchip_buffers#(sram_addr_width, if_index, if_bank, wt_index, wt_bank, of_index, of_bank, in_width, out_width);
-    interface Vector#(if_bank, BRAM2Port#(Bit#(if_index), Bit#(in_width))) input_buffer;
-    interface Vector#(wt_bank, BRAM2Port#(Bit#(wt_index), Bit#(in_width))) weight_buffer;
-    interface Vector#(of_bank, BRAM2Port#(Bit#(of_index), Bit#(out_width))) output_buffer1;
-    interface Vector#(of_bank, BRAM2Port#(Bit#(of_index), Bit#(out_width))) output_buffer2;
+  interface Ifc_onchip_buffers#(numeric type sram_addr_width, numeric type if_index, numeric type if_bank, numeric type if_entries,
+																numeric type wt_index, numeric type wt_bank, numeric type wt_entries,
+																numeric type of_index, numeric type of_bank, numeric type out_entries,
+																numeric type in_width, numeric type out_width);
+    interface Vector#(if_bank, BRAM2Port#(Bit#(if_index), Bit#(in_width))) ibuf;
+    interface Vector#(wt_bank, BRAM2Port#(Bit#(wt_index), Bit#(in_width))) wbuf;
+    interface Vector#(of_bank, BRAM2Port#(Bit#(of_index), Bit#(out_width))) obuf1;
+    interface Vector#(of_bank, BRAM2Port#(Bit#(of_index), Bit#(out_width))) obuf2;
   endinterface
 
-  function BRAMRequest#(Bit#(a), Bit#(d)) makeRequest (Bool write, Bit#(a) addr, Bit#(d) data);
-            return BRAMRequestBE{
-                                write: write,
-                                responseOnWrite: False,
-                                address : addr,
-                                datain : data
-                              };
-  endfunction
-
-  module mkbuffers(Ifc_onchip_buffers#(sram_addr_width, if_index, if_bank, wt_index, wt_bank, of_index, of_bank, in_width, out_width)
+  module mkbuffers(Ifc_onchip_buffers#(sram_addr_width, if_index, if_bank, if_entries, wt_index, wt_bank, wt_entries, of_index, of_bank, of_entries, in_width, out_width))
     provisos(
       Log#(if_bank, if_bankbits),
       Log#(wt_bank, wt_bankbits),
@@ -67,24 +61,6 @@ package onchip_buffers;
       Log#(wt_entries, wt_index),
       Log#(of_entries, of_index)
     );
-
-    function Tuple2#(Bit#(if_index),Bit#(if_bankbits)) split_address_IBUF(Bit#(addr_width) addr);
-      Bit#(if_bankbits) gbank = addr[if_bankbits-1:0];
-      Bit#(if_index) gindex = addr[if_index+if_bankbits-1:if_bankbits];
-      return tuple2(gindex,gbank);
-    endfunction
-
-    function Tuple2#(Bit#(wt_index),Bit#(wt_bankbits)) split_address_WBUF(Bit#(addr_width) addr);
-      Bit#(wt_bankbits) gbank = addr[wt_bankbits-1:0];
-      Bit#(wt_index) gindex = addr[wt_index+wt_bankbits-1:wt_bankbits];
-      return tuple2(gindex,gbank);
-    endfunction
-
-    function Tuple2#(Bit#(of_index),Bit#(of_bankbits)) split_address_OBUF(Bit#(addr_width) addr);
-      Bit#(of_bankbits) gbank = addr[of_bankbits-1:0];
-      Bit#(of_index) gindex = addr[of_index+of_bankbits-1:of_bankbits];
-      return tuple2(gindex,gbank);
-    endfunction
 
     BRAM_Configure inputBufConfig = defaultValue;
     inputBufConfig.memorySize = valueOf(if_entries);
@@ -98,20 +74,20 @@ package onchip_buffers;
     outputBufConfig.memorySize = valueOf(of_entries);
     outputBufConfig.loadFormat = None;
 
-    Vector#(if_bank, BRAM2Port#(Bit#(if_index), Bit#(in_width))) ibuf;
-    Vector#(wt_bank, BRAM2Port#(Bit#(wt_index), Bit#(in_width))) wbuf;
-    Vector#(of_bank, BRAM2Port#(Bit#(of_index), Bit#(out_width)) obuf1;
-    Vector#(of_bank, BRAM2Port#(Bit#(of_index), Bit#(out_width)) obuf2;
+    Vector#(if_bank, BRAM2Port#(Bit#(if_index), Bit#(in_width))) ibuffer;
+    Vector#(wt_bank, BRAM2Port#(Bit#(wt_index), Bit#(in_width))) wbuffer;
+    Vector#(of_bank, BRAM2Port#(Bit#(of_index), Bit#(out_width))) obuffer1;
+    Vector#(of_bank, BRAM2Port#(Bit#(of_index), Bit#(out_width))) obuffer2;
 
-    ibuf <- replicateM(mkBRAM2Server(inputBufConfig));
-    wbuf <- replicateM(mkBRAM2Server(weightBufConfig));
-    obuf1 <- replicateM(mkBRAM2Server(outputBufConfig));
-    obuf2 <- replicateM(mkBRAM2Server(outputBufConfig));
+    ibuffer <- replicateM(mkBRAM2Server(inputBufConfig));
+    wbuffer <- replicateM(mkBRAM2Server(weightBufConfig));
+    obuffer1 <- replicateM(mkBRAM2Server(outputBufConfig));
+    obuffer2 <- replicateM(mkBRAM2Server(outputBufConfig));
 
-    interface input_buffer = ibuf;
-    interface weight_buffer = wbuf;
-    interface output_buffer1 = obuf1;
-    interface output_buffer2 = obuf2;
+    interface ibuf = ibuffer;
+    interface wbuf = wbuffer;
+    interface obuf1 = obuffer1;
+    interface obuf2 = obuffer2;
 
   endmodule
 

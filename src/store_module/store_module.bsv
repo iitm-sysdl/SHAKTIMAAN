@@ -17,12 +17,12 @@ package store_module;
   `include "systolic.defines"
 
   interface Ifc_col2im#(numeric type addr_width, numeric type data_width, 
-                        numeric type sram_width, numeric type obuf_index,
-                        numeric type obuf_banks, numeric type obuf_data,
-                        numeric type obuf_values, numeric type st_pad);
+                        numeric type sram_width, numeric type of_index,
+                        numeric type of_banks, numeric type of_data,
+                        numeric type of_values, numeric type st_pad);
     
-    method ActionValue#(Vector#(obuf_values, SRAMRdReq#(obuf_index, obuf_banks))) send_sram_req;
-    method Action recv_sram_resp(Vector#(obuf_values, Bit#(obuf_data)) response);
+    method ActionValue#(SRAMRdReq#(of_index, of_banks)) send_sram_req;
+		method Action recv_sram_resp(Vector#(of_values, Bit#(of_data)) response);
     interface Put#(Store_params#(st_pad)) subifc_put_storeparams;
     interface Get#(Bool) subifc_send_store_finish;
     interface AXI4_Master_IFC#(addr_width, data_width, 0) master;
@@ -35,7 +35,8 @@ package store_module;
       Log#(TDiv#(data_width,8), awsz),
       Add#(addr_width, 0, `DRAM_ADDR_WIDTH),
       Add#(sram_width, 0, `SRAM_ADDR_WIDTH),
-      Add#(a__, of_data, data_width)
+      Add#(a__, of_data, data_width),
+			Add#(b__, of_index, 26)
     );
     
     let obuf_index = valueOf(of_index);
@@ -51,6 +52,10 @@ package store_module;
 		  return tuple2(gindex,gbank);
   	endfunction
 
+		function Bool is_address_within_range(SRAM_address start_addr, SRAM_address end_addr, SRAM_address query);
+			return (start_addr <= query && query <= end_addr);
+		endfunction
+
     Reg#(Maybe#(Store_params#(st_pad))) rg_params <- mkReg(tagged Invalid);
     Reg#(Bool) rg_finish_store <- mkReg(False);
     
@@ -65,45 +70,22 @@ package store_module;
     Reg#(DRAM_address) rg_dram_address <- mkReg(0);
     Reg#(SRAM_address) rg_sram_address <- mkReg(0);
 
-    Vector#(of_values, Wire#(SRAMRdReq#(of_index, of_banks))) wr_req <- replicateM(mkWire());
-    
     AXI4_Master_Xactor_IFC#(addr_width, data_width, 0) memory_xactor <- mkAXI4_Master_Xactor;
     
-    rule rl_start_sram_read(rg_params matches tagged Valid .params &&&
-                            rg_xy_cntr > 0);
+		method ActionValue#(SRAMRdReq#(of_index, of_banks)) send_sram_req
+      if(rg_params matches tagged Valid .params);
 
-      Bit#(of_index) o_index;
+      Bool first = (rg_z_cntr == truncate(params.z_size));
+      Bool last = (rg_z_cntr <= fromInteger(oValues));
+ 
+			Bit#(of_index) o_index;
       Bit#(of_banks) o_banks;
       {o_index, o_banks} = split_address_OBUF(rg_sram_address);
 
-      for(Integer i=0; i < oValues; i=i+1)begin
-        if(fromInteger(i)<rg_z_cntr)begin
-          //send request to sram
-          Bit#(of_index) index = o_index;
-          Bit#(of_banks) bank = truncate(o_banks + fromInteger(i));
-          if(bank < o_banks)
-            index = index + 1;
-          wr_req[i] <= SRAMRdReq{index: index, bank: bank, buffer: OutputBuffer};
-        end
-        else begin
-          wr_req[i] <= SRAMRdReq{buffer: Invalid, index: ?, bank: ?};
-        end
-      end
-
-    endrule
-
-    method ActionValue#(Vector#(of_values, SRAMRdReq#(of_index, of_banks))) send_sram_req
-      if(rg_params matches tagged Valid .params);
-      
-      Vector#(of_values, SRAMRdReq#(of_index, of_banks)) requests;
-      for(Integer i=0; i<oValues; i=i+1)begin
-        requests[i] = wr_req[i];
-      end
- 
-      Bool first = (rg_z_cntr == truncate(params.z_size));
-      Bool last = (rg_z_cntr <= fromInteger(oValues));
-     
-      if(rg_z_cntr <= fromInteger(oValues))begin
+			Bool which_buf = is_address_within_range(`OBUF1_START, `OBUF1_END, rg_sram_address);
+			Dim2 num_valid = truncate(min(fromInteger(oValues), rg_z_cntr));
+    
+      if(last)begin
         rg_z_cntr <= params.z_size;
         rg_xy_cntr <= rg_xy_cntr - 1;
         
@@ -119,17 +101,17 @@ package store_module;
           rg_y_cntr <= rg_y_cntr - 1;
           rg_dram_address <= rg_dram_address + zeroExtend(unpack(params.z_stride));
         end
+				//Increment index, set bank index to 0
+				rg_sram_address <= ((unpack(rg_sram_address) >> (obuf_index + obuf_bankbits)) << (obuf_index + obuf_bankbits)) | zeroExtend((o_index+1) << obuf_bankbits);
       end
-      
       else begin
         rg_z_cntr <= rg_z_cntr - fromInteger(oValues);
         rg_dram_address <= rg_dram_address + fromInteger(oValues) * fromInteger(oBytes);
+				rg_sram_address <= rg_sram_address + fromInteger(oValues);//Increment bank bits
       end
 
       ff_beat_len.enq(tuple3(first, rg_dram_address, last));
-      rg_sram_address <= rg_sram_address + 
-                min( zeroExtend(unpack(rg_z_cntr)), fromInteger(oValues)) * fromInteger(oBytes);
-      return requests;
+      return SRAMRdReq{index: o_index, bank: o_banks, buffer: which_buf ? OutputBuffer1 : OutputBuffer2, num_valid: num_valid};
     endmethod
 
     method Action recv_sram_resp(Vector#(of_values, Bit#(of_data)) response)

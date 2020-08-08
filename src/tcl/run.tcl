@@ -11,7 +11,7 @@ if {[string equal [get_filesets -quiet constrs_1] ""]} {
 set obj [get_filesets constrs_1]
 
 # Add/Import constrs file and set constrs file properties
-set file "[file normalize "$home_dir/../tcl/constraints.xdc"]"
+set file "[file normalize "./tcl/constraints.xdc"]"
 set file_added [add_files -norecurse -fileset $obj $file]
 
 
@@ -21,7 +21,7 @@ reset_run core_impl_1
 launch_run core_synth_1 -jobs 4
 wait_on_run core_synth_1
 open_run core_synth_1 -name core_synth_1
-report_utilization -hierarchical -file $core_project_dir/syn_area.txt
+report_utilization -hierarchical -hierarchical_depth 1 -file $core_project_dir/syn_area.txt
 report_timing_summary -delay_type min_max -report_unconstrained -check_timing_verbose\
   -max_paths 10 -input_pins -file $core_project_dir/syn_timing.txt
 

@@ -1,5 +1,5 @@
 /*
-Author: Vinod Ganesan, Gokulan Ravi
+Author: Vinod Ganesan, Gokulan Ravi, Sadhana
 Email ID: g.vinod1993@gmail.com, gokulan97@gmail.com
 Details: Top Module of Vector ALU
 */
@@ -10,6 +10,7 @@ import GetPut::*;
 import Vector::*;
 import isa::*;
 `include "Logger.bsv"
+`include "systolic.defines"
 
 //Assumptions:
 //1. Each ALU instruction is aligned to the vector width. If there are C channels and Vector length
@@ -40,28 +41,35 @@ import isa::*;
 interface Ifc_tensor_alu#(numeric type alu_width, numeric type num_col, numeric type of_index,
 						  numeric type alu_pad);
 	interface Put#(ALU_params#(of_index, alu_pad)) subifc_put_alu_params;
-	method SRAM_address mv_send_req_op;
+	method TALUOpReq#(of_index) mv_send_req_op;
 	method Action ma_recv_op(Vector#(num_col, Bit#(alu_width)) vec_data);
-	method ActionValue#(Tuple3#(SRAM_address, Vector#(num_col, Bit#(alu_width)), Bit#(TLog#(num_col)))) mav_put_result;
+	method ActionValue#(TALUOutReq#(of_index, alu_width, num_col)) mav_put_result;
 	interface Get#(Bool) subifc_get_alu_complete;
 endinterface
 
+	(*synthesize*)
+  module mktalu_Tb(Ifc_tensor_alu#(16, 4, 8, 23));
+    let ifc();
+    mk_tensor_alu inst1(ifc);
+    return (ifc);
+  endmodule
+
 module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
-	provisos(Bits#(Dim1,a),
-			  Add#(b,a,alu_width),
-			  Add#(c,TLog#(num_col),a)
+	provisos(
+				Add#(8, a__, of_index),
+				Add#(8, b__, alu_width)
 			);
 
 	Integer vnum_col = valueOf(num_col);
 
-	Reg#(Maybe#(ALU_params#(of_index, alu_pad)) rg_alu_packet <- mkReg(tagged Invalid);
+	Reg#(Maybe#(ALU_params#(of_index, alu_pad))) rg_alu_packet <- mkReg(tagged Invalid);
 	Reg#(SRAM_index#(of_index)) rg_irow_addr <- mkReg(0);
 	Reg#(SRAM_index#(of_index)) rg_icol_addr <- mkReg(0);
 	Reg#(SRAM_index#(of_index)) rg_srow_addr <- mkReg(0);
 	Reg#(SRAM_index#(of_index)) rg_scol_addr <- mkReg(0);
 	Reg#(SRAM_index#(of_index)) rg_output_addr <- mkReg(0);
 	
-	Wire#(SRAM_address#(of_index)) wr_send_req <- mkWire();
+	Wire#(SRAM_index#(of_index)) wr_send_req <- mkWire();
 	
 	Vector#(num_col, Reg#(Bit#(alu_width))) v_operand_out <- replicateM(mkReg(0));
 	Vector#(num_col, Wire#(Bit#(alu_width))) wr_v_operand <- replicateM(mkWire());
@@ -73,7 +81,7 @@ module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
 	Reg#(Dim2) rg_l_var <- mkReg(0);
 
 	Reg#(Bool) rg_alu_complete <- mkReg(False);
-
+	Reg#(Bool) rg_which_buffer <- mkReg(False);
 	Reg#(Dim1) rg_mask_counter <- mkReg(0);
 
 	Ifc_vector_alu#(alu_width, num_col) vector_alu <- mk_vector_alu();
@@ -161,7 +169,7 @@ module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
 	endrule
 
 	interface Put subifc_put_alu_params;
-	  method Action ma_get_params(ALU_params params) if(rg_alu_packet matches tagged Invalid);
+	  method Action put(ALU_params#(of_index, alu_pad) params) if(rg_alu_packet matches tagged Invalid);
 		rg_alu_packet <= tagged Valid params;
 		let lv_in_base_addr = params.input_address;
 		rg_irow_addr <= lv_in_base_addr;
@@ -170,15 +178,17 @@ module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
 		rg_srow_addr <= lv_in_base_addr;
 		rg_output_addr <= params.output_address;
 		rg_alu_complete <= False;
-		if(params.use_immediate)
-		  for(Integer i=0; i<vnum_col; i=i+1) 
-			v_operand_out[i] <= extend(params.immediate_value);
+		rg_which_buffer <= True; //TODO: finding which buffer is used(zeroExtend(params.input_address) <= `OBUF1_END);
+		if(params.use_immediate)begin
+		  for(Integer i=0; i<vnum_col; i=i+1)begin
+				v_operand_out[i] <= extend(params.immediate_value);
+			end
 		end
 	  endmethod
 	endinterface
 
-	method Tuple2#(SRAM_index#(of_index), Dim1) mv_send_req_op if(rg_alu_packet matches tagged Valid .alu_packet);
-	  return tuple2(wr_send_req, params.num_active);
+	method TALUOpReq#(of_index) mv_send_req_op if(rg_alu_packet matches tagged Valid .alu_packet);
+	  return TALUOpReq{ index: wr_send_req, num_valid: alu_packet.num_active, buffer: rg_which_buffer};
 	endmethod
 
 	method Action ma_recv_op(Vector#(num_col, Bit#(alu_width)) vec_data) if(rg_alu_packet matches tagged Valid .alu_packet);
@@ -189,17 +199,15 @@ module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
 	  end
 	endmethod
 
-	method ActionValue#(Tuple3#(SRAM_index#(of_index), Vector#(num_col, Bit#(alu_width)), Dim1)) mav_put_result
+	method ActionValue#(TALUOutReq#(of_index, alu_width, num_col)) mav_put_result
 				if(rg_alu_packet matches tagged Valid .alu_packet);
-	  Vector#(num_col,Bit#(alu_width)) lv_temp;
+	  Vector#(nCol, Bit#(alu_width)) lv_temp = replicate(0);
 	  for(Integer i=0; i< vnum_col; i= i+1) begin
 			if(fromInteger(i) < alu_packet.num_active)begin
 				lv_temp[i] = wr_v_operand_out[i];
 			end
-			else
-				lv_temp[i] = 'b0;
 	  end
-	  return tuple3(rg_output_addr, lv_temp, params.num_active);
+		return TALUOutReq{index: rg_output_addr, values: lv_temp, num_valid: alu_packet.num_active, buffer: rg_which_buffer};
 	endmethod
 
 	interface Get subifc_get_alu_complete;
@@ -208,7 +216,6 @@ module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
 			return True;
 		endmethod
 	endinterface
-	endmethod
 
 endmodule
 
