@@ -1,13 +1,13 @@
-TOP_MODULE:=mktop_tb
-TOP_FILE:=accelerator.bsv
+TOP_MODULE:=mkTbSoc
+TOP_FILE:=Soc.bsv
 HOMEDIR:=./
 TOP_DIR:=./
 BSVBUILDDIR:=./build/
 VERILOGDIR:=./verilog/
-AXI4:=../../../fabrics/axi4
+AXI4:=../../../fabrics/axi4:../../fabrics/axi4lite
 AXI4_Lite:=../../../fabrics/axi4lite
 BRIDGES:=../../../fabrics/bridges
-COMMON_BSV:=../../../common_bsv
+COMMON_BSV:=../../../common_bsv:../../bram/
 #TB:=./tb
 FILES:=./commons/:./load_module:./store_module:./compute_module:./tensor_alu_module:./buffers_module:./frontend_module:$(AXI4):$(BRIDGES):$(COMMON_BSV)
 BSVINCDIR:= .:%/Prelude:%/Libraries:%/Libraries/BlueNoC:$(FILES)

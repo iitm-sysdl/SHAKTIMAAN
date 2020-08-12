@@ -1,5 +1,20 @@
 // slave_bound: ??
-`define CONFIG_ADDR   'hB0000000
+`define MemoryBase  'h0080_0000
+`define MemoryEnd   'h008F_FFFF
+`define SysBase     'h0090_0000
+`define SysEnd      'h009f_ffff
+
+`define CPU_master 0
+`define Fetch_master 1
+`define Load_master 2
+`define Store_master 3
+`define Num_masters 4
+
+`define Memory_slave 0
+`define Systolic_slave 1
+`define Num_slaves 2
+
+`define CONFIG_ADDR   'h00900000
 `define WeightStart   'hB0010000      
 `define WeightEnd     'hB001ffff
 `define AccumBufStart 'hB0200000
