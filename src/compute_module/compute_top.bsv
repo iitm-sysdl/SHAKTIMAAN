@@ -88,6 +88,8 @@ package compute_top;
     Vector#(nCol, Reg#(Bit#(of_index))) rg_old_out_addr <- replicateM(mkReg(?));
     Vector#(nCol, Reg#(Dim1)) rg_old_out_cntr <- replicateM(mkReg(?));
 
+		Reg#(Dim1) rg_new_out_cntr <- mkReg(0);
+
     Vector#(nCol, Reg#(Bit#(of_index))) rg_new_out_addr <- replicateM(mkReg(?));
 
     Vector#(nCol, Reg#(Bool)) rg_valid_col <- replicateM(mkReg(False));
@@ -111,7 +113,7 @@ package compute_top;
       for(Integer i=0; i<cols; i=i+1)begin
         if(rg_valid_col[i])begin
           //send 0 to column i of systolic array
-          //systolic.cfifo[i].send_colbuf_value(
+          systolic.cfifo[i].send_acc_value(0);
         end
       end
     endrule
@@ -148,7 +150,10 @@ package compute_top;
             //let value = TODO: read output value from column i of systolic array
             let value <- systolic.cfifo[i].send_accumbuf_value();
             rg_new_out_addr[i] <= rg_new_out_addr[i] + 1;
-            return SRAMKWrReq{index: rg_new_out_addr[i], data: ?/*value*/, valid: rg_which_buffer};
+						if(i==cols)begin
+							rg_new_out_cntr <= rg_new_out_cntr - 1;
+						end
+            return SRAMKWrReq{index: rg_new_out_addr[i], data: value, valid: rg_which_buffer};
           endmethod
         endinterface
       );
@@ -170,8 +175,13 @@ package compute_top;
     interface put_old_out_resp = ifc_put_old_output;
     interface put_inp_resp = ifc_put_input;
     interface get_old_out_addr = ifc_get_old_out_addr;
-
-    method ActionValue#(Vector#(nRow, SRAMKRdReq#(if_index))) get_inp_addr
+		interface Get subifc_get_compute_finish;
+			method ActionValue#(Bool) get if(isValid(rg_params) && rg_new_out_cntr == 0);
+				return True;
+			endmethod
+		endinterface
+		
+		method ActionValue#(Vector#(nRow, SRAMKRdReq#(if_index))) get_inp_addr
         if(rg_params matches tagged Valid .params &&& 
           !rg_weightload &&& // compute phase
           ((rg_h_cntr == params.ofmap_height-1 && rg_w_cntr == params.ofmap_width-1) || // Input feeding phase
@@ -231,6 +241,7 @@ package compute_top;
       for(Integer i=0; i<cols; i=i+1)begin
         if(fromInteger(i) < params.active_cols)begin
           //send weight to systolic
+					systolic.cfifo[i].send_colbuf_value(tuple4(tagged Valid weights[i], 0, 0, 0));
         end
       end
       ff_wt_coord.deq();
@@ -283,7 +294,9 @@ package compute_top;
         else begin
           rg_zero_cntr <= time_values;
         end
-        
+				
+				rg_new_out_cntr <= time_values;
+
         for(Integer i=0; i<cols; i=i+1)begin
           rg_new_out_addr[i] <= params.output_address;
         end

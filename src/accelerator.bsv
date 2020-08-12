@@ -48,6 +48,9 @@ package accelerator;
     return (ifc);
   endmodule
 
+		(*mutually_exclusive="rl_forward_old_output_from_obuf1_to_gemm, rl_send_read_rsp_obuf1_to_talu"*)
+		(*mutually_exclusive="rl_forward_old_output_from_obuf2_to_gemm, rl_send_read_rsp_obuf2_to_talu"*)
+
   module mk_accelerator(Ifc_accelerator#(dram_addr_width, sram_addr_width, data_width,
                                          wt_entries, wt_nbanks, if_entries, if_nbanks, of_entries, of_nbanks,
                                          in_width, out_width, nRow, nCol))
@@ -247,6 +250,7 @@ package accelerator;
 		endrule
 
 		Vector#(nCol, FIFOF#(SRAMKRdReq#(of_index))) ff_old_out_reqs <- replicateM(mkFIFOF());
+		Vector#(nCol, FIFOF#(Bool)) ff_out_which_buffer <- replicateM(mkFIFOF());
 
 		for(Integer i=0; i<valueOf(nCol); i=i+1)begin
 			rule rl_get_read_req_from_gemm;
@@ -258,20 +262,26 @@ package accelerator;
 				let req = ff_old_out_reqs[i].first;
 				buffers.obuf1[i].portA.request.put(makeRequest(False, req.index, ?));
 				ff_old_out_reqs[i].deq;
+				ff_out_which_buffer[i].enq(True);
 			endrule
 
 			rule rl_send_gemm_read_req_to_obuf2(!ff_old_out_reqs[i].first.valid);
 				let req = ff_old_out_reqs[i].first;
 				buffers.obuf2[i].portA.request.put(makeRequest(False, req.index, ?));
 				ff_old_out_reqs[i].deq();
+				ff_out_which_buffer[i].enq(False);
 			endrule
 
-			rule rl_forward_old_output_from_obuf1_to_gemm;
+			(*mutually_exclusive = "rl_forward_old_output_from_obuf1_to_gemm, rl_forward_old_output_from_obuf2_to_gemm"*)
+			(*mutually_exclusive = "rl_forward_old_output_from_obuf1_to_gemm, gemm_module.rl_send_init_acc_zero"*)
+			(*mutually_exclusive = "rl_forward_old_output_from_obuf2_to_gemm, gemm_module.rl_send_init_acc_zero"*)
+
+			rule rl_forward_old_output_from_obuf1_to_gemm(ff_out_which_buffer[i].first);
 				let value <- buffers.obuf1[i].portA.response.get();
 				gemm_module.put_old_out_resp[i].put(value);
 			endrule
 
-			rule rl_forward_old_output_from_obuf2_to_gemm;
+			rule rl_forward_old_output_from_obuf2_to_gemm(!ff_out_which_buffer[i].first);
 				let value <- buffers.obuf2[i].portA.response.get();
 				gemm_module.put_old_out_resp[i].put(value);
 			endrule
@@ -330,24 +340,28 @@ package accelerator;
 
 		rule rl_send_read_rsp_obuf1_to_talu(tpl_2(ff_num_active_talu.first));
 			Vector#(nCol, Bit#(out_width)) vec_data = replicate(0);
+			let num_valid = tpl_1(ff_num_active_talu.first);
 			for(Integer i = 0; i < valueOf(nCol); i=i+1) begin
-				let val <- buffers.obuf1[i].portA.response.get();
-				vec_data[i] = val;
+				if(fromInteger(i) < num_valid)begin
+					let val <- buffers.obuf1[i].portA.response.get();
+					vec_data[i] = val;
+				end
 			end
 			tensor_alu.ma_recv_op(vec_data);
 			ff_num_active_talu.deq();
 		endrule
 		
-		(*mutually_exclusive="rl_forward_old_output_from_obuf1_to_gemm, rl_send_read_rsp_obuf1_to_talu"*)
-		(*mutually_exclusive="rl_forward_old_output_from_obuf2_to_gemm, rl_send_read_rsp_obuf2_to_talu"*)
-
 		rule rl_send_read_rsp_obuf2_to_talu(!tpl_2(ff_num_active_talu.first));
 			Vector#(nCol, Bit#(out_width)) vec_data = replicate(0);
+			let num_valid = tpl_1(ff_num_active_talu.first);
 			for(Integer i = 0; i < valueOf(nCol); i=i+1) begin
-				let val <- buffers.obuf2[i].portA.response.get();
-				vec_data[i] = val;
+				if(fromInteger(i) < num_valid)begin
+					let val <- buffers.obuf2[i].portA.response.get();
+					vec_data[i] = val;
+				end
 			end
 			tensor_alu.ma_recv_op(vec_data);
+			ff_num_active_talu.deq();
 		endrule
 
 		FIFOF#(TALUOutReq#(of_index, out_width, nCol)) ff_out_req_from_talu <- mkFIFOF();
@@ -415,12 +429,12 @@ package accelerator;
 			rule rl_send_resp_to_st_module;
 				Vector#(out_words, Bit#(out_width)) values;
 				Dim2 num_valid = ff_num_valid_values.first;
-				for(Integer i=0; i<valueOf(out_words); i=i+1)begin
-					if(fromInteger(i) < num_valid)begin
-						values[i] <- buffers.obuf1[i].portB.response.get();
+				for(Integer j=0; j<valueOf(out_words); j=j+1)begin
+					if(fromInteger(j) < num_valid)begin
+						values[j] <- buffers.obuf1[i*oWords+j].portB.response.get();
 					end
 					else begin
-						values[i] = 'b0;
+						values[j] = 'b0;
 					end
 				end
 				ff_num_valid_values.deq();
@@ -432,12 +446,12 @@ package accelerator;
 			rule rl_send_resp_to_st_module2;
 				Vector#(out_words, Bit#(out_width)) values;
 				Dim2 num_valid = ff_num_valid_values.first;
-				for(Integer i=0; i<valueOf(out_words); i=i+1)begin
-					if(fromInteger(i) < num_valid)begin
-						values[i] <- buffers.obuf2[i].portB.response.get();
+				for(Integer j=0; j<valueOf(out_words); j=j+1)begin
+					if(fromInteger(j) < num_valid)begin
+						values[j] <- buffers.obuf2[i*oWords+j].portB.response.get();
 					end
 					else begin
-						values[i] = 'b0;
+						values[j] = 'b0;
 					end
 				end
 				ff_num_valid_values.deq();
