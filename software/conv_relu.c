@@ -120,7 +120,7 @@ int main()
 	ld_1 -> dram_address2 = ((uint32_t) weight) & 0xff;
 	ld_1 -> sram_address1 = (WBUF_START >> 2);
 	ld_1 -> sram_address2 = (WBUF_START & 3);
-	ld_1 -> x_size = 9;
+	ld_1 -> x_size = 1;
 	ld_1 -> y_size = 16;
 	ld_1 -> z_size = 16;
 	ld_1 -> z_stride1 = 16 >> 2;
@@ -153,8 +153,59 @@ int main()
 
 	printf("%x %x %x\n", ins, ins+16, ins+32);
 
-	unsigned long long *config_addr = CONFIG_ADDR;
-	*config_addr = ins;
+	//unsigned long long *config_addr = CONFIG_ADDR;
+	//*config_addr = ins;
+	//FILE *f = fopen("./code.mem", 'w');
+	unsigned char *addr = gemm_1;
 
+	for(int i=0; i<16; i++)
+	{
+		printf("%.2x\n", *(addr++));
+		//printf("%x %d\n", *((unsigned int*)addr), addr);
+		//addr ++;
+	}
+
+	FILE *f = fopen("./code.mem", "w");
+
+	fprintf(f, "8000010000400000\n");
+	fprintf(f, "0202040404100000\n");
+	fprintf(f, "8100010800800000\n");
+	fprintf(f, "0044040404100000\n");
+	fprintf(f, "A800000000000040\n");
+	fprintf(f, "4080808888880000\n");
+
+	for(int i=0; i<8186; i++)
+		fprintf(f, "0000000000000000\n");
+	
+	unsigned char* wt = (unsigned char*) input;
+
+	for(int i=0; i<256; i++)
+	{
+		for(int j=0; j<4; j++)
+			for(int k=0; k<2; k++)
+			{
+				fprintf(f, "%.2x", k==0 ? *(wt+1) : *(wt-1));
+				wt++;
+				//fprintf(f, "%.2x", k==1 ? 0xab : 0xcd);
+			}
+		fprintf(f, "\n");
+	}
+
+	wt = (unsigned char*) weight;
+	for(int i=0; i<64; i++)
+	{
+		for(int j=0; j<4; j++)
+			for(int k=0; k<2; k++)
+			{
+				fprintf(f, "%.2x", k==0 ? *(wt+1) : *(wt-1));
+				wt++;
+			}
+		fprintf(f, "\n");
+	}
+
+	for(int i=8512; i<33554432; i++)
+		fprintf(f, "0000000000000000\n");
+
+	fclose(f);
 	return 0;
 }

@@ -2,6 +2,7 @@ TOP_MODULE:=mkTbSoc
 TOP_FILE:=Soc.bsv
 HOMEDIR:=./
 TOP_DIR:=./
+BSVOUTDIR:=./bin/
 BSVBUILDDIR:=./build/
 VERILOGDIR:=./verilog/
 AXI4:=../../../fabrics/axi4:../../fabrics/axi4lite
@@ -39,6 +40,44 @@ generate_verilog:
 	@bsc -u -verilog -elab -vdir $(VERILOGDIR) -bdir $(BSVBUILDDIR) -info-dir $(BSVBUILDDIR)\
   $(define_macros) -D verilog=True -D VERBOSITY=0 $(BSVCOMPILEOPTS) -no-warn-action-shadowing -p $(BSVINCDIR) -g $(TOP_MODULE) $(TOP_DIR)/$(TOP_FILE)\
   || (echo "BSC COMPILE ERROR"; exit 1) 
+	@cp ${BLUESPECDIR}/Verilog.Vivado/RegFile.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog.Vivado/BRAM2BELoad.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog.Vivado/BRAM2BE.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog.Vivado/BRAM2.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/FIFO2.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/FIFO1.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/FIFO10.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/RevertReg.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/FIFO20.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/FIFOL1.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/SyncFIFO.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/Counter.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/SizedFIFO.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/RegFileLoad.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/SyncReset0.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/SyncRegister.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/MakeClock.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/UngatedClockMux.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/ClockInverter.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/MakeResetA.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/MakeReset0.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/SyncResetA.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/ResetEither.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/SyncHandshake.v ${VERILOGDIR}
+	@cp ${BLUESPECDIR}/Verilog/SyncFIFO1.v ${VERILOGDIR}
+
+.PHONY: link_verilator
+link_verilator: ## Generate simulation executable using Verilator
+	@echo "Linking $(TOP_MODULE) using verilator"
+	@mkdir -p $(BSVOUTDIR) obj_dir
+	@echo "#define TOPMODULE V$(TOP_MODULE)" > sim_main.h
+	@echo '#include "V$(TOP_MODULE).h"' >> sim_main.h
+	verilator $(VERILATOR_FLAGS) --cc $(TOP_MODULE).v -y $(VERILOGDIR) -y common_verilog --exe
+	@ln -f -s ../sim_main.cpp obj_dir/sim_main.cpp
+	@ln -f -s ../sim_main.h obj_dir/sim_main.h
+	make $(verilate_fast) VM_PARALLEL_BUILDS=1 -j8 -C obj_dir -f V$(TOP_MODULE).mk
+	@cp obj_dir/V$(TOP_MODULE) $(BSVOUTDIR)/out
+
 
 .PHONY: simulate
 simulate:
