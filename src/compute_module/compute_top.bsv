@@ -20,7 +20,7 @@ package compute_top;
                                numeric type of_index, numeric type cp_pad);
     interface Put#(Compute_params#(if_index, of_index, wt_index, cp_pad)) subifc_put_compute_params;
     interface Get#(Bool) subifc_get_compute_finish;
-    method ActionValue#(Vector#(nRow, SRAMKRdReq#(if_index))) get_inp_addr;
+		interface Vector#(nRow, Get#(SRAMKRdReq#(if_index))) get_inp_addr;
     interface Vector#(nRow, Put#(Bit#(in_width))) put_inp_resp;
     method ActionValue#(Tuple2#(SRAM_index#(wt_index), Dim1)) get_wt_addr;
     method Action put_wt_resp(Vector#(nCol, Bit#(in_width)) weights);
@@ -29,12 +29,12 @@ package compute_top;
     interface Vector#(nCol, Get#(SRAMKWrReq#(of_index, out_width))) get_new_output_data;
   endinterface
 
-  (*synthesize*)
-  module mkgemm_Tb(Ifc_compute_module#(32,26,8,16,4,4,5,6,7,18));
-    let ifc();
-    mkgemm inst1(ifc);
-    return (ifc);
-  endmodule
+//  (*synthesize*)
+//  module mkgemm_Tb(Ifc_compute_module#(32,26,8,16,4,4,5,6,7,18));
+//    let ifc();
+//    mkgemm inst1(ifc);
+//    return (ifc);
+//  endmodule
   
   module mkgemm(Ifc_compute_module#(dram_addr_width, sram_addr_width,
                                    in_width, out_width,
@@ -83,7 +83,8 @@ package compute_top;
     Wire#(SRAM_index#(wt_index)) wr_wt_req <- mkWire();
 
     Vector#(nRow, Reg#(SRAMKRdReq#(if_index))) rg_inp_addr <- replicateM(mkReg(?));
-    Vector#(nRow, Reg#(Bool)) rg_valid_row <- replicateM(mkReg(False));
+    Vector#(nRow, Wire#(SRAMKRdReq#(if_index))) wr_inp_addr <- replicateM(mkWire());
+		Vector#(nRow, Reg#(Bool)) rg_valid_row <- replicateM(mkReg(False));
 
     Vector#(nCol, Reg#(Bit#(of_index))) rg_old_out_addr <- replicateM(mkReg(?));
     Vector#(nCol, Reg#(Dim1)) rg_old_out_cntr <- replicateM(mkReg(?));
@@ -114,78 +115,17 @@ package compute_top;
         if(rg_valid_col[i])begin
           //send 0 to column i of systolic array
           systolic.cfifo[i].send_acc_value(0);
+					$display($time, "Sending 0 to column [%d], count: %d", i, rg_zero_cntr);
         end
       end
+			rg_zero_cntr <= rg_zero_cntr - 1;
     endrule
 
-    Vector#(nRow, Put#(Bit#(in_width))) ifc_put_input;
-    for(Integer i=0; i<rows; i=i+1)begin
-      ifc_put_input[i] = (
-        interface Put;
-          method Action put(Bit#(in_width) value);
-            //send value to row i of systolic array
-            systolic.rfifo[i].send_rowbuf_value(tagged Valid value);
-          endmethod
-        endinterface
-      );
-    end
-
-    Vector#(nCol, Put#(Bit#(out_width))) ifc_put_old_output;
-    for(Integer i=0; i<cols; i=i+1)begin
-      ifc_put_old_output[i] = (
-        interface Put;
-          method Action put(Bit#(out_width) value);
-            //send value to column i of systolic array
-            systolic.cfifo[i].send_acc_value(value);
-          endmethod
-        endinterface
-      );
-    end
-
-    Vector#(nCol, Get#(SRAMKWrReq#(of_index, out_width))) ifc_get_new_output;
-    for(Integer i=0; i<cols; i=i+1)begin
-      ifc_get_new_output[i] = (
-        interface Get;
-          method ActionValue#(SRAMKWrReq#(of_index, out_width)) get if(rg_valid_col[i]);
-            //let value = TODO: read output value from column i of systolic array
-            let value <- systolic.cfifo[i].send_accumbuf_value();
-            rg_new_out_addr[i] <= rg_new_out_addr[i] + 1;
-						if(i==cols)begin
-							rg_new_out_cntr <= rg_new_out_cntr - 1;
-						end
-            return SRAMKWrReq{index: rg_new_out_addr[i], data: value, valid: rg_which_buffer};
-          endmethod
-        endinterface
-      );
-    end
-
-    Vector#(nCol, Get#(SRAMKRdReq#(of_index))) ifc_get_old_out_addr;
-    for(Integer i=0; i<cols; i=i+1)begin
-      ifc_get_old_out_addr[i] = (
-        interface Get;
-          method ActionValue#(SRAMKRdReq#(of_index)) get if(rg_valid_col[i]);
-            rg_old_out_cntr[i] <= rg_old_out_cntr[i] + 1;
-            return SRAMKRdReq{index: rg_old_out_addr[i], valid: rg_which_buffer};
-          endmethod
-        endinterface
-      );
-    end
-
-    interface get_new_output_data = ifc_get_new_output;
-    interface put_old_out_resp = ifc_put_old_output;
-    interface put_inp_resp = ifc_put_input;
-    interface get_old_out_addr = ifc_get_old_out_addr;
-		interface Get subifc_get_compute_finish;
-			method ActionValue#(Bool) get if(isValid(rg_params) && rg_new_out_cntr == 0);
-				return True;
-			endmethod
-		endinterface
-		
-		method ActionValue#(Vector#(nRow, SRAMKRdReq#(if_index))) get_inp_addr
-        if(rg_params matches tagged Valid .params &&& 
-          !rg_weightload &&& // compute phase
-          ((rg_h_cntr == params.ofmap_height-1 && rg_w_cntr == params.ofmap_width-1) || // Input feeding phase
-          rg_inp_traingle_cntr > 1)); //Final triangle while feeding inputs
+		rule rl_generate_inp_addr(rg_params matches tagged Valid .params &&& 
+															!rg_weightload &&& // compute phase
+															((rg_h_cntr == params.ofmap_height-1 && 
+															rg_w_cntr == params.ofmap_width-1) || // Input feeding phase
+															rg_inp_traingle_cntr > 1)); //Final triangle while feeding inputs
 
       Bool lv_pad_zero = (rg_h_cntr < zeroExtend(params.pad_top)) || (rg_w_cntr < zeroExtend(params.pad_left)) 
                           || (params.ofmap_height - rg_h_cntr < zeroExtend(params.pad_bottom))
@@ -209,22 +149,104 @@ package compute_top;
         rg_inp_col_addr <= rg_inp_col_addr + zeroExtend(params.stride_w);
       end
 
-      rg_inp_addr[0] <= SRAMKRdReq{index: rg_inp_col_addr, valid: is_triangle};
+      let req0 = SRAMKRdReq{index: rg_inp_col_addr, valid: is_triangle && !lv_pad_zero, pad_zero: lv_pad_zero};
+			rg_inp_addr[0] <= req0;
+			wr_inp_addr[0] <= req0;
 
       for(Integer i=1; i<rows; i=i+1)begin
         let temp = rg_inp_addr[i-1];
         let index = temp.index;
-        rg_inp_addr[i] <= SRAMKRdReq{index: index, valid: temp.valid && (fromInteger(i) < params.active_rows)};
+        let req = SRAMKRdReq{index: index, valid: temp.valid && (fromInteger(i) < params.active_rows), 
+										pad_zero: temp.pad_zero};
+				rg_inp_addr[i] <= req;
+				wr_inp_addr[i] <= req;
       end
+    endrule
+ 
+    Vector#(nRow, Put#(Bit#(in_width))) ifc_put_input;
+    for(Integer i=0; i<rows; i=i+1)begin
+      ifc_put_input[i] = (
+        interface Put;
+          method Action put(Bit#(in_width) value);
+            //send value to row i of systolic array
+            systolic.rfifo[i].send_rowbuf_value(tagged Valid value);
+						$display($time, "Sending value to row [%d]: %d", i, value);
+          endmethod
+        endinterface
+      );
+    end
 
-      Vector#(nRow, SRAMKRdReq#(if_index)) addresses;
-      addresses[0] = SRAMKRdReq{index: rg_inp_col_addr, valid: is_triangle};
-      for(Integer i=1; i<rows; i=i+1)begin
-        addresses[i] = rg_inp_addr[i];
-      end
-      return addresses;
-    endmethod
-   
+    Vector#(nCol, Put#(Bit#(out_width))) ifc_put_old_output;
+    for(Integer i=0; i<cols; i=i+1)begin
+      ifc_put_old_output[i] = (
+        interface Put;
+          method Action put(Bit#(out_width) value) 
+								if(rg_params matches tagged Valid .params &&& params.preload_output);
+            //send value to column i of systolic array
+            systolic.cfifo[i].send_acc_value(value);
+          endmethod
+        endinterface
+      );
+    end
+
+    Vector#(nCol, Get#(SRAMKWrReq#(of_index, out_width))) ifc_get_new_output;
+    for(Integer i=0; i<cols; i=i+1)begin
+      ifc_get_new_output[i] = (
+        interface Get;
+          method ActionValue#(SRAMKWrReq#(of_index, out_width)) get if(rg_valid_col[i]);
+            //let value = TODO: read output value from column i of systolic array
+            let value <- systolic.cfifo[i].send_accumbuf_value();
+            $display($time, "column [%d] receiving output #%d: %d", i, rg_new_out_cntr, value);
+						rg_new_out_addr[i] <= rg_new_out_addr[i] + 1;
+						if(i==cols-1)begin
+							rg_new_out_cntr <= rg_new_out_cntr - 1;
+						end
+            return SRAMKWrReq{index: rg_new_out_addr[i], data: value, valid: rg_which_buffer};
+          endmethod
+        endinterface
+      );
+    end
+
+    Vector#(nCol, Get#(SRAMKRdReq#(of_index))) ifc_get_old_out_addr;
+    for(Integer i=0; i<cols; i=i+1)begin
+      ifc_get_old_out_addr[i] = (
+        interface Get;
+          method ActionValue#(SRAMKRdReq#(of_index)) get if(rg_valid_col[i]);
+            rg_old_out_cntr[i] <= rg_old_out_cntr[i] + 1;
+            return SRAMKRdReq{index: rg_old_out_addr[i], valid: rg_which_buffer, pad_zero: False};
+          endmethod
+        endinterface
+      );
+    end
+
+		Vector#(nRow, Get#(SRAMKRdReq#(if_index))) ifc_get_inp_addr;
+		for(Integer i=0; i<rows; i=i+1)begin
+			ifc_get_inp_addr[i] = (
+				interface Get;
+					method ActionValue#(SRAMKRdReq#(if_index)) get;
+						if(wr_inp_addr[i].pad_zero)begin
+							systolic.rfifo[i].send_rowbuf_value(tagged Valid 0);
+							$display($time, "Sending input to column [%d], value: 0", i);
+						end
+						return wr_inp_addr[i];
+					endmethod
+				endinterface
+			);
+		end
+
+		interface get_inp_addr = ifc_get_inp_addr;
+    interface get_new_output_data = ifc_get_new_output;
+    interface put_old_out_resp = ifc_put_old_output;
+    interface put_inp_resp = ifc_put_input;
+    interface get_old_out_addr = ifc_get_old_out_addr;
+		interface Get subifc_get_compute_finish;
+			method ActionValue#(Bool) get if(isValid(rg_params) && rg_new_out_cntr == 0);
+				rg_params <= tagged Invalid;
+				return True;
+			endmethod
+		endinterface
+		
+  
     method ActionValue#(Tuple2#(SRAM_index#(wt_index), Dim1)) get_wt_addr
       if(rg_params matches tagged Valid .params &&&
          rg_wt_cntr >= 0);
@@ -245,7 +267,8 @@ package compute_top;
         end
       end
       ff_wt_coord.deq();
-      if(coord == params.active_rows - 1)begin
+			$display($time, "Sending weight values");
+      if(coord == 0)begin
         rg_weightload <= False;
       end
     endmethod
@@ -273,7 +296,7 @@ package compute_top;
         end
         
         for(Integer i=0; i<rows; i=i+1)begin
-          rg_inp_addr[i] <= SRAMKRdReq{index: ?, valid: False};
+          rg_inp_addr[i] <= SRAMKRdReq{index: ?, valid: False, pad_zero: False};
         end
         
         for(Integer i=0; i<cols; i=i+1)begin
@@ -285,7 +308,8 @@ package compute_top;
         end
 
         let time_values = params.ofmap_width * params.ofmap_height;
-        
+
+				$display($time, "Received GEMM params", params.ofmap_width, params.ofmap_height);
         if(params.preload_output)begin
           for(Integer i=0; i<cols; i=i+1)begin
             rg_old_out_cntr[i] <= time_values;

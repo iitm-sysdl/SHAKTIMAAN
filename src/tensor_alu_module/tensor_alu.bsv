@@ -164,7 +164,6 @@ module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
 		  rg_k_var <= 1;
 		  rg_j_var <= 1;
 		  rg_i_var <= 1;
-		  rg_alu_packet <= tagged Invalid;
 		  rg_alu_complete <= True;
 	endrule
 
@@ -211,8 +210,9 @@ module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
 	endmethod
 
 	interface Get subifc_get_alu_complete;
-		method ActionValue#(Bool) get if(rg_alu_packet matches tagged Invalid &&& rg_alu_complete);
+		method ActionValue#(Bool) get if(isValid(rg_alu_packet) &&& rg_alu_complete);
 			rg_alu_complete <= False;
+			rg_alu_packet <= tagged Invalid;
 			return True;
 		endmethod
 	endinterface

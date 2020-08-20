@@ -90,6 +90,7 @@ package dependency_resolver;
     function Action fn_push_next(FIFOF#(Dep_flags) flag_queue, FIFOF#(Bool) next_queue);
       action
 				Dep_flags flags = flag_queue.first;
+				$display($time, "Pushing LD->GEMM", flags, flags.push_next_dep);
 				if(flags.push_next_dep)begin
 					next_queue.enq(True);
 				end
@@ -101,6 +102,7 @@ package dependency_resolver;
         Dep_flags flags = tpl_1(ins);
         Params params   = tpl_2(ins);
         Load_params#(ld_pad) ld_params = unpack(pack(params));
+				$display($time, "Sending Load params", flags.pop_prev_dep, flags.push_prev_dep, flags.pop_next_dep, flags.push_next_dep);
         ff_load_queue.enq(flags);
         ff_load_params.enq(ld_params);
       endmethod
@@ -139,12 +141,14 @@ package dependency_resolver;
     interface Get ifc_get_load_instruction;
       method ActionValue#(Load_params#(ld_pad)) get if(fn_resolve_next_pop(ff_load_queue, ff_gemm_to_load));
         ff_load_params.deq();
+				$display($time, "Sending LD instruction to module");
         return ff_load_params.first;
       endmethod
     endinterface
   
     interface Put ifc_put_load_complete;
       method Action put(Bool complete);
+				$display($time, "Received LD complete");
         fn_push_next(ff_load_queue, ff_load_to_gemm);
         ff_load_queue.deq();
       endmethod
@@ -159,7 +163,7 @@ package dependency_resolver;
   
     interface Put ifc_put_store_complete;
       method Action put(Bool complete);
-        fn_push_prev(ff_store_queue, ff_store_to_alu);
+				fn_push_prev(ff_store_queue, ff_store_to_alu);
         ff_store_queue.deq();
       endmethod
     endinterface
@@ -169,6 +173,7 @@ package dependency_resolver;
         if(fn_resolve_prev_pop(ff_gemm_queue, ff_load_to_gemm) &&
            fn_resolve_next_pop(ff_gemm_queue, ff_alu_to_gemm));
         ff_gemm_params.deq();
+				$display($time, "Received GEMM complete");
         return ff_gemm_params.first;
       endmethod
     endinterface

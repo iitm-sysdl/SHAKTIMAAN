@@ -77,7 +77,7 @@ package intMul_WS;
     Bit#(1) pp_sign[4];
     Bit#(out_width) output_mul = extend(unpack(north))*extend(unpack(west)); 
     acc_output <= pack(output_mul + unpack(input_acc));
-    $display($time,"MulAdd[%d][%d]: acc: %d input: %d weight: %d output_mul:%d \n",row,col,input_acc,west,north,output_mul);
+    //$display($time,"MulAdd[%d][%d]: acc: %d input: %d weight: %d output_mul:%d \n",row,col,input_acc,west,north,output_mul);
     //$display($time,"\t input_acc: %d",input_acc);
     rg_west <= tagged Invalid;
     rg_acc_flow_ctrl <= True;
@@ -96,7 +96,7 @@ package intMul_WS;
 
   interface Put acc_from_north;
     method Action put(Bit#(out_width) acc);
-      $display($time,"N-> Systolic[%d][%d] Receiving acc_input: %d",row,col,acc);
+      //$display($time,"N-> Systolic[%d][%d] Receiving acc_input: %d",row,col,acc);
       rg_input_acc <= tagged Valid acc;
     endmethod
   endinterface

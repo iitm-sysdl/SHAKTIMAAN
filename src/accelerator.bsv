@@ -208,22 +208,21 @@ package accelerator;
 		//2 port SRAMs are not required for Input and Output Buffer -- TODO: Optimize it 
 
 		//(*mutually_exclusive = "rl_recv_read_req_ibuf_from_compute, rl_recv_read_req_wbuf_from_compute"*)
-		rule rl_recv_read_req_ibuf_from_compute;
-			Vector#(nRow, SRAMKRdReq#(if_index)) request <- gemm_module.get_inp_addr();
-			for(Integer i = 0; i < vnRow; i=i+1) begin
-				if(request[i].valid)begin
-					buffers.ibuf[i].portB.request.put(makeRequest(False, request[i].index, ?));
+		for(Integer i=0; i<vnRow; i=i+1)begin
+			rule rl_recv_read_req_ibuf_from_gemm;
+				let req <- gemm_module.get_inp_addr[i].get();
+				if(req.valid)begin
+					buffers.ibuf[i].portB.request.put(makeRequest(False, req.index, ?));
 				end
-			end
-		endrule
-		
-		//(*mutually_exclusive = "rl_send_read_rsp_ibuf_compute, rl_send_read_rsp_wbuf_compute"*)
-		rule rl_send_read_rsp_ibuf_compute;
-			for(Integer i = 0; i < vnRow; i=i+1) begin
-				let val <- buffers.ibuf[i].portB.response.get();
-				gemm_module.put_inp_resp[i].put(val);
-			end
-		endrule
+			endrule
+		end
+
+		for(Integer i=0; i<vnRow; i=i+1)begin
+			rule rl_send_read_resp_ibuf_to_gemm;
+				let value <- buffers.ibuf[i].portB.response.get();
+				gemm_module.put_inp_resp[i].put(value);
+			endrule
+		end
 
 		FIFOF#(Dim1) ff_wt_valid_cols <- mkFIFOF();
 

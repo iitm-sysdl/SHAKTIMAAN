@@ -1,5 +1,5 @@
 package Soc;
-
+	`define VERBOSITY 0
 	import accelerator :: *;
 	import bram :: *;
 	import Semi_FIFOF :: *;
@@ -10,7 +10,7 @@ package Soc;
 
 	`define ADDR_WIDTH 32
 	`define BUS_WIDTH 128
-	`define ADDR_SPACE 28
+	`define ADDR_SPACE 25
 
 	function Bit#(TLog#(`Num_slaves)) fn_slave_map (Bit#(`ADDR_WIDTH) addr);
     Bit#(TLog#(`Num_slaves)) slave_num = 0;
@@ -48,9 +48,9 @@ package Soc;
                        awsize: 0, awburst: 'b01, awid: `CPU_master, awprot: ?};
       m_xactor.i_wr_addr.enq(write_addr);
      
-			Bit#(128) lv_value = 0;
-			//lv_value[`ADDR_WIDTH-1:0] = `MemoryBase;
-			//lv_value[16+`ADDR_WIDTH-1:`ADDR_WIDTH] = 3;
+			Bit#(128) lv_value = (3 << 32) | ('h00800000) ;//'h0123456789ABCDEFFEDCBA9876543210;
+//			lv_value[`ADDR_WIDTH-1:0] = fromInteger(`MemoryBase);
+//			lv_value[16+`ADDR_WIDTH-1:`ADDR_WIDTH] = fromInteger(3);
 
 			AXI4_Wr_Data#(`BUS_WIDTH) write_data = AXI4_Wr_Data {wdata: lv_value, wstrb: 'b1, wlast: True, wid: `CPU_master};
 			m_xactor.i_wr_data.enq(write_data);

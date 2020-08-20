@@ -177,7 +177,7 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 							//!params.is_reset &&&
 							rg_load_requests);
 
-		let lv_read_request = AXI4_Rd_Addr {araddr: rg_dram_addr, arid: `rd_req_id, arlen: rg_burst_len,
+		let lv_read_request = AXI4_Rd_Addr {araddr: rg_dram_addr, arid: `Load_master, arlen: rg_burst_len,
 							arsize: 'b011, arburst: 'b01, aruser: 0, arprot: ?};
 
 		//TODO: replace the multipliers in the below logic with shift operations
@@ -198,10 +198,11 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 		rg_sram_addr <= rg_sram_addr + zeroExtend(pack(params.z_size) << (params.bitwidth ? ibuf_shift : obuf_shift));
 
     m_xactor.i_rd_addr.enq(lv_read_request);
+		$display($time, "Request for address %x: [%x, %x]", rg_dram_addr, rg_x_cntr, rg_y_cntr);
 	endrule
 	
 	rule rl_start_write(rg_params matches tagged Valid .params &&&
-						m_xactor.o_rd_data.first.rid == `rd_req_id &&&
+						m_xactor.o_rd_data.first.rid == `Load_master &&&
 						m_xactor.o_rd_data.first.rresp==AXI4_OKAY);
 
 		let lv_resp <- pop_o(m_xactor.o_rd_data);
@@ -216,12 +217,14 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
     else begin
 			ff_dest_addr.deq;
       rg_z_cntr <= params.z_size - 1;
+			$display($time, "end of [%x, %x]", rg_x_cntr, rg_y_cntr);
       if(rg_x_cntr == 0 && rg_y_cntr == 0)begin
         rg_finish_load <= True;
       end
 		end
 		/*----code for writing into buffer----*/
-		
+
+		$display($time, "Received response for %x, values: %x", lv_sram_addr, lv_data);
 		if(is_address_within_range(`IBUF_START, `IBUF_END, lv_sram_addr))begin //loading inputs -- //condn. yet to be defined based on sram address
 			Bit#(if_index) inp_index;
       Bit#(if_bank) inp_bufferbank;
@@ -250,6 +253,9 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 
 	interface Put subifc_put_loadparams;
 		method Action put(Load_params#(ld_pad) parameters) if(rg_params matches tagged Invalid &&& rg_finish_load);
+			$display($time, "Received LOAD ,dram: %x, sram: %x, [%d, %d, %d], [%d, %d]", parameters.dram_address,
+				parameters.sram_address, parameters.x_size, parameters.y_size, parameters.z_size,
+				parameters.z_stride, parameters.y_stride);
 			rg_finish_load <= False;
 			rg_params <= tagged Valid parameters;
 			rg_dram_addr <= parameters.dram_address;
@@ -273,6 +279,7 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 	interface Get subifc_send_loadfinish;
 		method ActionValue#(Bool) get if(rg_params matches tagged Valid .params &&&
                                      !rg_load_requests &&& rg_finish_load);
+			rg_params <= tagged Invalid;
 			return True;
 		endmethod
 	endinterface

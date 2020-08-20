@@ -59,6 +59,7 @@ typedef struct
 {
   Bit#(a) index;
   Bool valid;
+	Bool pad_zero;
 } SRAMKRdReq#(numeric type a) deriving(Bits, Eq, FShow);
 
 typedef struct
@@ -76,10 +77,10 @@ typedef enum{
 } Opcode deriving(Bits, Eq, FShow);
 
 typedef struct {
-    Bool push_prev_dep;
     Bool pop_prev_dep;
-    Bool push_next_dep;
+    Bool push_prev_dep;
     Bool pop_next_dep;
+    Bool push_next_dep;
 } Dep_flags deriving(Bits, Eq, FShow);
 
 typedef enum {
