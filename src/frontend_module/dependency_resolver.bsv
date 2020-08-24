@@ -90,9 +90,9 @@ package dependency_resolver;
     function Action fn_push_next(FIFOF#(Dep_flags) flag_queue, FIFOF#(Bool) next_queue);
       action
 				Dep_flags flags = flag_queue.first;
-				$display($time, "Pushing LD->GEMM", flags, flags.push_next_dep);
 				if(flags.push_next_dep)begin
 					next_queue.enq(True);
+				$display($time, "Pushing LD->GEMM", flags, flags.push_next_dep);
 				end
 			endaction
     endfunction
@@ -173,7 +173,6 @@ package dependency_resolver;
         if(fn_resolve_prev_pop(ff_gemm_queue, ff_load_to_gemm) &&
            fn_resolve_next_pop(ff_gemm_queue, ff_alu_to_gemm));
         ff_gemm_params.deq();
-				$display($time, "Received GEMM complete");
         return ff_gemm_params.first;
       endmethod
     endinterface
@@ -183,6 +182,7 @@ package dependency_resolver;
         fn_push_prev(ff_gemm_queue, ff_gemm_to_load);
         fn_push_next(ff_gemm_queue, ff_gemm_to_alu);
         ff_gemm_queue.deq();
+				$display($time, "Received GEMM complete");
       endmethod
     endinterface
   

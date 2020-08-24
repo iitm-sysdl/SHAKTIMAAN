@@ -165,23 +165,25 @@ int main()
 		//addr ++;
 	}
 
-	FILE *f = fopen("./code.mem", "w");
+	FILE *f = fopen("../src/code.mem", "w");
 
-	fprintf(f, "8000010000400000\n");
-	fprintf(f, "0202040404100000\n");
-	fprintf(f, "8100010800800000\n");
-	fprintf(f, "0044040404100000\n");
-	fprintf(f, "A800000000000040\n");
-	fprintf(f, "4080808888880000\n");
+	//for(int i=0; i<0x180000; i++)
+	//	fprintf(f, "0000000000000000\n");
+	// Code mem should have the same width for each line! That's the issue.. Each line is buswidth
+	// Yeah every line should be like these 3 I think 
+	// There?
+	fprintf(f, "80008100004000000202040404100000\n");
+	fprintf(f, "81008108008000000044040404100000\n");
+	fprintf(f, "A8000000000000404080808800000000\n");
 
-	for(int i=0; i<8186; i++)
-		fprintf(f, "0000000000000000\n");
+	for(int i=0; i<4093; i++)
+		fprintf(f, "ab000000000000000000000000000000\n");
 	
 	unsigned char* wt = (unsigned char*) input;
 
-	for(int i=0; i<256; i++)
+	for(int i=0; i<128; i++)
 	{
-		for(int j=0; j<4; j++)
+		for(int j=0; j<8; j++)
 			for(int k=0; k<2; k++)
 			{
 				fprintf(f, "%.2x", k==0 ? *(wt+1) : *(wt-1));
@@ -192,9 +194,9 @@ int main()
 	}
 
 	wt = (unsigned char*) weight;
-	for(int i=0; i<64; i++)
+	for(int i=0; i<32; i++)
 	{
-		for(int j=0; j<4; j++)
+		for(int j=0; j<8; j++)
 			for(int k=0; k<2; k++)
 			{
 				fprintf(f, "%.2x", k==0 ? *(wt+1) : *(wt-1));
@@ -203,8 +205,8 @@ int main()
 		fprintf(f, "\n");
 	}
 
-	for(int i=8512; i<33554432; i++)
-		fprintf(f, "0000000000000000\n");
+	for(int i=4256; i<16777216; i++)
+		fprintf(f, "%.8x000000000000000000000000\n", i);
 
 	fclose(f);
 	return 0;

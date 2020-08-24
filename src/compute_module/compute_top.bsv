@@ -47,7 +47,8 @@ package compute_top;
              //Add#(a__, in_width, TMul#(in_width, 2),
 						 Add#(b__, in_width, out_width),
 						 //provisos for compiler
-						 Add#(4, a__, if_index)
+						 Add#(4, a__, if_index),
+						 Add#(8, c__, wt_index)
              );
 
     let ibuf_index = valueOf(if_index);
@@ -67,7 +68,8 @@ package compute_top;
 
     Reg#(Maybe#(Compute_params#(if_index, of_index, wt_index, cp_pad))) rg_params <- mkReg(tagged Invalid);
     Reg#(Bool) rg_weightload <- mkReg(False);
-    
+		Reg#(Bool) rg_weightload_req <- mkReg(False);
+
     Reg#(SRAM_index#(wt_index)) rg_wt_addr <- mkReg(?);
     
     Reg#(SRAM_index#(if_index)) rg_inp_row_addr <- mkReg(?);
@@ -101,8 +103,7 @@ package compute_top;
     Ifc_systolic#(nRow, nCol, in_width, out_width) systolic <- mksystolic; 
 
     rule rl_send_wt_req(rg_params matches tagged Valid .params &&&
-                        rg_weightload &&&
-                        rg_wt_cntr >= 0);
+                        rg_weightload_req);
 
 			wr_wt_req <= rg_wt_addr;
     endrule
@@ -115,7 +116,7 @@ package compute_top;
         if(rg_valid_col[i])begin
           //send 0 to column i of systolic array
           systolic.cfifo[i].send_acc_value(0);
-					$display($time, "Sending 0 to column [%d], count: %d", i, rg_zero_cntr);
+					//$display($time, "Sending 0 to column [%d], count: %d", i, rg_zero_cntr);
         end
       end
 			rg_zero_cntr <= rg_zero_cntr - 1;
@@ -249,10 +250,13 @@ package compute_top;
   
     method ActionValue#(Tuple2#(SRAM_index#(wt_index), Dim1)) get_wt_addr
       if(rg_params matches tagged Valid .params &&&
-         rg_wt_cntr >= 0);
-			rg_wt_addr <= rg_wt_addr + 1;
-      rg_wt_cntr <= rg_wt_cntr - 1;
+         rg_wt_cntr < params.active_rows);
+			rg_wt_addr <= rg_wt_addr - 1;
+      rg_wt_cntr <= rg_wt_cntr + 1;
       ff_wt_coord.enq(rg_wt_cntr);
+			if(rg_wt_cntr == params.active_rows-1)begin
+				rg_weightload_req <= False;
+			end
       return tuple2(wr_wt_req, params.active_cols);
     endmethod
 
@@ -263,12 +267,11 @@ package compute_top;
       for(Integer i=0; i<cols; i=i+1)begin
         if(fromInteger(i) < params.active_cols)begin
           //send weight to systolic
-					systolic.cfifo[i].send_colbuf_value(tuple4(tagged Valid weights[i], 0, 0, 0));
+					systolic.cfifo[i].send_colbuf_value(tuple4(tagged Valid weights[i], 0, coord+1, 0));
         end
       end
       ff_wt_coord.deq();
-			$display($time, "Sending weight values");
-      if(coord == 0)begin
+      if(coord == params.active_rows-1)begin
         rg_weightload <= False;
       end
     endmethod
@@ -280,8 +283,9 @@ package compute_top;
 				rg_which_buffer <= True; //params.output_address <= `OBUF1_END; TODO: encode which buffer in the instruction
 
         rg_weightload <= True;
-        rg_wt_addr <= params.weight_address;
-        rg_wt_cntr <= params.active_rows - 1;
+        rg_weightload_req <= True;
+				rg_wt_addr <= params.weight_address + zeroExtend(params.active_rows) - 1;
+        rg_wt_cntr <= 0;
 
         rg_h_cntr <= 0;
         rg_w_cntr <= 0;
@@ -309,7 +313,7 @@ package compute_top;
 
         let time_values = params.ofmap_width * params.ofmap_height;
 
-				$display($time, "Received GEMM params", params.ofmap_width, params.ofmap_height);
+				$display($time, "Received GEMM params", params.ofmap_width, params.ofmap_height, time_values);
         if(params.preload_output)begin
           for(Integer i=0; i<cols; i=i+1)begin
             rg_old_out_cntr[i] <= time_values;

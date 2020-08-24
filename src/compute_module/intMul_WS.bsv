@@ -77,7 +77,9 @@ package intMul_WS;
     Bit#(1) pp_sign[4];
     Bit#(out_width) output_mul = extend(unpack(north))*extend(unpack(west)); 
     acc_output <= pack(output_mul + unpack(input_acc));
-    //$display($time,"MulAdd[%d][%d]: acc: %d input: %d weight: %d output_mul:%d \n",row,col,input_acc,west,north,output_mul);
+    if(col==0)begin
+			$display($time,"MulAdd[%d][%d]: acc: %d input: %d weight: %d output_mul:%d \n",row,col,input_acc,west,north,output_mul);
+		end
     //$display($time,"\t input_acc: %d",input_acc);
     rg_west <= tagged Invalid;
     rg_acc_flow_ctrl <= True;
@@ -89,8 +91,10 @@ package intMul_WS;
       rg_counter   <= tpl_2(inp);
       rg_bitWidth  <= tpl_3(inp);
       rg_flow_ctrl <= True;
-      Bit#(in_width) x = fromMaybe(0,tpl_1(inp));
-      //$display($time,"N-> Systolic[%h][%h]: Receiving Weight: %d coord:%h rg_coord: %h",row,col,x,tpl_2(inp), rg_coord); 
+      Bit#(in_width) x = validValue(tpl_1(inp));
+			if(col==0)begin
+				$display($time,"N-> Systolic[%h][%h]: Receiving Weight: %d coord:%h rg_coord: %h",row,col,x,tpl_2(inp), rg_coord); 
+			end
     endmethod
   endinterface
 
