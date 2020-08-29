@@ -135,6 +135,7 @@ package dependency_resolver;
         ALU_params#(of_index, alu_pad) alu_params = unpack(pack(params));
         ff_alu_queue.enq(flags);
         ff_alu_params.enq(alu_params);
+				$display($time, "Sending ALU params");
       endmethod
     endinterface
   
@@ -200,6 +201,7 @@ package dependency_resolver;
         fn_push_prev(ff_alu_queue, ff_alu_to_gemm);
         fn_push_next(ff_alu_queue, ff_alu_to_store);
         ff_alu_queue.deq();
+				$display($time, "Received ALU complete");
       endmethod
     endinterface
   

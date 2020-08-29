@@ -67,7 +67,7 @@ typedef struct alu{
 	unsigned int immediate_value : 8;
 	unsigned int padding : 23;
 } ALU_params;
-
+	
 int main()
 {
 	printf("Load: %d\n", sizeof(Load_params));
@@ -175,8 +175,9 @@ int main()
 	fprintf(f, "80008100004000000202040404100000\n");
 	fprintf(f, "81008108008000000044040404100000\n");
 	fprintf(f, "A8000000000000404080808800000000\n");
+	fprintf(f, "B9000000000808110001011000000000\n");
 
-	for(int i=0; i<4093; i++)
+	for(int i=0; i<4092; i++)
 		fprintf(f, "ab000000000000000000000000000000\n");
 	
 	unsigned char* wt = (unsigned char*) input;
