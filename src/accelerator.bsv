@@ -164,7 +164,6 @@ package accelerator;
 						buffers.ibuf[i*iWords+j].portA.request.put(makeRequest(True, truncate(req.index), req.data[(iWords-j)*iWidth-1:(iWords-1-j)*iWidth]));
 					end
 				end
-				//$display($time, "loading ibuf: bank: %d, index:%d %x", i*iWords, req.index, req.data);
 				ff_ld_module_requests.deq();
 			endrule
 		end
@@ -175,7 +174,6 @@ package accelerator;
 				for(Integer j=0; j<iWords; j=j+1)begin
 					if(fromInteger(j) < req.num_valid)begin
 						buffers.wbuf[i*iWords+j].portA.request.put(makeRequest(True, truncate(req.index), req.data[(iWords-j)*iWidth-1:(iWords-j-1)*iWidth]));
-				//$display($time, "loading wbuf: bank: %d, index:%d, %x", i*iWords+j, req.index, req.data);
 					end
 				end
 				ff_ld_module_requests.deq();
@@ -216,7 +214,6 @@ package accelerator;
 				let req <- gemm_module.get_inp_addr[i].get();
 				if(req.valid)begin
 					buffers.ibuf[i].portB.request.put(makeRequest(False, req.index, ?));
-					//$display($time, "Read req from GEMM for IBUF bank %d index %h", i, req.index);
 				end
 			endrule
 		end
@@ -225,7 +222,6 @@ package accelerator;
 			rule rl_send_read_resp_ibuf_to_gemm;
 				let value <- buffers.ibuf[i].portB.response.get();
 				gemm_module.put_inp_resp[i].put(value);
-				//$display($time, "Read resp from IBUF bank %d, value: %h", i, value);
 			endrule
 		end
 
@@ -238,7 +234,6 @@ package accelerator;
 					buffers.wbuf[i].portB.request.put(makeRequest(False, index, ?));
 				end
 			end
-			//$display($time, "Read req from GEMM for WBUF index %d", index);
 			ff_wt_valid_cols.enq(num_valid);
 		endrule
 
@@ -248,7 +243,6 @@ package accelerator;
 			for(Integer i = 0; i < vnCol; i=i+1) begin
 				if(fromInteger(i) < num_valid)begin
 					weights[i] <- buffers.wbuf[i].portB.response.get();
-			//$display($time, "Read resp from WBUF, bank: %d, value: %h", i, weights[i]);
 				end
 			end
 			gemm_module.put_wt_resp(weights);
@@ -318,7 +312,7 @@ package accelerator;
 		FIFOF#(Tuple2#(Dim1, Bool)) ff_num_active_talu <- mkFIFOF();
 
 		rule rl_recv_req_from_talu;
-			let req = tensor_alu.mv_send_req_op();
+			let req <- tensor_alu.mv_send_req_op();
 			ff_req_in_tensor_alu.enq(req);
 		endrule
 

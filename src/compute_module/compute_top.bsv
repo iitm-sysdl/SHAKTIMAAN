@@ -115,7 +115,6 @@ package compute_top;
       for(Integer i=0; i<cols; i=i+1)begin
         if(rg_valid_col[i])begin
           systolic.subifc_cols[i].subifc_put_acc.put(0);
-					//$display($time, "Sending 0 to column [%d], count: %d", i, rg_zero_cntr);
         end
       end
 			rg_zero_cntr <= rg_zero_cntr - 1;
@@ -167,7 +166,6 @@ package compute_top;
       ifc_put_input[i] = (
         interface Put;
           method Action put(Bit#(in_width) value);
-						$display($time, "sending value to systolic row %d", i);
             systolic.subifc_rows[i].subifc_put_inp.put(tagged Valid value);
           endmethod
         endinterface
@@ -190,13 +188,12 @@ package compute_top;
     for(Integer i=0; i<cols; i=i+1)begin
       ifc_get_new_output[i] = (
         interface Get;
-          method ActionValue#(SRAMKWrReq#(of_index, out_width)) get if(rg_valid_col[i]);
+          method ActionValue#(SRAMKWrReq#(of_index, out_width)) get if(rg_valid_col[i] && rg_new_out_cntr > 0);
             let value <- systolic.subifc_cols[i].subifc_get_acc.get();
 						rg_new_out_addr[i] <= rg_new_out_addr[i] + 1;
 						if(i==cols-1)begin
 							rg_new_out_cntr <= rg_new_out_cntr - 1;
 						end
-						$display($time, "Column %d: receiving output: %d, pending: %d", i, value, rg_new_out_cntr);
             return SRAMKWrReq{index: rg_new_out_addr[i], data: value, valid: rg_which_buffer};
           endmethod
         endinterface
@@ -222,7 +219,6 @@ package compute_top;
 					method ActionValue#(SRAMKRdReq#(if_index)) get;
 						if(wr_inp_addr[i].pad_zero)begin
 							systolic.subifc_rows[i].subifc_put_inp.put(tagged Valid 0);
-							//$display($time, "Sending input to column [%d], value: 0", i);
 						end
 						return wr_inp_addr[i];
 					endmethod

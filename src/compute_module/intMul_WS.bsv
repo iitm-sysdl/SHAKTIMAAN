@@ -90,13 +90,8 @@ package intMul_WS;
 		output_mul = output_mul + unpack(input_acc);
     acc_output <= pack(output_mul);
     rg_acc_flow_ctrl <= True;
-		if(row==15 && col==15)
-			$display($time, "MAC: [%d][%d], %d, %d, %d, %d", row, col, north, west, input_acc, output_mul);
   endrule
 	
-	rule rl_valid(row==15 && col==15);
-		$display($time, row, col, isValid(rg_north), isValid(rg_west), isValid(rg_input_acc));
-	endrule
   interface Put subifc_put_wgt;
     method Action put(Tuple2#(Maybe#(Bit#(in_width)),Bit#(8)) inp);
       rg_north     <= tpl_1(inp);
@@ -113,8 +108,6 @@ package intMul_WS;
 
   interface Get subifc_get_acc;
     method ActionValue#(Bit#(out_width)) get;
-			if(row==15 && col==15)
-      $display($time, "[%d][%d], output acc: %d", row, col, acc_output);
 			return acc_output;
     endmethod
   endinterface
@@ -122,8 +115,6 @@ package intMul_WS;
   interface Put subifc_put_inp;
     method Action put(Maybe#(Bit#(in_width)) rowW);
       rg_west <= rowW;
-			if(row==15)
-				$display($time, "sending value %d to col %d", validValue(rowW), col);
       rg_hor_flow_ctrl <= True;
     endmethod
   endinterface
