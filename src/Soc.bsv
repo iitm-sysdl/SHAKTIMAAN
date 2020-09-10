@@ -48,7 +48,7 @@ package Soc;
                        awsize: 0, awburst: 'b01, awid: `CPU_master, awprot: ?};
       m_xactor.i_wr_addr.enq(write_addr);
      
-			Bit#(128) lv_value = (4 << 32) | ('h00800000) ;//'h0123456789ABCDEFFEDCBA9876543210;
+			Bit#(128) lv_value = (5 << 32) | ('h00800000) ;//'h0123456789ABCDEFFEDCBA9876543210;
 //			lv_value[`ADDR_WIDTH-1:0] = fromInteger(`MemoryBase);
 //			lv_value[16+`ADDR_WIDTH-1:`ADDR_WIDTH] = fromInteger(3);
 

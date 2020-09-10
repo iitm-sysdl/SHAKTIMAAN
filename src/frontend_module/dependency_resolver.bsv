@@ -92,7 +92,6 @@ package dependency_resolver;
 				Dep_flags flags = flag_queue.first;
 				if(flags.push_next_dep)begin
 					next_queue.enq(True);
-				$display($time, "Pushing LD->GEMM", flags, flags.push_next_dep);
 				end
 			endaction
     endfunction
@@ -102,7 +101,6 @@ package dependency_resolver;
         Dep_flags flags = tpl_1(ins);
         Params params   = tpl_2(ins);
         Load_params#(ld_pad) ld_params = unpack(pack(params));
-				$display($time, "Sending Load params", flags.pop_prev_dep, flags.push_prev_dep, flags.pop_next_dep, flags.push_next_dep);
         ff_load_queue.enq(flags);
         ff_load_params.enq(ld_params);
       endmethod
@@ -141,14 +139,12 @@ package dependency_resolver;
     interface Get ifc_get_load_instruction;
       method ActionValue#(Load_params#(ld_pad)) get if(fn_resolve_next_pop(ff_load_queue, ff_gemm_to_load));
         ff_load_params.deq();
-				$display($time, "Sending LD instruction to module");
         return ff_load_params.first;
       endmethod
     endinterface
   
     interface Put ifc_put_load_complete;
       method Action put(Bool complete);
-				$display($time, "Received LD complete");
         fn_push_next(ff_load_queue, ff_load_to_gemm);
         ff_load_queue.deq();
       endmethod
@@ -182,7 +178,6 @@ package dependency_resolver;
         fn_push_prev(ff_gemm_queue, ff_gemm_to_load);
         fn_push_next(ff_gemm_queue, ff_gemm_to_alu);
         ff_gemm_queue.deq();
-				$display($time, "Received GEMM complete");
       endmethod
     endinterface
   
@@ -191,7 +186,6 @@ package dependency_resolver;
         if(fn_resolve_prev_pop(ff_alu_queue, ff_gemm_to_alu) &&
            fn_resolve_next_pop(ff_alu_queue, ff_store_to_alu));
         ff_alu_params.deq();
-				$display($time, "Sending ALU params");
         return ff_alu_params.first;
       endmethod
     endinterface
@@ -201,7 +195,6 @@ package dependency_resolver;
         fn_push_prev(ff_alu_queue, ff_alu_to_gemm);
         fn_push_next(ff_alu_queue, ff_alu_to_store);
         ff_alu_queue.deq();
-				$display($time, "Received ALU complete");
       endmethod
     endinterface
   

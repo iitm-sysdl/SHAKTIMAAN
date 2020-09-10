@@ -3,6 +3,14 @@ CHANGELOG
 
 This project adheres to `Semantic Versioning <https://semver.org/spec/v2.0.0.html>`_
 
+[0.2.0] - 2020-09-10
+--------------------
+Changed
+^^^^^^^
+- First draft of full accelerator
+- Basic verification completed
+- Able to simulate and sythesize on FPGA
+
 [0.1.4] - 2020-04-13
 --------------------
 Changed
