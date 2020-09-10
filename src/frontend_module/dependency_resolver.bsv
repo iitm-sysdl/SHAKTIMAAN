@@ -159,7 +159,7 @@ package dependency_resolver;
   
     interface Put ifc_put_store_complete;
       method Action put(Bool complete);
-        fn_push_prev(ff_store_queue, ff_store_to_alu);
+				fn_push_prev(ff_store_queue, ff_store_to_alu);
         ff_store_queue.deq();
       endmethod
     endinterface

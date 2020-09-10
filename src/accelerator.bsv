@@ -76,6 +76,7 @@ package accelerator;
              //Mul#(2, of_index, m__), Mul#(7, d1, n__), Mul#(2, d2, o__),
              //Add#(m__, n__, p__), Add#(p__, o__, q__), Mul#(3, boo, r__),
              //Add#(q__, r__, s__), Add#(s__, alu_pad, 120),
+						 Mul#(i__, 8, data_width), Add#(8, lm__, wt_index),
 						 Add#(sram_addr_width, 0, 26), Add#(dram_addr_width, 0, 32),
 						 Add#(8, xa__, of_index),
 						 Add#(8, xb__, out_width),
@@ -160,7 +161,7 @@ package accelerator;
 				let req = ff_ld_module_requests.first;
 				for(Integer j=0; j<iWords; j=j+1)begin
 					if(fromInteger(j) < req.num_valid)begin
-						buffers.ibuf[i*iWords+j].portA.request.put(makeRequest(True, truncate(req.index), req.data[(j+1)*iWidth-1:j*iWidth]));
+						buffers.ibuf[i*iWords+j].portA.request.put(makeRequest(True, truncate(req.index), req.data[(iWords-j)*iWidth-1:(iWords-1-j)*iWidth]));
 					end
 				end
 				ff_ld_module_requests.deq();
@@ -172,7 +173,7 @@ package accelerator;
 				let req = ff_ld_module_requests.first;
 				for(Integer j=0; j<iWords; j=j+1)begin
 					if(fromInteger(j) < req.num_valid)begin
-						buffers.wbuf[i*iWords+j].portA.request.put(makeRequest(True, truncate(req.index), req.data[(j+1)*iWidth-1:j*iWidth]));
+						buffers.wbuf[i*iWords+j].portA.request.put(makeRequest(True, truncate(req.index), req.data[(iWords-j)*iWidth-1:(iWords-j-1)*iWidth]));
 					end
 				end
 				ff_ld_module_requests.deq();
@@ -184,7 +185,7 @@ package accelerator;
 				let req = ff_ld_module_requests.first;
 				for(Integer j=0; j<oWords; j=j+1)begin
 					if(fromInteger(j) < req.num_valid)begin
-						buffers.obuf1[i*oWords+j].portB.request.put(makeRequest(True, truncate(req.index), req.data[(j+1)*oWidth-1:j*oWidth]));
+						buffers.obuf1[i*oWords+j].portB.request.put(makeRequest(True, truncate(req.index), req.data[(oWords-j)*oWidth-1:(oWords-j-1)*oWidth]));
 					end
 				end
 				ff_ld_module_requests.deq();
@@ -196,7 +197,7 @@ package accelerator;
 				let req = ff_ld_module_requests.first;
 				for(Integer j=0; j<oWords; j=j+1)begin
 					if(fromInteger(j) < req.num_valid)begin
-						buffers.obuf2[i*oWords+j].portB.request.put(makeRequest(True, truncate(req.index), req.data[(j+1)*oWidth-1:j*oWidth]));
+						buffers.obuf2[i*oWords+j].portB.request.put(makeRequest(True, truncate(req.index), req.data[(oWords-j)*oWidth-1:(oWords-j-1)*oWidth]));
 					end
 				end
 				ff_ld_module_requests.deq();
@@ -208,22 +209,21 @@ package accelerator;
 		//2 port SRAMs are not required for Input and Output Buffer -- TODO: Optimize it 
 
 		//(*mutually_exclusive = "rl_recv_read_req_ibuf_from_compute, rl_recv_read_req_wbuf_from_compute"*)
-		rule rl_recv_read_req_ibuf_from_compute;
-			Vector#(nRow, SRAMKRdReq#(if_index)) request <- gemm_module.get_inp_addr();
-			for(Integer i = 0; i < vnRow; i=i+1) begin
-				if(request[i].valid)begin
-					buffers.ibuf[i].portB.request.put(makeRequest(False, request[i].index, ?));
+		for(Integer i=0; i<vnRow; i=i+1)begin
+			rule rl_recv_read_req_ibuf_from_gemm;
+				let req <- gemm_module.get_inp_addr[i].get();
+				if(req.valid)begin
+					buffers.ibuf[i].portB.request.put(makeRequest(False, req.index, ?));
 				end
-			end
-		endrule
-		
-		//(*mutually_exclusive = "rl_send_read_rsp_ibuf_compute, rl_send_read_rsp_wbuf_compute"*)
-		rule rl_send_read_rsp_ibuf_compute;
-			for(Integer i = 0; i < vnRow; i=i+1) begin
-				let val <- buffers.ibuf[i].portB.response.get();
-				gemm_module.put_inp_resp[i].put(val);
-			end
-		endrule
+			endrule
+		end
+
+		for(Integer i=0; i<vnRow; i=i+1)begin
+			rule rl_send_read_resp_ibuf_to_gemm;
+				let value <- buffers.ibuf[i].portB.response.get();
+				gemm_module.put_inp_resp[i].put(value);
+			endrule
+		end
 
 		FIFOF#(Dim1) ff_wt_valid_cols <- mkFIFOF();
 
@@ -240,7 +240,7 @@ package accelerator;
 		rule rl_send_read_rsp_wbuf_compute;
 			Vector#(nCol, Bit#(in_width)) weights = replicate(0);
 			let num_valid = ff_wt_valid_cols.first;
-			for(Integer i = 0; i < vnRow; i=i+1) begin
+			for(Integer i = 0; i < vnCol; i=i+1) begin
 				if(fromInteger(i) < num_valid)begin
 					weights[i] <- buffers.wbuf[i].portB.response.get();
 				end
@@ -312,7 +312,7 @@ package accelerator;
 		FIFOF#(Tuple2#(Dim1, Bool)) ff_num_active_talu <- mkFIFOF();
 
 		rule rl_recv_req_from_talu;
-			let req = tensor_alu.mv_send_req_op();
+			let req <- tensor_alu.mv_send_req_op();
 			ff_req_in_tensor_alu.enq(req);
 		endrule
 

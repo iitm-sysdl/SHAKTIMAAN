@@ -67,7 +67,7 @@ typedef struct alu{
 	unsigned int immediate_value : 8;
 	unsigned int padding : 23;
 } ALU_params;
-
+	
 int main()
 {
 	printf("Load: %d\n", sizeof(Load_params));
@@ -120,7 +120,7 @@ int main()
 	ld_1 -> dram_address2 = ((uint32_t) weight) & 0xff;
 	ld_1 -> sram_address1 = (WBUF_START >> 2);
 	ld_1 -> sram_address2 = (WBUF_START & 3);
-	ld_1 -> x_size = 9;
+	ld_1 -> x_size = 1;
 	ld_1 -> y_size = 16;
 	ld_1 -> z_size = 16;
 	ld_1 -> z_stride1 = 16 >> 2;
@@ -153,8 +153,63 @@ int main()
 
 	printf("%x %x %x\n", ins, ins+16, ins+32);
 
-	unsigned long long *config_addr = CONFIG_ADDR;
-	*config_addr = ins;
+	//unsigned long long *config_addr = CONFIG_ADDR;
+	//*config_addr = ins;
+	//FILE *f = fopen("./code.mem", 'w');
+	unsigned char *addr = gemm_1;
 
+	for(int i=0; i<16; i++)
+	{
+		printf("%.2x\n", *(addr++));
+		//printf("%x %d\n", *((unsigned int*)addr), addr);
+		//addr ++;
+	}
+
+	FILE *f = fopen("../src/code.mem", "w");
+
+	//for(int i=0; i<0x180000; i++)
+	//	fprintf(f, "0000000000000000\n");
+	// Code mem should have the same width for each line! That's the issue.. Each line is buswidth
+	// Yeah every line should be like these 3 I think 
+	// There?
+	fprintf(f, "80008100004000000202040404100000\n");
+	fprintf(f, "81008108008000000044040404100000\n");
+	fprintf(f, "A9000000000000404080808800000000\n");
+	fprintf(f, "B9000000000808110801001000000000\n");
+	fprintf(f, "9800810900C000000202040404000000\n");
+
+	for(int i=0; i<4092; i++)
+		fprintf(f, "ab000000000000000000000000000000\n");
+	
+	unsigned char* wt = (unsigned char*) input;
+
+	for(int i=0; i<128; i++)
+	{
+		for(int j=0; j<8; j++)
+			for(int k=0; k<2; k++)
+			{
+				fprintf(f, "%.2x", k==0 ? *(wt+1) : *(wt-1));
+				wt++;
+				//fprintf(f, "%.2x", k==1 ? 0xab : 0xcd);
+			}
+		fprintf(f, "\n");
+	}
+
+	wt = (unsigned char*) weight;
+	for(int i=0; i<32; i++)
+	{
+		for(int j=0; j<8; j++)
+			for(int k=0; k<2; k++)
+			{
+				fprintf(f, "%.2x", k==0 ? *(wt+1) : *(wt-1));
+				wt++;
+			}
+		fprintf(f, "\n");
+	}
+
+	for(int i=4256; i<16777216; i++)
+		fprintf(f, "%.8x000000000000000000000000\n", i);
+
+	fclose(f);
 	return 0;
 }

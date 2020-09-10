@@ -34,10 +34,11 @@ package fetch_decode;
  
   module mkfetch_decode(Ifc_fetch_decode#(addr_width, data_width))
     provisos(
-						 Add#(a__, 8, addr_width));
+						 Add#(a__, 8, addr_width),
+						 Add#(addr_width, 0, 32));
   
     Reg#(Bit#(addr_width)) rg_pc <- mkReg(?);
-    Reg#(Bit#(16)) rg_num_ins <- mkReg(?);
+    Reg#(Bit#(16)) rg_num_ins <- mkReg(0);
   
     Reg#(Bool) rg_complete <- mkReg(True);
   
@@ -67,11 +68,13 @@ package fetch_decode;
       Bool valid = lv_addr == `CONFIG_ADDR;
   
       if(valid)begin
-        rg_pc <= lv_data[valueOf(addr_width)-1:0];
-        rg_num_ins <= lv_data[16+valueOf(addr_width)-1:valueOf(addr_width)];
+				Bit#(32) addr = lv_data[valueOf(addr_width)-1:0];
+				rg_pc <= addr;
+        Bit#(16) ins_count = lv_data[16+valueOf(addr_width)-1:valueOf(addr_width)];
+				rg_num_ins <= ins_count;
         rg_complete <= False;
+				$display($time, "Setting systolic config: %x %x, data: %x", addr, ins_count, lv_data); 
       end
-       
       let resp = AXI4_Wr_Resp {bresp: AXI4_OKAY, buser: aw.awuser, bid:aw.awid};
       s_xactor.i_wr_resp.enq (resp);
     endrule
@@ -83,13 +86,14 @@ package fetch_decode;
     rule rl_send_request(rg_num_ins > 0);
       Bit#(8) burst_len = min(8'd255, truncate(rg_num_ins-1)); 
       
-      Bit#(addr_width) next_pc = rg_pc + zeroExtend(burst_len << 7);
+      Bit#(addr_width) next_pc = rg_pc + zeroExtend(burst_len << 4);
       rg_pc <= next_pc;
-      rg_num_ins <= rg_num_ins - zeroExtend(burst_len - 1);
+      rg_num_ins <= rg_num_ins - zeroExtend(burst_len + 1);
         
       let read_request = AXI4_Rd_Addr{ araddr: rg_pc, arid: `AXI_FETCH_MASTER, arlen: burst_len, arprot: ?, //TODO: fix arprot
                                        arsize: 3'b100, arburst: 2'b01, aruser: 0};
       m_xactor.i_rd_addr.enq(read_request);
+			$display($time, "Sending request for addr: %x, pending: %x", rg_pc, rg_num_ins-zeroExtend(burst_len-1));
     endrule
 
 
@@ -102,6 +106,8 @@ package fetch_decode;
       if(resp.rlast && rg_num_ins==0)begin
         rg_complete <= True;
       end
+
+			$display($time, "Received data: %x", inst);
   
       ff_fetch_data.enq(inst);
     endrule
@@ -113,10 +119,11 @@ package fetch_decode;
       Bit#(data_width) inst = ff_fetch_data.first;
       ff_fetch_data.deq();
   
-      Opcode opcode = unpack(inst[3:0]);
-      Params params = unpack(inst[127:8]); //Padded instruction parameters
-  
-      wr_flags <= unpack(inst[7:4]); //Dependency flags 
+      Opcode opcode = unpack(inst[127:124]);
+      Params params = unpack(inst[119:0]); //Padded instruction parameters
+			$display($time, "Decoding %x instruction: %x, %x, %x", opcode, params, inst[31:0], inst[123:120]);
+
+      wr_flags <= unpack(inst[123:120]); //Dependency flags 
       if(opcode == LOAD) begin
         wr_load <= params;
       end
@@ -140,6 +147,7 @@ package fetch_decode;
 
     interface Get ifc_get_load_params;
       method ActionValue#(Tuple2#(Dep_flags, Params)) get;
+				$display($time, "Sending params to load module %x, %x", wr_flags, wr_load);
         return tuple2(wr_flags, wr_load);
       endmethod
     endinterface
@@ -152,7 +160,8 @@ package fetch_decode;
   
     interface Get ifc_get_compute_params;
       method ActionValue#(Tuple2#(Dep_flags, Params)) get;
-        return tuple2(wr_flags, wr_compute);
+ 				$display($time, "Sending params to compute module %x, %x", wr_flags, wr_compute);
+				return tuple2(wr_flags, wr_compute);
       endmethod
     endinterface
   

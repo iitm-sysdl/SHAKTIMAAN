@@ -75,11 +75,12 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			Mul#(iwords, wt_data, data_width),
 			Mul#(owords, of_data, data_width),
       Max#(iwords, owords, max_words),
-      Log#(data_width, d_shift),
+			Mul#(data_bytes, 8, data_width),
 			Mul#(if_bytes, 8, if_data),
 			Mul#(wt_bytes, 8, wt_data),
 			Mul#(of_bytes, 8, of_data),
       Log#(if_bytes, if_shift),
+      Log#(data_bytes, d_shift),
       Log#(wt_bytes, wt_shift),
       Log#(of_bytes, of_shift),
       //Compiler generated
@@ -163,7 +164,6 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 	Reg#(Bool) rg_load_requests <- mkReg(False);
 
 	Reg#(Bool) rg_burst <- mkReg(False);
-	Reg#(SRAM_address) rg_burst_addr <- mkReg(0);
 	Reg#(Bool) rg_finish_load <- mkReg(True);
 
 	Wire#(SRAMReq#(max_index, max_bank, data_width)) wr_buffer_req <- mkWire();
@@ -172,20 +172,21 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 		return (start_addr <= query && query <= end_addr);
 	endfunction
 
+	Reg#(Maybe#(SRAM_address)) rg_burst_addr <- mkReg(tagged Invalid);
 	//LOAD from DRAM to SRAM
 	rule rl_start_dram_Read(rg_params matches tagged Valid .params &&&
 							//!params.is_reset &&&
 							rg_load_requests);
 
-		let lv_read_request = AXI4_Rd_Addr {araddr: rg_dram_addr, arid: `rd_req_id, arlen: rg_burst_len,
-							arsize: 'b011, arburst: 'b01, aruser: 0, arprot: ?};
+		let lv_read_request = AXI4_Rd_Addr {araddr: rg_dram_addr, arid: `Load_master, arlen: rg_burst_len,
+							arsize: 'b100, arburst: 'b01, aruser: 0, arprot: ?};
 
 		//TODO: replace the multipliers in the below logic with shift operations
 		if(rg_x_cntr == 0 && rg_y_cntr == 0) begin
 			rg_load_requests <= False;
 		end
 		else if(rg_y_cntr == 0) begin
-			rg_y_cntr <= params.y_size;
+			rg_y_cntr <= params.y_size - 1;
 			rg_x_cntr <= rg_x_cntr - 1;
 			rg_dram_addr <= rg_dram_addr + zeroExtend(pack(params.y_stride) << (params.bitwidth ? ibuf_shift : obuf_shift));
 		end
@@ -195,34 +196,45 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 		end
 
 		ff_dest_addr.enq(rg_sram_addr);
-		rg_sram_addr <= rg_sram_addr + zeroExtend(pack(params.z_size) << (params.bitwidth ? ibuf_shift : obuf_shift));
+		if(is_address_within_range(`IBUF_START, `IBUF_END, rg_sram_addr))
+			rg_sram_addr <= rg_sram_addr + (1 << ibuf_bankbits);
+		else if(is_address_within_range(`WBUF_START, `WBUF_END, rg_sram_addr))
+			rg_sram_addr <= rg_sram_addr + (1 << wbuf_bankbits);
+		else if(is_address_within_range(`OBUF_START, `OBUF_END, rg_sram_addr))
+			rg_sram_addr <= rg_sram_addr + (1 << obuf_bankbits);
 
     m_xactor.i_rd_addr.enq(lv_read_request);
+		//$display($time, "Request for address %x: [%x, %x]", rg_dram_addr, rg_x_cntr, rg_y_cntr);
 	endrule
 	
 	rule rl_start_write(rg_params matches tagged Valid .params &&&
-						m_xactor.o_rd_data.first.rid == `rd_req_id &&&
+						m_xactor.o_rd_data.first.rid == `Load_master &&&
 						m_xactor.o_rd_data.first.rresp==AXI4_OKAY);
 
 		let lv_resp <- pop_o(m_xactor.o_rd_data);
 		let lv_data = lv_resp.rdata;
-		let lv_sram_addr = ff_dest_addr.first;
+		SRAM_address lv_sram_addr;
+		if(isValid(rg_burst_addr))begin
+			lv_sram_addr = validValue(rg_burst_addr);
+		end
+		else begin
+			lv_sram_addr = ff_dest_addr.first;
+		end
 
 		if(!lv_resp.rlast) begin
-			SRAM_address lv_burst_addr = unpack(lv_sram_addr + (fromInteger(axi_width) >> 3));
-			
       rg_z_cntr <= rg_z_cntr - fromInteger(params.bitwidth ? iWords : oWords);
+			rg_burst_addr <= tagged Valid (lv_sram_addr + 
+				((fromInteger(axi_width) >> 3) >> (params.bitwidth ? ibuf_shift : obuf_shift)));
 		end
     else begin
 			ff_dest_addr.deq;
-      rg_z_cntr <= params.z_size - 1;
-      if(rg_x_cntr == 0 && rg_y_cntr == 0)begin
-        rg_finish_load <= True;
-      end
+			rg_burst_addr <= tagged Invalid;
+      rg_z_cntr <= params.z_size;
 		end
 		/*----code for writing into buffer----*/
-		
-		if(is_address_within_range(`IBUF_START, `IBUF_END, lv_sram_addr))begin //loading inputs -- //condn. yet to be defined based on sram address
+
+		//$display($time, "Received response for %x, values: %x", lv_sram_addr, lv_data);
+		if(is_address_within_range(`IBUF_START, `IBUF_END, lv_sram_addr))begin
 			Bit#(if_index) inp_index;
       Bit#(if_bank) inp_bufferbank;
       {inp_index, inp_bufferbank} = split_address_IBUF(lv_sram_addr);
@@ -245,34 +257,41 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 																	index: zeroExtend(out_index), bank: zeroExtend(out_bufferbank), data: lv_data, num_valid: num_valid};
 		end
 	endrule
-	
+
+	rule rl_send_finish(rg_params matches tagged Valid .params &&& !ff_dest_addr.notEmpty() &&& !rg_load_requests &&& !rg_finish_load);
+		rg_finish_load <= True;
+		//$display($time, "Load completed %d %d", isValid(rg_params), rg_finish_load);
+	endrule
+
   interface master = m_xactor.axi_side;
 
 	interface Put subifc_put_loadparams;
 		method Action put(Load_params#(ld_pad) parameters) if(rg_params matches tagged Invalid &&& rg_finish_load);
+			//$display($time, "Received LOAD ,dram: %x, sram: %x, [%d, %d, %d], [%d, %d]", parameters.dram_address,
+			//	parameters.sram_address, parameters.x_size, parameters.y_size, parameters.z_size,
+			//	parameters.z_stride, parameters.y_stride);
 			rg_finish_load <= False;
 			rg_params <= tagged Valid parameters;
 			rg_dram_addr <= parameters.dram_address;
 			rg_sram_addr <= parameters.sram_address;
-      rg_burst_len <= truncate( 
-            (pack(parameters.z_size) << (parameters.bitwidth ? valueOf(if_shift) : valueOf(of_shift))) >> burst_len_shift );
+			Integer shift_len = (parameters.bitwidth ? valueOf(if_shift) : valueOf(of_shift));
+      rg_burst_len <= truncate( ((pack(parameters.z_size) << shift_len) >> burst_len_shift) - 1);
 			rg_y_cntr <= parameters.y_size - 1;
 			rg_x_cntr <= parameters.x_size - 1;
-      rg_z_cntr <= parameters.z_size - 1;
+      rg_z_cntr <= parameters.z_size;
 			rg_load_requests <= True;
+			rg_burst_addr <= tagged Invalid;
 		endmethod
 	endinterface
   
   method ActionValue#(SRAMReq#(max_index, max_bank, data_width)) write_data if(rg_params matches tagged Valid .params);
-    if(rg_x_cntr == 0 &&& rg_y_cntr == 0)begin
-      rg_load_requests <= False;
-    end
     return wr_buffer_req;
   endmethod
 
 	interface Get subifc_send_loadfinish;
-		method ActionValue#(Bool) get if(rg_params matches tagged Valid .params &&&
-                                     !rg_load_requests &&& rg_finish_load);
+		method ActionValue#(Bool) get if(isValid(rg_params) && rg_finish_load);
+			rg_params <= tagged Invalid;
+			//$display($time, "Load finish signal sent");
 			return True;
 		endmethod
 	endinterface

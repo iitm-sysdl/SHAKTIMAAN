@@ -32,7 +32,8 @@ package store_module;
     provisos(
       Mul#(obuf_bytes, 8, of_data),
       Mul#(of_values, of_data, data_width),
-      Log#(TDiv#(data_width,8), awsz),
+			Log#(obuf_bytes, ofsz),
+			Log#(TDiv#(data_width,8), awsz),
       Add#(addr_width, 0, `DRAM_ADDR_WIDTH),
       Add#(sram_width, 0, `SRAM_ADDR_WIDTH),
       Add#(a__, of_data, data_width),
@@ -58,12 +59,12 @@ package store_module;
 
     Reg#(Maybe#(Store_params#(st_pad))) rg_params <- mkReg(tagged Invalid);
     Reg#(Bool) rg_finish_store <- mkReg(False);
+
+		Reg#(Bool) rg_send_req <- mkReg(False);
     
-    Reg#(Dim1) rg_burst_len <- mkReg(0);
     Reg#(Dim1) rg_z_cntr <- mkReg(0);
     Reg#(Dim1) rg_x_cntr <- mkReg(0);
     Reg#(Dim1) rg_y_cntr <- mkReg(0);
-    Reg#(Dim1) rg_xy_cntr <- mkReg(0);
 
     FIFOF#(Tuple3#(Bool, DRAM_address, Bool)) ff_beat_len <- mkFIFOF();
 
@@ -71,9 +72,14 @@ package store_module;
     Reg#(SRAM_address) rg_sram_address <- mkReg(0);
 
     AXI4_Master_Xactor_IFC#(addr_width, data_width, 0) memory_xactor <- mkAXI4_Master_Xactor;
-    
+
+		rule rl_pop_write_resp(memory_xactor.o_wr_resp.first.bid == `Buffer_wreq_id && 
+													 memory_xactor.o_wr_resp.first.bresp == AXI4_OKAY);
+			let x<- pop_o(memory_xactor.o_wr_resp);
+		endrule
+
 		method ActionValue#(SRAMRdReq#(of_index, of_banks)) send_sram_req
-      if(rg_params matches tagged Valid .params);
+      if(rg_params matches tagged Valid .params &&& rg_send_req);
 
       Bool first = (rg_z_cntr == truncate(params.z_size));
       Bool last = (rg_z_cntr <= fromInteger(oValues));
@@ -87,10 +93,10 @@ package store_module;
     
       if(last)begin
         rg_z_cntr <= params.z_size;
-        rg_xy_cntr <= rg_xy_cntr - 1;
         
         if(rg_y_cntr == 1 && rg_x_cntr == 1)begin
           //end of sending SRAM requests
+					rg_send_req <= False;
         end
         else if (rg_y_cntr == 1) begin
           rg_x_cntr <= rg_x_cntr - 1;
@@ -127,8 +133,14 @@ package store_module;
 
       if(first) begin
         //send address packet
-        AXI4_Wr_Addr#(addr_width, 0) write_addr = AXI4_Wr_Addr {awaddr: dram_addr, awuser: 0, awlen: truncate(params.z_size),
-                         awsize: fromInteger(burst_size), awburst: 'b01, awid: `Buffer_wreq_id, awprot: ?};
+        AXI4_Wr_Addr#(addr_width, 0) write_addr = 
+																			AXI4_Wr_Addr {awaddr: dram_addr,
+																										awuser: 0,
+																										awlen: ((params.z_size << valueOf(ofsz)) >> valueOf(awsz)) - 1,
+																										awsize: fromInteger(burst_size),
+																										awburst: 'b01,
+																										awid: `Buffer_wreq_id,
+																										awprot: ?};
         memory_xactor.i_wr_addr.enq(write_addr);
       end
 
@@ -140,20 +152,21 @@ package store_module;
       method Action put(Store_params#(st_pad) params) if(rg_params matches tagged Invalid);
         rg_params <= tagged Valid params;
         rg_finish_store <= False;
-        rg_dram_address <= params.dram_address;
+        rg_send_req <= True;
+				rg_dram_address <= params.dram_address;
         rg_sram_address <= params.sram_address;
-        rg_burst_len <= params.z_size * fromInteger(valueOf(obuf_bytes));
         rg_z_cntr <= params.z_size;
         rg_y_cntr <= params.y_size;
         rg_x_cntr <= params.x_size;
-        rg_xy_cntr <= params.x_size * params.y_size;
       endmethod
     endinterface
     
     interface Get subifc_send_store_finish;
-      method ActionValue#(Bool) get if(rg_params matches tagged Valid .params);
+      method ActionValue#(Bool) get if(rg_params matches tagged Valid .params &&&
+																			 rg_x_cntr == 1 &&& rg_y_cntr == 1 &&&
+																			 !ff_beat_len.notEmpty());
         rg_params <= tagged Invalid;
-        return (rg_xy_cntr == 0 && !ff_beat_len.notEmpty());
+        return True;
       endmethod
     endinterface
     
