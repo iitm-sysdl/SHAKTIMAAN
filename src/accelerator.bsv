@@ -206,7 +206,6 @@ package accelerator;
 
 		//Rule to take a compute read request and giving it to the Input or weight buffer! 
 		//Using portB for Input and Weight buffers to Compute
-		//2 port SRAMs are not required for Input and Output Buffer -- TODO: Optimize it 
 
 		//(*mutually_exclusive = "rl_recv_read_req_ibuf_from_compute, rl_recv_read_req_wbuf_from_compute"*)
 		for(Integer i=0; i<vnRow; i=i+1)begin
