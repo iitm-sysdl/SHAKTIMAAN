@@ -53,12 +53,32 @@ package intMul_WS;
 		/*doc:subifc: interface to send input to east*/
     interface Get#(Maybe#(Bit#(in_width))) subifc_get_inp;
   endinterface
+	
 
-//(*synthesize*)
-//  module mkmac_tb(Ifc_intMul_WS#(8, 16));
-//    Ifc_intMul_WS#(8) inst1 <- mkintMulWS(0, 0, 0);
-//    return (inst1);
-//  endmodule
+	interface RegMod#(type t);
+		method ActionValue#(t) _read;
+		method Action _write(t x);
+	endinterface 
+
+	//Custom Register type to solve the issue
+	function RegMod#(Maybe#(Bit#(n))) configDReg(Reg#(Maybe#(Bit#(n))) r);
+		return (interface RegMod;
+					method ActionValue#(Maybe#(Bit#(n))) _read;
+						r._write(tagged Invalid);
+						return r._read;
+					endmethod
+
+					method Action _write(Maybe#(Bit#(n)) x);
+						r._write(x);
+					endmethod
+				endinterface);
+	endfunction 
+
+(*synthesize*)
+  module mkmac_tb(Ifc_intMul_WS#(8, 16));
+    Ifc_intMul_WS#(8, 16) inst1 <- mkintMulWS(0, 0, 0);
+    return (inst1);
+  endmodule
  
   module mkintMulWS#(Int#(8) row, Int#(8) col, parameter Integer coord)(Ifc_intMul_WS#(in_width, out_width))
     provisos(
@@ -66,8 +86,10 @@ package intMul_WS;
             );
 
 	/*doc:reg: these registers are used to hold weight, input and output values, respectively*/
-  Reg#(Maybe#(Bit#(in_width)))   rg_north         <- mkConfigReg(tagged Invalid);
-  Reg#(Maybe#(Bit#(in_width)))   rg_west          <- mkConfigReg(tagged Invalid);
+  Reg#(Maybe#(Bit#(in_width)))   rg_n             <- mkConfigReg(tagged Invalid);
+  RegMod#(Maybe#(Bit#(in_width)))        rg_north         =  configDReg(rg_n);
+  Reg#(Maybe#(Bit#(in_width)))   rg_w             <- mkConfigReg(tagged Invalid);
+  RegMod#(Maybe#(Bit#(in_width)))        rg_west          =  configDReg(rg_w);
   Reg#(Maybe#(Bit#(out_width)))  rg_input_acc     <- mkConfigReg(tagged Invalid);
 	/*doc:wire: this wire is used to send computed result to next PE*/
   Wire#(Bit#(out_width))         acc_output       <- mkWire();
@@ -79,14 +101,15 @@ package intMul_WS;
   Reg#(Bool)                     rg_flow_ctrl     <- mkDReg(False);
   Reg#(Bool)                     rg_hor_flow_ctrl <- mkDReg(False);
   Reg#(Bool)                     rg_acc_flow_ctrl <- mkDReg(False);
-
   Bool check = (rg_counter >= rg_coord);
 
 	/*doc:rule: rule which performs MAC operation*/
-  rule rl_mult_add_phase(rg_north matches tagged Valid .north &&&
-												 rg_west matches tagged Valid .west &&&
+  rule rl_mult_add_phase(rg_n matches tagged Valid .north &&&
+												 rg_w matches tagged Valid .west &&&
 												 rg_input_acc matches tagged Valid .input_acc);
-    Bit#(out_width) output_mul = extend(unpack(north))*extend(unpack(west));
+		let north <- rg_north;
+		let west  <- rg_west;
+    Bit#(out_width) output_mul = extend(unpack(validValue(north)))*extend(unpack(validValue(west)));
 		output_mul = output_mul + unpack(input_acc);
     acc_output <= pack(output_mul);
     rg_acc_flow_ctrl <= True;
@@ -94,7 +117,7 @@ package intMul_WS;
 	
   interface Put subifc_put_wgt;
     method Action put(Tuple2#(Maybe#(Bit#(in_width)),Bit#(8)) inp);
-      rg_north     <= tpl_1(inp);
+      rg_n     <= tpl_1(inp);
       rg_counter   <= tpl_2(inp);
       rg_flow_ctrl <= True; 
     endmethod
@@ -114,20 +137,20 @@ package intMul_WS;
 
   interface Put subifc_put_inp;
     method Action put(Maybe#(Bit#(in_width)) rowW);
-      rg_west <= rowW;
+      rg_w <= rowW;
       rg_hor_flow_ctrl <= True;
     endmethod
   endinterface
     
   interface Get subifc_get_inp;
-    method ActionValue#(Maybe#(Bit#(in_width))) get if(rg_hor_flow_ctrl && isValid(rg_west));
-      return rg_west;
+    method ActionValue#(Maybe#(Bit#(in_width))) get if(rg_hor_flow_ctrl && isValid(rg_w));
+      return rg_w;
     endmethod
   endinterface
 
   interface Get subifc_get_wgt;
     method ActionValue#(Tuple2#(Maybe#(Bit#(in_width)), Bit#(8))) get if(!check && rg_flow_ctrl);
-      let send = tuple2(rg_north, rg_counter);
+      let send = tuple2(rg_n, rg_counter);
       return send;
     endmethod
   endinterface 
