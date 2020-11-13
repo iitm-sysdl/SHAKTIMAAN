@@ -14,7 +14,22 @@ package fetch_decode;
   import FIFOF::*;
   import isa::*;
   `include "systolic.defines"
-  
+
+	/* Objective of the module: 
+	   1. Send instruction request to DRAM based on the given PC
+		 2. Receive the instruction response and decode the instruction 
+		 3. Send the instruction parameters to the appropriate queue and send it to dependency resolver
+		 4. Increment the PC
+	*/
+
+	/* Interface definitions:
+	   1. The slave interface is used for receiving initial PC and reset signals from the control processor 
+		 2. The master interface is used to send requests and receive instruction response 
+		 3. The get_<module>_params interface is used to send the decoded params to the appropriate queue 
+		    maintained in the dependency resolution module
+		 4. The is_bool signal can be used to notify the control processor of completion and can operate as 
+		    the interrupt signal
+	*/
   interface Ifc_fetch_decode#(numeric type addr_width, numeric type data_width);
     interface AXI4_Slave_IFC#(addr_width, data_width, 0) slave;
     interface AXI4_Master_IFC#(addr_width, data_width, 0) master;
@@ -37,6 +52,7 @@ package fetch_decode;
 						 Add#(a__, 8, addr_width),
 						 Add#(addr_width, 0, 32));
   
+		/* Register and FIFO declarations */
     Reg#(Bit#(addr_width)) rg_pc <- mkReg(?);
     Reg#(Bit#(16)) rg_num_ins <- mkReg(0);
   
@@ -50,7 +66,8 @@ package fetch_decode;
     Wire#(Params) wr_store <- mkWire();
     Wire#(Params) wr_compute <- mkWire();
     Wire#(Params) wr_alu <- mkWire();
-  
+
+		//Instantiating the master and slave interfaces  
     AXI4_Master_Xactor_IFC#(addr_width, data_width, 0) m_xactor <- mkAXI4_Master_Xactor;  
     AXI4_Slave_Xactor_IFC#(addr_width, data_width,0) s_xactor  <- mkAXI4_Slave_Xactor;
    

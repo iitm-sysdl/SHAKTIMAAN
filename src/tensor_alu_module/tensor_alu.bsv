@@ -126,7 +126,7 @@ package tensor_alu;
 			rg_output_addr <= params.output_address;
 			rg_req_complete <= False;
 			rg_alu_complete <= False;
-			rg_which_buffer <= True; //TODO: finding which buffer is used(zeroExtend(params.input_address) <= `OBUF1_END);
+			rg_which_buffer <= unpack(params.output_address[valueOf(of_index)-1]);//MSB of index
 			if(params.use_immediate)begin
 			  for(Integer i=0; i<vnum_col; i=i+1)begin
 					rg_operand_out[i] <= extend(params.immediate_value);

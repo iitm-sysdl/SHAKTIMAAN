@@ -271,7 +271,7 @@ package compute_top;
       method Action put(Compute_params#(if_index, of_index, wt_index, cp_pad) params) if(rg_params matches tagged Invalid);
         
         rg_params <= tagged Valid params;
-				rg_which_buffer <= True; //params.output_address <= `OBUF1_END; TODO: encode which buffer in the instruction
+				rg_which_buffer <= unpack(params.output_address[valueOf(of_index)-1]);//MSB of of_index
 
         rg_weightload <= True;
         rg_weightload_req <= True;
