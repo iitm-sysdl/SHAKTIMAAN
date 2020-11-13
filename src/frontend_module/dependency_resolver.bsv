@@ -12,12 +12,31 @@ package dependency_resolver;
   import isa::*;
   `include "systolic.defines"
 
+/* Objective of the Module:                                                                       
+       The dependency resolution module is responsible for scheduling instructions                    
+       to the appropriate modules, i.e. load, store, GEMM, and TensorALU                              
+       1. If the instruction encoding has a dependency flag with another instruction, the dependency  
+          resolution module will not schedule that instruction until the dependent instruction has    
+          completed its execution                                                                     
+       2. The dependent instruction, upon completion sends a finish signal to one of the dependency   
+          queues which is monitored by the dependency resolution module which schedules the stalled 
+					instruction now                                                                                   
+*/             
+
 	//The interface contains sub-interfaces to connect Dependency resolvers with the fetch stage 
 	//and the load, store and compute modules
 	//The interface contains numeric types: if_index - addressing bits for input buffer 
 	//of_index - addressing bits for output buffer, wt_index - addressing bits for weight buffer 
 	//st_pad, cp_pad, ld_pad and alu_pad - Extra padding bits for the params to make it 128 bits 
 	//The pad bits are numeric types since buffer sizes are variables!
+
+	/* Interface definitions:
+		 1. The ifc_put_<module>_params receives the packets sent by the fetch module and enqueues into 
+				the appropriate queue 
+		 2. The ifc_get_<module>_instruction is the interface that dequeues the FIFO upon resolving the dependencies
+		 3. The ifc_put_<module>_complete is used to receive the complete signals from the previously
+		    scheduled instructions which is vital for resolving the dependencies of the subsequent instructions
+	*/
   interface Ifc_dependency_resolver#(numeric type if_index, numeric type of_index, numeric type wt_index,
       numeric type ld_pad, numeric type st_pad, numeric type cp_pad, numeric type alu_pad);
     interface Put#(Tuple2#(Dep_flags, Params)) ifc_put_load_params;
