@@ -1,37 +1,6 @@
 /* 
 Author: Mohan Prasath G R, Gokulan Ravi
 Email id: mohanprasathr@gmail.com, gokulan97@gmail.com
-Details:
-This module performs the load and load_param operations. Recieves load and load_param instruction from the
-dependency resolver module.
-Load_param : Loads the parameters for given N number of instructions from DRAM and stores it in the paramter buffer.
-Load: Generates required number of AXI requests to load a 3D matrix to either of input/weight/output buffer and 
-for load immediate, stores a constant value 
---------------------------------------------------------------------------------------------------
-
-  Interface Parameters:
-  	1. addr_width (AXI)
-  	2. data_width (AXI)
-
-
-  	subinterface:
-  	1. AXI4_Master_IFC
-  	2. Put interface to get the parameters from dependency resolver
-  	3. Get interface to send finish signal to dep. resolver
-
-  	methods
-  	 to send the data and index of the buffers to top module
-
-  Assumptions:
-	1. The precision of any operand will always be an exponent of 2
-
-  TODO:
-  	1. write Code for loading into buffers once finalized -- Done
-  	2. logic to load parameters into param_buffer -- Done
-  	3. Finalize sram address space
-  	4. Finalize parameters size for load
-  	5.
-
 */
 
 package load_module;
@@ -54,9 +23,16 @@ interface Ifc_load_Module#(numeric type dram_addr_width, numeric type data_width
 						   numeric type max_index, numeric type max_bank, numeric type max_data,
 						   numeric type max_words, numeric type ld_pad);
 
+	/*Interface to read values (input, weight and output) from DRAM*/
 	interface AXI4_Master_IFC#(dram_addr_width, data_width, 0) master;
-	interface Put#(Load_params#(ld_pad)) subifc_put_loadparams;  //to get parameters from the dependency module
-	interface Get#(Bool) subifc_send_loadfinish;	//send the finish signal once the load is completed
+	
+	/*Interface to get parameters from dependency module - start of execution*/
+	interface Put#(Load_params#(ld_pad)) subifc_put_loadparams;
+
+	/*Interface to send completion signal to dependency module - end of execution*/
+	interface Get#(Bool) subifc_send_loadfinish;
+
+	/*Interface to write values to SRAM buffers*/
 	method ActionValue#(SRAMReq#(max_index, max_bank, data_width)) write_data;
 endinterface
 

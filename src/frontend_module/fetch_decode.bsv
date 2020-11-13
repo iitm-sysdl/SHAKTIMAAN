@@ -16,13 +16,20 @@ package fetch_decode;
   `include "systolic.defines"
   
   interface Ifc_fetch_decode#(numeric type addr_width, numeric type data_width);
-    interface AXI4_Slave_IFC#(addr_width, data_width, 0) slave;
+		/*Interface for the host CPU to configure parameters - eg: PC address*/
+		interface AXI4_Slave_IFC#(addr_width, data_width, 0) slave;
+
+		/*Interface to fetch instructions from DRAM*/
     interface AXI4_Master_IFC#(addr_width, data_width, 0) master;
+
+		/*Interface to send decoded instruction to dependency module, one for each instruction*/
     interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_load_params;
     interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_store_params;
     interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_compute_params;
     interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_alu_params;
-    method Bool is_complete;
+    
+		/*Interface to signal fetch module completion of execution*/
+		method Bool is_complete;
   endinterface
  
  (*synthesize*)

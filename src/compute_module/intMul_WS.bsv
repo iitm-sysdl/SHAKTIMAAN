@@ -38,11 +38,22 @@ package intMul_WS;
   import DReg::*;
 
   interface Ifc_intMul_WS#(numeric type in_width, numeric type out_width);
-    interface Put#(Tuple3#((Maybe#(Bit#(in_width))),Bit#(8),Bit#(2))) from_north; //What is Bit#(8)?
+		/*Get weight from North*/
+    interface Put#(Tuple3#((Maybe#(Bit#(in_width))),Bit#(8),Bit#(2))) from_north;
+
+		/*Get input from West*/
     interface Put#(Maybe#(Bit#(in_width))) from_west;
+
+		/*Get partial sum from North*/
     interface Put#(Bit#(out_width))  acc_from_north;
-    interface Get#(Bit#(out_width))  send_acc_to_south;  
+
+		/*Send new partial sum to South*/
+    interface Get#(Bit#(out_width))  send_acc_to_south;
+
+		/*Send weight to South*/
     interface Get#(Tuple3#(Maybe#(Bit#(in_width)),Bit#(8),Bit#(2))) to_south;
+
+		/*Send input to East*/
     interface Get#(Maybe#(Bit#(in_width))) to_east;
   endinterface
 

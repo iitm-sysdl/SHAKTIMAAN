@@ -12,38 +12,22 @@ import isa::*;
 `include "Logger.bsv"
 `include "systolic.defines"
 
-//Assumptions:
-//1. Each ALU instruction is aligned to the vector width. If there are C channels and Vector length
-// is VLEN, where C >> VLEN. Compiler will generate C/VLEN ALU instructions to perform the task. 
-
-/*
-  Each ALU instruction performs the following pseudocode.
-  A 3D slice of feature map is read as input, and another 3D slice of feature map is generated as output.
-
-  OH - output_height
-  OW - output_width
-  R - window_hegiht
-  S - window_width
-  S_OW - mem_stride_OW - mem stride which gives the address difference of two consective output elements(output is stored in row major order)
-  S_R - mem_stride_R - mem stride which gives the address difference of two consecutive elements in the input row
-  S_S - mem_stride_S - mem stride which gives the address difference of two consecutive elements in the input column
-
-  --------------------------------
-*/
-
-/* TODO
-  1. Stride fields in the ISA needs to be standardised
-	1.1 Updating input address
-  2. Added output mask; num_of_filters is taken from ALUParams when this moved to other place correponding changes should be made
-  3. Only ALU complete signal is sent to dependency resolver
-  ...
-*/
 interface Ifc_tensor_alu#(numeric type alu_width, numeric type num_col, numeric type of_index,
 						  numeric type alu_pad);
+	
+	/*Interface to get parameters from dependency module*/
 	interface Put#(ALU_params#(of_index, alu_pad)) subifc_put_alu_params;
+
+	/*Interface to send read request for input operands from SRAM buffers*/
 	method TALUOpReq#(of_index) mv_send_req_op;
+
+	/*Interface for receiving input operands from SRAM buffers*/
 	method Action ma_recv_op(Vector#(num_col, Bit#(alu_width)) vec_data);
+
+	/*Interface for writing out output to SRAM buffers*/
 	method ActionValue#(TALUOutReq#(of_index, alu_width, num_col)) mav_put_result;
+
+	/*Interface to send completion signal to dependency module*/
 	interface Get#(Bool) subifc_get_alu_complete;
 endinterface
 

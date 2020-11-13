@@ -20,16 +20,20 @@ package dependency_resolver;
 	//The pad bits are numeric types since buffer sizes are variables!
   interface Ifc_dependency_resolver#(numeric type if_index, numeric type of_index, numeric type wt_index,
       numeric type ld_pad, numeric type st_pad, numeric type cp_pad, numeric type alu_pad);
-    interface Put#(Tuple2#(Dep_flags, Params)) ifc_put_load_params;
+    
+		/*Interfaces to receive decoded instructions from the fetch module, one for each instruction*/
+		interface Put#(Tuple2#(Dep_flags, Params)) ifc_put_load_params;
     interface Put#(Tuple2#(Dep_flags, Params)) ifc_put_store_params;
     interface Put#(Tuple2#(Dep_flags, Params)) ifc_put_compute_params;
     interface Put#(Tuple2#(Dep_flags, Params)) ifc_put_alu_params;
   
+		/*Interfaces to send decoded instruction, after dependencies are resolved, to the respective module*/
     interface Get#(Load_params#(ld_pad)) ifc_get_load_instruction;
     interface Get#(Store_params#(st_pad)) ifc_get_store_instruction;
     interface Get#(Compute_params#(if_index, of_index, wt_index, cp_pad)) ifc_get_gemm_instruction;
     interface Get#(ALU_params#(of_index, alu_pad)) ifc_get_alu_instruction;
   
+		/*Interfaces to get complete signal back from each module, once instruction execution completes*/
     interface Put#(Bool) ifc_put_load_complete;
     interface Put#(Bool) ifc_put_store_complete;
     interface Put#(Bool) ifc_put_gemm_complete;

@@ -20,11 +20,20 @@ package store_module;
                         numeric type sram_width, numeric type of_index,
                         numeric type of_banks, numeric type of_data,
                         numeric type of_values, numeric type st_pad);
-    
+
+		/*Interface to send read request to SRAM buffers*/
     method ActionValue#(SRAMRdReq#(of_index, of_banks)) send_sram_req;
+
+		/*Interface to receive response values from SRAM buffers*/
 		method Action recv_sram_resp(Vector#(of_values, Bit#(of_data)) response);
+
+		/*Interface to get parameters from dependency module - start of execution*/ 
     interface Put#(Store_params#(st_pad)) subifc_put_storeparams;
+
+		/*Interface to send completion signal to dependency module - end of execution*/
     interface Get#(Bool) subifc_send_store_finish;
+
+		/*Interface to write values to DRAM*/
     interface AXI4_Master_IFC#(addr_width, data_width, 0) master;
   endinterface
 
