@@ -338,28 +338,24 @@ package accelerator;
 		endrule
 
 		rule rl_send_read_rsp_obuf1_to_talu(tpl_2(ff_num_active_talu.first));
-			Vector#(nCol, Bit#(out_width)) vec_data = replicate(0);
 			let num_valid = tpl_1(ff_num_active_talu.first);
 			for(Integer i = 0; i < valueOf(nCol); i=i+1) begin
 				if(fromInteger(i) < num_valid)begin
 					let val <- buffers.obuf1[i].portA.response.get();
-					vec_data[i] = val;
+					tensor_alu.subifc_recv_op[i].put(val);
 				end
 			end
-			tensor_alu.ma_recv_op(vec_data);
 			ff_num_active_talu.deq();
 		endrule
 		
 		rule rl_send_read_rsp_obuf2_to_talu(!tpl_2(ff_num_active_talu.first));
-			Vector#(nCol, Bit#(out_width)) vec_data = replicate(0);
 			let num_valid = tpl_1(ff_num_active_talu.first);
 			for(Integer i = 0; i < valueOf(nCol); i=i+1) begin
 				if(fromInteger(i) < num_valid)begin
 					let val <- buffers.obuf2[i].portA.response.get();
-					vec_data[i] = val;
+					tensor_alu.subifc_recv_op[i].put(val);
 				end
 			end
-			tensor_alu.ma_recv_op(vec_data);
 			ff_num_active_talu.deq();
 		endrule
 

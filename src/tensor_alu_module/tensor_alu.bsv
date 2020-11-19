@@ -1,5 +1,5 @@
 /*
-Author: Vinod Ganesan, Gokulan Ravi, Sadhana
+Author: Vinod Ganesan, Gokulan Ravi, Sadhana S
 Email ID: g.vinod1993@gmail.com, gokulan97@gmail.com
 Details: Top Module of Vector ALU
 */
@@ -15,7 +15,7 @@ package tensor_alu;
 							  numeric type alu_pad);
 		interface Put#(ALU_params#(of_index, alu_pad)) subifc_put_alu_params;
 		method ActionValue#(TALUOpReq#(of_index)) mv_send_req_op;
-		method Action ma_recv_op(Vector#(num_col, Bit#(alu_width)) vec_data);
+		interface Vector#(num_col, Put#(Bit#(alu_width))) subifc_recv_op;
 		method ActionValue#(TALUOutReq#(of_index, alu_width, num_col)) mav_put_result;
 		interface Get#(Bool) subifc_get_alu_complete;
 	endinterface
@@ -111,6 +111,20 @@ package tensor_alu;
 			end
 		endrule
 	
+		Vector#(num_col, Put#(Bit#(alu_width))) ifc_input;
+		for(Integer i=0; i<vnum_col; i=i+1)begin
+			ifc_input[i] = (
+			interface Put;
+				method Action put(Bit#(alu_width) value);
+					wr_operand[i] <= extend(value);
+				endmethod
+			endinterface
+											);
+		end
+		
+		interface subifc_recv_op = ifc_input;
+
+
 		interface Put subifc_put_alu_params;
 		  method Action put(ALU_params#(of_index, alu_pad) params) if(rg_alu_packet matches tagged Invalid);
 			rg_alu_packet <= tagged Valid params;
@@ -183,15 +197,7 @@ package tensor_alu;
 
 			return TALUOpReq{ index: rg_scol_addr, num_valid: alu_packet.num_active, buffer: rg_which_buffer};
 		endmethod
-	
-		method Action ma_recv_op(Vector#(num_col, Bit#(alu_width)) vec_data) if(rg_alu_packet matches tagged Valid .alu_packet);
-		  for(Integer i = 0; i < vnum_col; i=i+1) begin
-				if(fromInteger(i) < alu_packet.num_active)begin
-					wr_operand[i] <= extend(vec_data[i]);
-				end
-		  end
-		endmethod
-	
+
 		method ActionValue#(TALUOutReq#(of_index, alu_width, num_col)) mav_put_result
 					if(rg_alu_packet matches tagged Valid .alu_packet);
 		  Vector#(nCol, Bit#(alu_width)) lv_temp = replicate(0);
