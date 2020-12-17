@@ -89,7 +89,7 @@ package compute_top;
 		Vector#(nRow, Reg#(Bool)) rg_valid_row <- replicateM(mkReg(False));
 
     Vector#(nCol, Reg#(Bit#(of_index))) rg_old_out_addr <- replicateM(mkReg(?));
-    Vector#(nCol, Reg#(Dim1)) rg_old_out_cntr <- replicateM(mkReg(?));
+    Vector#(nCol, Reg#(Dim1)) rg_old_out_cntr <- replicateM(mkReg(0));
 
 		Reg#(Dim1) rg_new_out_cntr <- mkReg(0);
 
@@ -204,9 +204,9 @@ package compute_top;
     for(Integer i=0; i<cols; i=i+1)begin
       ifc_get_old_out_addr[i] = (
         interface Get;
-          method ActionValue#(SRAMKRdReq#(of_index)) get if(rg_valid_col[i]);
+          method ActionValue#(SRAMKRdReq#(of_index)) get if(rg_valid_col[i] && rg_old_out_cntr[i] > 0);
 						rg_old_out_addr[i] <= rg_old_out_addr[i] + 1; //Adding this to fix a bug! ~Vin
-            rg_old_out_cntr[i] <= rg_old_out_cntr[i] + 1;
+            rg_old_out_cntr[i] <= rg_old_out_cntr[i] - 1; //What is this doing here? ~~ Not required right? OPTIMIZE
             return SRAMKRdReq{index: rg_old_out_addr[i], valid: rg_which_buffer, pad_zero: False};
           endmethod
         endinterface
