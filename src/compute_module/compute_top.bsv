@@ -205,6 +205,7 @@ package compute_top;
       ifc_get_old_out_addr[i] = (
         interface Get;
           method ActionValue#(SRAMKRdReq#(of_index)) get if(rg_valid_col[i]);
+						rg_old_out_addr[i] <= rg_old_out_addr[i] + 1; //Adding this to fix a bug! ~Vin
             rg_old_out_cntr[i] <= rg_old_out_cntr[i] + 1;
             return SRAMKRdReq{index: rg_old_out_addr[i], valid: rg_which_buffer, pad_zero: False};
           endmethod
