@@ -42,11 +42,11 @@ package systolic;
   import  FIFOF::*;
 
 	interface Ifc_row_connections#(numeric type in_width);
-		interface Put#(Maybe#(Bit#(in_width))) subifc_put_inp;
+		interface Put#(Bit#(in_width)) subifc_put_inp;
   endinterface
 
   interface Ifc_col_connections#(numeric type in_width, numeric type out_width);
-    interface Put#(Tuple2#(Maybe#(Bit#(in_width)), Bit#(8))) subifc_put_wgt;
+    interface Put#(Tuple2#(Bit#(in_width), Bit#(8))) subifc_put_wgt;
 		interface Put#(Bit#(out_width)) subifc_put_acc;
 		interface Get#(Bit#(out_width)) subifc_get_acc;
   endinterface
@@ -56,12 +56,12 @@ package systolic;
     interface Vector#(nCol, Ifc_col_connections#(in_width, out_width)) subifc_cols;
   endinterface
 
-  //(*synthesize*)
-  //module mksystolic2(Ifc_systolic#(2,2,16));
-  //    let ifc();
-  //    mksystolic inst(ifc);
-  //    return (ifc);
-  //endmodule
+  (*synthesize*)
+  module mksystolic2(Ifc_systolic#(8,8,16, 32));
+      let ifc();
+      mksystolic inst(ifc);
+      return (ifc);
+  endmodule
 
   module mksystolic(Ifc_systolic#(nRow,nCol,in_width,out_width))
       provisos (
