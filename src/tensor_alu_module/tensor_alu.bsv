@@ -20,12 +20,12 @@ package tensor_alu;
 		interface Get#(Bool) subifc_get_alu_complete;
 	endinterface
 	
-	//(*synthesize*)
-	//module mktalu_Tb(Ifc_tensor_alu#(16, 4, 8, 23));
-	//  let ifc();
-	//  mk_tensor_alu inst1(ifc);
-	//  return (ifc);
-	//endmodule
+	(*synthesize*)
+	module mktalu_Tb(Ifc_tensor_alu#(16, 4, 8, 23));
+	  let ifc();
+	  mk_tensor_alu inst1(ifc);
+	  return (ifc);
+	endmodule
 	
 	module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
 		provisos(
@@ -45,8 +45,8 @@ package tensor_alu;
 		Wire#(SRAM_index#(of_index)) wr_send_req <- mkWire();
 		
 		Vector#(num_col, Reg#(Bit#(alu_width))) rg_operand_out <- replicateM(mkReg(0));
-		Vector#(num_col, Wire#(Bit#(alu_width))) wr_operand <- replicateM(mkWire());
-		Vector#(num_col, Wire#(Bit#(alu_width))) wr_operand_out <- replicateM(mkWire());
+		Vector#(num_col, RWire#(Bit#(alu_width))) wr_operand <- replicateM(mkRWire());
+		Vector#(num_col, RWire#(Bit#(alu_width))) wr_operand_out <- replicateM(mkRWire());
 	
 		Reg#(Dim1) rg_i_var <- mkReg(1);
 		Reg#(Dim1) rg_j_var <- mkReg(1);
@@ -84,13 +84,16 @@ package tensor_alu;
 		endfunction
 		
 		// out = op(out, in)
-		rule rl_perform_computation(rg_alu_packet matches tagged Valid .alu_packet);
+		rule rl_perform_computation(rg_alu_packet matches tagged Valid .alu_packet &&& !rg_alu_complete);
 			for(Integer i = 0; i < vnum_col; i=i+1) begin
-				if(fromInteger(i) < alu_packet.num_active)begin
-					let x = fn_alu(rg_operand_out[i], wr_operand[i], alu_packet.alu_opcode);
+				if(fromInteger(i) < alu_packet.num_active &&& wr_operand[i].wget matches tagged Valid .op)begin
+					let x = fn_alu(rg_operand_out[i], op, alu_packet.alu_opcode);
 					if(rg_k_out == alu_packet.window_height && rg_l_out == alu_packet.window_width)begin
-						wr_operand_out[i] <= x;
+						wr_operand_out[i].wset(x);
 						rg_operand_out[i] <= alu_packet.use_immediate ? extend(alu_packet.immediate_value) : 0;
+						if(fromInteger(i) == 0)begin
+							$display($time, "writing output to buffer from talu");
+						end
 					end
 				end
 			end
@@ -116,7 +119,7 @@ package tensor_alu;
 			ifc_input[i] = (
 			interface Put;
 				method Action put(Bit#(alu_width) value);
-					wr_operand[i] <= extend(value);
+					wr_operand[i].wset(extend(value));
 				endmethod
 			endinterface
 											);
@@ -201,9 +204,10 @@ package tensor_alu;
 		method ActionValue#(TALUOutReq#(of_index, alu_width, num_col)) mav_put_result
 					if(rg_alu_packet matches tagged Valid .alu_packet);
 		  Vector#(nCol, Bit#(alu_width)) lv_temp = replicate(0);
+			$display($time, "method mav_put_result firing");
 		  for(Integer i=0; i< vnum_col; i= i+1) begin
-				if(fromInteger(i) < alu_packet.num_active)begin
-					lv_temp[i] = wr_operand_out[i];
+				if(fromInteger(i) < alu_packet.num_active &&& wr_operand_out[i].wget matches tagged Valid .op)begin
+					lv_temp[i] = op;
 				end
 		  end
 			return TALUOutReq{index: rg_output_addr, values: lv_temp, num_valid: alu_packet.num_active, buffer: rg_which_buffer};
