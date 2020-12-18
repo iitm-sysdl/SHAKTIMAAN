@@ -138,6 +138,7 @@ package intMul_WS;
 
   interface Get subifc_get_acc;
     method ActionValue#(Bit#(out_width)) get;
+		  ff_input_acc.deq;
 			return acc_output;
     endmethod
   endinterface
