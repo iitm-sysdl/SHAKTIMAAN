@@ -90,6 +90,7 @@ package intMul_WS;
 	FIFOF#(Bit#(in_width)) ff_north <- mkSizedFIFOF(2); 
 	FIFOF#(Bit#(in_width)) ff_west  <- mkSizedFIFOF(2);
 	FIFOF#(Bit#(out_width)) ff_input_acc <- mkSizedFIFOF(2);
+	Wire#(Bit#(in_width)) wr_west <- mkWire(); 
   //Reg#(Maybe#(Bit#(in_width)))   rg_n             <- mkConfigReg(tagged Invalid);
   //RegMod#(Maybe#(Bit#(in_width)))        rg_north         =  configDReg(rg_n);
   //Reg#(Maybe#(Bit#(in_width)))   rg_w             <- mkConfigReg(tagged Invalid);
@@ -113,6 +114,8 @@ package intMul_WS;
 		//let west  <- rg_west;
 		let north = ff_north.first;
 		let west  = ff_west.first;
+		wr_west <= ff_west.first;
+		ff_west.deq();
 		let input_acc = ff_input_acc.first;
     Bit#(out_width) output_mul = extend(north)*extend(west);
 		output_mul = output_mul + unpack(input_acc);
@@ -153,8 +156,7 @@ package intMul_WS;
     
   interface Get subifc_get_inp;
     method ActionValue#(Bit#(in_width)) get if(rg_hor_flow_ctrl);
-			ff_west.deq;
-      return ff_west.first;
+      return wr_west;
     endmethod
   endinterface
 

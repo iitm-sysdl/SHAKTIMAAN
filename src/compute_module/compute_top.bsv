@@ -259,7 +259,8 @@ package compute_top;
       for(Integer i=0; i<cols; i=i+1)begin
         if(fromInteger(i) < params.active_cols)begin
           //send weight to systolic
-					systolic.subifc_cols[i].subifc_put_wgt.put(tuple2(tagged Valid weights[i], coord+1));
+					//systolic.subifc_cols[i].subifc_clear_wgt(); 
+					systolic.subifc_cols[i].subifc_put_wgt.put(tuple2(weights[i], coord+1));
         end
       end
       ff_wt_coord.deq();
