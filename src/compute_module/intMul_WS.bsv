@@ -76,8 +76,8 @@ package intMul_WS;
 	endfunction 
 
 (*synthesize*)
-  module mkmac_tb(Ifc_intMul_WS#(8, 16));
-    Ifc_intMul_WS#(8, 16) inst1 <- mkintMulWS(0, 0, 0);
+  module mkmac_tb(Ifc_intMul_WS#(8, 32));
+    Ifc_intMul_WS#(8, 32) inst1 <- mkintMulWS(0, 0, 1);
     return (inst1);
   endmodule
  
@@ -87,7 +87,7 @@ package intMul_WS;
             );
 
 	/*doc:reg: these registers are used to hold weight, input and output values, respectively*/
-	FIFOF#(Bit#(in_width)) ff_north <- mkSizedFIFOF(2); 
+  Reg#(Bit#(in_width)) rg_north <- mkReg(0);
 	FIFOF#(Bit#(in_width)) ff_west  <- mkSizedFIFOF(2);
 	FIFOF#(Bit#(out_width)) ff_input_acc <- mkSizedFIFOF(2);
 	Wire#(Bit#(in_width)) wr_west <- mkWire(); 
@@ -102,68 +102,55 @@ package intMul_WS;
   Reg#(Bit#(8))                  rg_coord         <- mkReg(fromInteger(coord));
 	/*doc:reg: register to hold the coord till which the weight has to flow*/
 	Reg#(Bit#(8))                  rg_counter       <- mkReg(0);
-	/*doc:reg: registers to check flow of weights, inputs and output values, respectively*/
-  Reg#(Bool)                     rg_flow_ctrl     <- mkDReg(False);
-  Reg#(Bool)                     rg_hor_flow_ctrl <- mkDReg(False);
-  Reg#(Bool)                     rg_acc_flow_ctrl <- mkDReg(False);
   Bool check = (rg_counter >= rg_coord);
 
 	/*doc:rule: rule which performs MAC operation*/
   rule rl_mult_add_phase;
-		//let north <- rg_north;
-		//let west  <- rg_west;
-		let north = ff_north.first;
+		let north = rg_north;
 		let west  = ff_west.first;
 		wr_west <= ff_west.first;
 		ff_west.deq();
-		let input_acc = ff_input_acc.first;
+    let input_acc = ff_input_acc.first;
+    ff_input_acc.deq;
     Bit#(out_width) output_mul = extend(north)*extend(west);
 		output_mul = output_mul + unpack(input_acc);
     acc_output <= pack(output_mul);
-    rg_acc_flow_ctrl <= True;
   endrule
 	
   interface Put subifc_put_wgt;
     method Action put(Tuple2#(Bit#(in_width),Bit#(8)) inp);
-      //rg_n     <= tpl_1(inp);
-			ff_north.enq(tpl_1(inp));
+      rg_north <= tpl_1(inp);
       rg_counter   <= tpl_2(inp);
-      rg_flow_ctrl <= True; 
     endmethod
   endinterface
 
   interface Put subifc_put_acc;
     method Action put(Bit#(out_width) acc);
-      //rg_input_acc <= tagged Valid acc;
 			ff_input_acc.enq(acc);
     endmethod
   endinterface
 
   interface Get subifc_get_acc;
     method ActionValue#(Bit#(out_width)) get;
-		  ff_input_acc.deq;
 			return acc_output;
     endmethod
   endinterface
 
   interface Put subifc_put_inp;
     method Action put(Bit#(in_width) rowW);
-      //rg_w <= rowW;
 			ff_west.enq(rowW);
-      rg_hor_flow_ctrl <= True;
     endmethod
   endinterface
     
   interface Get subifc_get_inp;
-    method ActionValue#(Bit#(in_width)) get if(rg_hor_flow_ctrl);
+    method ActionValue#(Bit#(in_width)) get;
       return wr_west;
     endmethod
   endinterface
 
   interface Get subifc_get_wgt;
-    method ActionValue#(Tuple2#(Bit#(in_width), Bit#(8))) get if(!check && rg_flow_ctrl);
-			ff_north.deq;
-      let send = tuple2(ff_north.first, rg_counter);
+    method ActionValue#(Tuple2#(Bit#(in_width), Bit#(8))) get if(!check);
+      let send = tuple2(rg_north,rg_counter);
       return send;
     endmethod
   endinterface 
