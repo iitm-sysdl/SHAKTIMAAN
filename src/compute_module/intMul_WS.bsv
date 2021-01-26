@@ -108,10 +108,7 @@ package intMul_WS;
   rule rl_mult_add_phase;
 		let north = rg_north;
 		let west  = ff_west.first;
-		wr_west <= ff_west.first;
-		ff_west.deq();
     let input_acc = ff_input_acc.first;
-    ff_input_acc.deq;
     Bit#(out_width) output_mul = extend(north)*extend(west);
 		output_mul = output_mul + unpack(input_acc);
     acc_output <= pack(output_mul);
@@ -132,6 +129,9 @@ package intMul_WS;
 
   interface Get subifc_get_acc;
     method ActionValue#(Bit#(out_width)) get;
+      wr_west <= ff_west.first;
+      ff_input_acc.deq;
+      ff_west.deq;
 			return acc_output;
     endmethod
   endinterface
