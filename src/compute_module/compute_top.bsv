@@ -166,7 +166,7 @@ package compute_top;
       ifc_put_input[i] = (
         interface Put;
           method Action put(Bit#(in_width) value);
-            systolic.subifc_rows[i].subifc_put_inp.put(tagged Valid value);
+            systolic.subifc_rows[i].subifc_put_inp.put(value);
           endmethod
         endinterface
       );
@@ -219,7 +219,7 @@ package compute_top;
 				interface Get;
 					method ActionValue#(SRAMKRdReq#(if_index)) get;
 						if(wr_inp_addr[i].pad_zero)begin
-							systolic.subifc_rows[i].subifc_put_inp.put(tagged Valid 0);
+							systolic.subifc_rows[i].subifc_put_inp.put(0);
 						end
 						return wr_inp_addr[i];
 					endmethod
