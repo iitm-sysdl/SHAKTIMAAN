@@ -95,7 +95,7 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 		);
 
   let burst_len_shift = valueOf(d_shift); //used to calculate burst length
-
+	let val_data_bytes  = valueOf(data_bytes);
 	let sram_width = valueOf(sram_addr_width);
 	let dram_width = valueOf(addr_width);
   let axi_width = valueOf(data_width);
@@ -275,7 +275,11 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			rg_dram_addr <= parameters.dram_address;
 			rg_sram_addr <= parameters.sram_address;
 			Integer shift_len = (parameters.bitwidth ? valueOf(if_shift) : valueOf(of_shift));
-      rg_burst_len <= truncate( ((pack(parameters.z_size) << shift_len) >> burst_len_shift) - 1);
+			
+			let shift_op = (pack(parameters.z_size) << shift_len) >> burst_len_shift;
+			
+      rg_burst_len <= shift_op >= fromInteger(val_data_bytes)  ? truncate((shift_op - 1)) : 0;
+
 			rg_y_cntr <= parameters.y_size - 1;
 			rg_x_cntr <= parameters.x_size - 1;
       rg_z_cntr <= parameters.z_size;
