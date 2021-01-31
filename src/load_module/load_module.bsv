@@ -188,11 +188,11 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 		else if(rg_y_cntr == 0) begin
 			rg_y_cntr <= params.y_size - 1;
 			rg_x_cntr <= rg_x_cntr - 1;
-			rg_dram_addr <= rg_dram_addr + zeroExtend(pack(params.y_stride) << (params.bitwidth ? ibuf_shift : obuf_shift));
+			rg_dram_addr <= rg_dram_addr + (zeroExtend(pack(params.y_stride)) << (params.bitwidth ? ibuf_shift : obuf_shift));
 		end
 		else begin
 			rg_y_cntr <= rg_y_cntr - 1;
-			rg_dram_addr <= rg_dram_addr + zeroExtend(pack(params.z_stride) << (params.bitwidth ? ibuf_shift : obuf_shift));
+			rg_dram_addr <= rg_dram_addr + (zeroExtend(pack(params.z_stride)) << (params.bitwidth ? ibuf_shift : obuf_shift));
 		end
 
 		ff_dest_addr.enq(rg_sram_addr);
