@@ -25,6 +25,12 @@ typedef enum
 
 typedef struct
 {
+	Bit#(a) index;
+	Dim2 num_valid;
+}WgtReq#(numeric type a) deriving(Bits, Eq, FShow);
+
+typedef struct
+{
 	Buffer buffer;
 	Bit#(a) index;
 	Bit#(b) bank;
