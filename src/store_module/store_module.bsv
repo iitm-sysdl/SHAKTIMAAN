@@ -44,6 +44,7 @@ package store_module;
     let obuf_bankbits = valueOf(of_banks);
     let oBits = valueOf(of_data);
     let oBytes = valueOf(obuf_bytes);
+		let oShift = valueOf(ofsz);
     let oValues = valueOf(of_values);
     let burst_size = valueOf(awsz);
 
@@ -101,19 +102,19 @@ package store_module;
         else if (rg_y_cntr == 1) begin
           rg_x_cntr <= rg_x_cntr - 1;
           rg_y_cntr <= params.y_size;
-          rg_dram_address <= rg_dram_address + zeroExtend(unpack(params.y_stride));
+          rg_dram_address <= rg_dram_address + zeroExtend(unpack(params.y_stride) << oShift);
         end
         else begin
           rg_y_cntr <= rg_y_cntr - 1;
-          rg_dram_address <= rg_dram_address + zeroExtend(unpack(params.z_stride));
+          rg_dram_address <= rg_dram_address + zeroExtend(unpack(params.z_stride) << oShift);
         end
 				//Increment index, set bank index to 0
 				rg_sram_address <= ((unpack(rg_sram_address) >> (obuf_index + obuf_bankbits)) << (obuf_index + obuf_bankbits)) | zeroExtend((o_index+1) << obuf_bankbits);
       end
       else begin
         rg_z_cntr <= rg_z_cntr - fromInteger(oValues);
-        rg_dram_address <= rg_dram_address + fromInteger(oValues) * fromInteger(oBytes);
-				rg_sram_address <= rg_sram_address + fromInteger(oValues);//Increment bank bits
+        rg_dram_address <= rg_dram_address + fromInteger(oValues) << oShift;
+				rg_sram_address <= rg_sram_address + fromInteger(oValues);
       end
 
       ff_beat_len.enq(tuple3(first, rg_dram_address, last));
@@ -136,7 +137,7 @@ package store_module;
         AXI4_Wr_Addr#(addr_width, 0) write_addr = 
 																			AXI4_Wr_Addr {awaddr: dram_addr,
 																										awuser: 0,
-																										awlen: ((params.z_size << valueOf(ofsz)) >> valueOf(awsz)) - 1,
+																										awlen: (params.z_size << oShift) >> valueOf(awsz) - 1,
 																										awsize: fromInteger(burst_size),
 																										awburst: 'b01,
 																										awid: `Buffer_wreq_id,
@@ -144,7 +145,7 @@ package store_module;
         memory_xactor.i_wr_addr.enq(write_addr);
       end
 
-      AXI4_Wr_Data#(data_width) write_data = AXI4_Wr_Data {wdata: lv_data, wstrb: 'b1, wlast: last, wid: `Buffer_wreq_id};
+      AXI4_Wr_Data#(data_width) write_data = AXI4_Wr_Data {wdata: lv_data, wstrb: -1, wlast: last, wid: `Buffer_wreq_id};
       memory_xactor.i_wr_data.enq(write_data);
     endmethod
 

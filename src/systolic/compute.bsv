@@ -10,7 +10,7 @@ package compute;
 	`include "systolic.defines"
 	
   (*synthesize*)
-  module mkgemm_Tb(Ifc_compute_module#(32,26,8,16,4,4,5,6,7,18));
+  module mkgemm_Tb(Ifc_compute_module#(32,26,8,16,4,4,5,8,7,18));
     let ifc();
     mkgemm inst1(ifc);
     return (ifc);
@@ -44,7 +44,7 @@ package compute;
              //Add#(a__, in_width, TMul#(in_width, 2),
 						 Add#(b__, in_width, out_width),
 						 //provisos for compiler
-						 Add#(4, a__, if_index),
+						 Add#(d__, 4, if_index),
 						 Add#(8, c__, wt_index)
              );
 
