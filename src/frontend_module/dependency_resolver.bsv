@@ -86,6 +86,11 @@ package dependency_resolver;
     FIFOF#(Bool) ff_alu_to_gemm   <- mkSizedFIFOF(valueOf(`DEP_QUEUE_SIZE));
     FIFOF#(Bool) ff_alu_to_store  <- mkSizedFIFOF(valueOf(`DEP_QUEUE_SIZE));
     FIFOF#(Bool) ff_store_to_alu  <- mkSizedFIFOF(valueOf(`DEP_QUEUE_SIZE));
+
+    Wire#(Bool) load_dispatch <- mkWire();
+    Wire#(Bool) gemm_dispatch <- mkWire();
+    Wire#(Bool) talu_dispatch <- mkWire();
+    Wire#(Bool) store_dispatch <- mkWire();
   
     function Bool fn_resolve_prev_pop(FIFOF#(Dep_flags) flag_queue, FIFOF#(Bool) dep_queue);
       Dep_flags flags = flag_queue.first;
@@ -115,6 +120,30 @@ package dependency_resolver;
 			endaction
     endfunction
   
+    rule ff_gemm_to_load_deq(load_dispatch == True);
+     ff_gemm_to_load.deq();
+    endrule
+  
+    rule ff_load_to_gemm_deq(gemm_dispatch == True);
+     ff_load_to_gemm.deq();
+    endrule
+
+    rule ff_alu_to_gemm_deq(gemm_dispatch == True);
+     ff_alu_to_gemm.deq();
+    endrule
+
+    rule ff_gemm_to_alu_deq(talu_dispatch == True);
+     ff_gemm_to_alu.deq();
+    endrule
+
+    rule ff_store_to_alu_deq(talu_dispatch == True);
+     ff_store_to_alu.deq();
+    endrule
+
+    rule ff_alu_to_store_deq(store_dispatch == True);
+     ff_alu_to_store.deq();
+    endrule
+
     interface Put ifc_put_load_params;
       method Action put(Tuple2#(Dep_flags, Params) ins);
         Dep_flags flags = tpl_1(ins);
@@ -158,6 +187,7 @@ package dependency_resolver;
     interface Get ifc_get_load_instruction;
       method ActionValue#(Load_params#(ld_pad)) get if(fn_resolve_next_pop(ff_load_queue, ff_gemm_to_load));
         ff_load_params.deq();
+	load_dispatch <= True;
         return ff_load_params.first;
       endmethod
     endinterface
@@ -172,6 +202,7 @@ package dependency_resolver;
     interface Get ifc_get_store_instruction;
       method ActionValue#(Store_params#(st_pad)) get if(fn_resolve_prev_pop(ff_store_queue, ff_alu_to_store));
         ff_store_params.deq();
+	store_dispatch <= True;
         return ff_store_params.first;
       endmethod
     endinterface
@@ -188,6 +219,7 @@ package dependency_resolver;
         if(fn_resolve_prev_pop(ff_gemm_queue, ff_load_to_gemm) &&
            fn_resolve_next_pop(ff_gemm_queue, ff_alu_to_gemm));
         ff_gemm_params.deq();
+	gemm_dispatch <= True;
         return ff_gemm_params.first;
       endmethod
     endinterface
@@ -205,6 +237,7 @@ package dependency_resolver;
         if(fn_resolve_prev_pop(ff_alu_queue, ff_gemm_to_alu) &&
            fn_resolve_next_pop(ff_alu_queue, ff_store_to_alu));
         ff_alu_params.deq();
+	talu_dispatch <= True;
         return ff_alu_params.first;
       endmethod
     endinterface
@@ -216,7 +249,7 @@ package dependency_resolver;
         ff_alu_queue.deq();
       endmethod
     endinterface
-  
+
   endmodule
 
 endpackage
