@@ -24,7 +24,7 @@ package compute;
                                numeric type of_index, numeric type cp_pad);
     interface Put#(Compute_params#(if_index, of_index, wt_index, cp_pad)) subifc_put_compute_params;//
 		interface Get#(Bool) subifc_get_compute_finish;
-		interface Get#(Tuple2#(SRAM_index#(if_index), Dim1)) get_inp_addr;
+		interface Get#(Tuple2#(Bit#(if_index), Dim1)) get_inp_addr;
     interface Vector#(nRow, Put#(Bit#(in_width))) put_inp_resp;
     interface Get#(Tuple2#(Bit#(wt_index), Dim1)) get_wt_addr;//
     method Action put_wt_resp(Vector#(nCol, Bit#(in_width)) weights);//
@@ -77,6 +77,9 @@ package compute;
 	
 		Reg#(Dim1) rg_h_cntr <- mkReg(0);
 		Reg#(Dim1) rg_w_cntr <- mkReg(0);
+
+		Reg#(Dim1) rg_out_h_cntr <- mkReg(0);
+		Reg#(Dim1) rg_out_w_cntr <- mkReg(0);
 
 		Reg#(Bit#(if_index)) rg_inp_row_addr <- mkReg(?);
 		Reg#(Bit#(if_index)) rg_inp_col_addr <- mkReg(?);
@@ -155,6 +158,13 @@ package compute;
 					ff_new_outputs[i].deq();
 					values[i] =  val1+val2;
 				end
+				if(rg_out_h_cntr != rg_params.ofmap_height-1 && rg_out_w_cntr == rg_params.ofmap_width-1)begin
+					rg_out_h_cntr <= rg_out_h_cntr + 1;
+					rg_out_w_cntr <= 0;
+				end
+				else begin
+					rg_out_w_cntr <= rg_out_w_cntr + 1;
+				end
 				return tuple3(values, rg_new_out_addr, rg_params.active_cols);
 			endmethod
 		endinterface
@@ -201,6 +211,12 @@ package compute;
 			endmethod
 		endinterface
 
+		interface Get subifc_get_compute_finish;
+			method ActionValue#(Bool) get if(rg_valid && rg_out_h_cntr != rg_params.ofmap_height-1 && rg_out_w_cntr != rg_params.ofmap_width-1);
+				return True;
+			endmethod
+		endinterface
+
 		interface Put subifc_put_compute_params;
 			method Action put(Compute_params#(if_index, of_index, wt_index, cp_pad) params) if(!rg_valid);
 				rg_params <= params;
@@ -214,6 +230,9 @@ package compute;
 
 				rg_h_cntr <= 0;
 				rg_w_cntr <= 0;
+
+				rg_out_h_cntr <= 0;
+				rg_out_w_cntr <= 0;
 
 				rg_inp_row_addr <= params.input_address;
 				rg_inp_col_addr <= params.input_address;

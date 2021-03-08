@@ -1,5 +1,5 @@
-TOP_MODULE:=mkTbSoc
-TOP_FILE:=Soc.bsv
+TOP_MODULE:=mktop_tb
+TOP_FILE:=accelerator.bsv
 HOMEDIR:=./
 TOP_DIR:=./
 BSVOUTDIR:=./bin/
@@ -10,7 +10,7 @@ AXI4_Lite:=../../../fabrics/axi4lite
 BRIDGES:=../../../fabrics/bridges
 COMMON_BSV:=../../../common_bsv:../../bram/
 #TB:=./tb
-FILES:=./commons/:./load_module:./store_module:./compute_module:./tensor_alu_module:./buffers_module:./frontend_module:$(AXI4):$(BRIDGES):$(COMMON_BSV)
+FILES:=./commons/:./systolic/:./load_module:./store_module:./compute_module:./tensor_alu_module:./buffers_module:./frontend_module:$(AXI4):$(BRIDGES):$(COMMON_BSV)
 BSVINCDIR:= .:%/Prelude:%/Libraries:%/Libraries/BlueNoC:$(FILES)
 FPGA=xc7a100tcsg324-1
 export HOMEDIR=./
@@ -21,7 +21,7 @@ default: full_clean compile link simulate
 compile:
 	@echo Compiling $(TOP_MODULE)....
 	@mkdir -p $(BSVBUILDDIR)
-	@bsc -u -sim -simdir $(BSVBUILDDIR) -bdir $(BSVBUILDDIR) -info-dir $(BSVBUILDDIR) -keep-fires -p $(BSVINCDIR) -g $(TOP_MODULE)  $(TOP_DIR)/$(TOP_FILE)
+	@bsc -u -sim -simdir $(BSVBUILDDIR) -bdir $(BSVBUILDDIR) -info-dir $(BSVBUILDDIR) -p $(BSVINCDIR) -g $(TOP_MODULE)  $(TOP_DIR)/$(TOP_FILE)
 	@echo Compilation finished
 
 .PHONY: link
@@ -29,7 +29,7 @@ link:
 	@echo Linking $(TOP_MODULE)...
 	@mkdir -p bin
 	@bsc -e $(TOP_MODULE) -sim -o ./bin/out -simdir $(BSVBUILDDIR) -p .:%/Prelude:%/Libraries:%/Libraries/BlueNoC\
-  -bdir $(BSVBUILDDIR) -keep-fires 
+  -bdir $(BSVBUILDDIR) 
 	@echo Linking finished
 
 .PHONY: generate_verilog 
