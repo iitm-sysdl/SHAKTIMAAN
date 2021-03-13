@@ -1,0 +1,49 @@
+
+// Parameteres for Fetch Decode
+`define ADDR_WIDTH 32
+`define DATA_WIDTH 128
+
+// Parameters for dependency resolver
+`define IF_INDEX 4
+`define OF_INDEX 4 
+`define WT_INDEX 4 
+`define LD_PAD 1
+`define ST_PAD 1
+`define CP_PAD 1
+`define ALU_PAD 1
+
+// Parameters for ws_array 
+`define NROW 8 
+`define NCOL 8
+`define IN_WIDTH 16 
+`define OUT_WIDTH 32
+
+// Parameters for Compute module
+`define DRAM_ADDR_WIDTH 32
+`define SRAM_ADDR_WIDTH 26
+
+// Parameters for Tensor ALU 
+`define ALU_WIDTH `OUT_WIDTH
+
+// Load Parameters
+
+`define WT_BANK 4
+`define WT_DATA 16
+`define IF_BANK 4
+`define IF_DATA 16
+`define OF_BANK 4
+`define OF_DATA 32
+`define MAX_INDEX 4
+`define MAX_BANK 4
+`define MAX_DATA 32
+`define MAX_WORDS 4
+
+// Store Parameters 
+`define OF_VALUES 32
+
+// Buffer Parameters 
+`define IF_ENTRIES 32
+`define WT_ENTRIES 32
+`define OUT_ENTRIES 32
+
+
