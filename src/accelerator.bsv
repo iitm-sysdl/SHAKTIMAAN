@@ -12,6 +12,7 @@ package accelerator;
   import tensor_alu::*;
   import onchip_buffers::*;
 	import isa::*;
+	import ConcatReg::*;
 
   `include "systolic.defines"
 
@@ -39,6 +40,10 @@ package accelerator;
     interface AXI4_Master_IFC#(dram_addr_width, data_width, 0) ifc_store_master;
     interface AXI4_Master_IFC#(dram_addr_width, data_width, 0) ifc_fetch_master;
     interface AXI4_Slave_IFC#(dram_addr_width, data_width, 0) ifc_fetch_slave;
+
+
+		method Bool send_interrupt_to_proc;
+
   endinterface
 
 	(*synthesize*)
@@ -91,6 +96,16 @@ package accelerator;
 						 Add#(if_index, TAdd#(of_index, TAdd#(wt_index, gemm_pad)), 63),
 						 Add#(of_index, TAdd#(of_index, alu_pad), 53)
              );
+
+		// Having a status register to keep track 
+		// 0th bit -> Idle/busy, 1st bit -> Frontend error, 2nd bit -> Load error, 3rd bit -> Store error
+		Reg#(Bit#(1)) rg_idle <- mkReg(0); 
+		Reg#(Bit#(1)) rg_frontend_error <- mkReg(0); 
+		Reg#(Bit#(1)) rg_load_error <- mkReg(0); 
+		Reg#(Bit#(1)) rg_store_error <- mkReg(0);
+
+		Reg#(Bit#(8)) statusReg = concatReg8(0,0,0,0,rg_store_error, rg_frontend_error, rg_load_error, rg_idle);
+
 
     Ifc_fetch_decode#(dram_addr_width, data_width) fetch_decode <- mkfetch_decode;
     Ifc_dependency_resolver#(if_index, of_index, wt_index, mem_pad, mem_pad, gemm_pad, alu_pad)
@@ -466,6 +481,20 @@ package accelerator;
 				st_module.recv_sram_resp(values);
 			endrule
 		end
+
+		// Need to expose this to the slave interface somehow 
+		rule rl_update_status_register;
+			if(fetch_decode.send_interrupt) begin 
+				rg_frontend_error <= 1; 
+			else if(ld_module.send_interrupt) begin
+				rg_load_error <= 1;
+			else if(st_module.send_interrupt) begin
+				rg_store_error <= 1;
+		endrule
+
+		method Bool send_interrupt_to_proc = st_module.send_interrupt || ld_module.send_interrupt || fetch_decode.send_interrupt;
+			
+		endmethod
 
     interface ifc_load_master = ld_module.master;
     interface ifc_store_master = st_module.master;

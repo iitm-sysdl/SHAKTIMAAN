@@ -58,6 +58,7 @@ interface Ifc_load_Module#(numeric type dram_addr_width, numeric type data_width
 	interface Put#(Load_params#(ld_pad)) subifc_put_loadparams;  //to get parameters from the dependency module
 	interface Get#(Bool) subifc_send_loadfinish;	//send the finish signal once the load is completed
 	method ActionValue#(SRAMReq#(max_index, max_bank, data_width)) write_data;
+	method Bool send_interrupt;
 endinterface
 
 module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
@@ -170,6 +171,9 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 	Reg#(Bool) rg_finish_load <- mkReg(True);
 
 	Wire#(SRAMReq#(max_index, max_bank, data_width)) wr_buffer_req <- mkWire();
+	Reg#(Bool) rg_interrupt <- mkReg(0);
+
+
 
 	function Bool is_address_within_range(SRAM_address start_addr, SRAM_address end_addr, SRAM_address query);
 		return (start_addr <= query && query <= end_addr);
@@ -234,6 +238,12 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			rg_burst_addr <= tagged Invalid;
       rg_z_cntr <= params.z_size;
 		end
+
+		rule rl_raise_interrupt(m_xactor.o_rd_data.first.rid == `Load_master && 
+														m_xactor.o_rd_data.first.rresp==AXI4_SLVERR);
+		let lv_resp <- pop_o(m_xactor.o_rd_data);
+		rg_interrupt <= True;
+		endrule
 		/*----code for writing into buffer----*/
 
 		//$display($time, "Received response for %x, values: %x", lv_sram_addr, lv_data);
@@ -294,6 +304,8 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
   method ActionValue#(SRAMReq#(max_index, max_bank, data_width)) write_data if(rg_params matches tagged Valid .params);
     return wr_buffer_req;
   endmethod
+
+	method Bool send_interrupt = rg_interrupt;
 
 	interface Get subifc_send_loadfinish;
 		method ActionValue#(Bool) get if(isValid(rg_params) && rg_finish_load);

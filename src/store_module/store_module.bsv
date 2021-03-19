@@ -26,6 +26,7 @@ package store_module;
     interface Put#(Store_params#(st_pad)) subifc_put_storeparams;
     interface Get#(Bool) subifc_send_store_finish;
     interface AXI4_Master_IFC#(addr_width, data_width, 0) master;
+		method Bool send_interrupt;
   endinterface
 
   module mkcol2im(Ifc_col2im#(addr_width, data_width, sram_width, of_index, of_banks, of_data, of_values, st_pad))
@@ -40,7 +41,6 @@ package store_module;
 			Add#(b__, of_index, 26)
     );
 
-		Wire#(Bool) wr_last <- mkWire();
     
     let obuf_index = valueOf(of_index);
     let obuf_bankbits = valueOf(of_banks);
@@ -68,6 +68,9 @@ package store_module;
     Reg#(Dim1) rg_z_cntr <- mkReg(0);
     Reg#(Dim1) rg_x_cntr <- mkReg(0);
     Reg#(Dim1) rg_y_cntr <- mkReg(0);
+		
+		Wire#(Bool) wr_last <- mkWire();
+		Reg#(Bool) rg_interrupt <- mkReg();
 
     FIFOF#(Tuple3#(Bool, DRAM_address, Bool)) ff_beat_len <- mkFIFOF();
 
@@ -76,9 +79,16 @@ package store_module;
 
     AXI4_Master_Xactor_IFC#(addr_width, data_width, 0) memory_xactor <- mkAXI4_Master_Xactor;
 
-		rule rl_pop_write_resp(memory_xactor.o_wr_resp.first.bid == `Store_master && 
-													 memory_xactor.o_wr_resp.first.bresp == AXI4_OKAY);
-			let x<- pop_o(memory_xactor.o_wr_resp);
+		rule rl_pop_write_resp(memory_xactor.o_wr_resp.first.bid == `Store_master); 
+											//		 memory_xactor.o_wr_resp.first.bresp == AXI4_OKAY);
+			let x <- pop_o(memory_xactor.o_wr_resp);
+			
+			//if the write response is AXI4_OKAY, do nothing. Otherwise, send a slave-error signal 
+			//to the top.
+			if(x.bresp == AXI4_SLVERR) begin
+				rg_interrupt <= True;
+			end
+
 		endrule
 
 		method ActionValue#(SRAMRdReq#(of_index, of_banks)) send_sram_req
@@ -151,6 +161,8 @@ package store_module;
       AXI4_Wr_Data#(data_width) write_data = AXI4_Wr_Data {wdata: lv_data, wstrb: -1, wlast: last, wid: `Buffer_wreq_id};
       memory_xactor.i_wr_data.enq(write_data);
     endmethod
+
+		method Bool send_interrupt = rg_interrupt;
 
     interface Put subifc_put_storeparams;
       method Action put(Store_params#(st_pad) params) if(rg_params matches tagged Invalid);
