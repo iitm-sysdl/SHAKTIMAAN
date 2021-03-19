@@ -39,6 +39,8 @@ package store_module;
       Add#(a__, of_data, data_width),
 			Add#(b__, of_index, 26)
     );
+
+		Wire#(Bool) wr_last <- mkWire();
     
     let obuf_index = valueOf(of_index);
     let obuf_bankbits = valueOf(of_banks);
@@ -130,6 +132,7 @@ package store_module;
       end
 
       let {first, dram_addr, last} = ff_beat_len.first;
+			wr_last <= last;
       ff_beat_len.deq();
 
       if(first) begin
@@ -165,7 +168,7 @@ package store_module;
     interface Get subifc_send_store_finish;
       method ActionValue#(Bool) get if(rg_params matches tagged Valid .params &&&
 																			 rg_x_cntr == 1 &&& rg_y_cntr == 1 &&&
-																			 !ff_beat_len.notEmpty());
+																			 wr_last);
         rg_params <= tagged Invalid;
         return True;
       endmethod
