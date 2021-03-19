@@ -74,7 +74,7 @@ package store_module;
 
     AXI4_Master_Xactor_IFC#(addr_width, data_width, 0) memory_xactor <- mkAXI4_Master_Xactor;
 
-		rule rl_pop_write_resp(memory_xactor.o_wr_resp.first.bid == `Buffer_wreq_id && 
+		rule rl_pop_write_resp(memory_xactor.o_wr_resp.first.bid == `Store_master && 
 													 memory_xactor.o_wr_resp.first.bresp == AXI4_OKAY);
 			let x<- pop_o(memory_xactor.o_wr_resp);
 		endrule
@@ -173,12 +173,4 @@ package store_module;
     
     interface master = memory_xactor.axi_side;
   endmodule
-
-  (*synthesize*)
-  module mkinst_col2im(Ifc_col2im#(32, 64, 26, 15, 6, 16, 4, 20));
-    let ifc();
-    mkcol2im _temp(ifc);
-    return ifc;
-  endmodule
-
 endpackage
