@@ -83,6 +83,9 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
       Log#(data_bytes, d_shift),
       Log#(wt_bytes, wt_shift),
       Log#(of_bytes, of_shift),
+			Max#(if_shift, of_shift, int_shift),
+			Add#(`DIM_WIDTH1, int_shift, shift_width), 
+			Bits#(Dim1, shift_width),
       //Compiler generated
       //Add#(b__, max_data, addr_width),
       Add#(c__, of_index, max_index),
@@ -276,7 +279,7 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			rg_sram_addr <= parameters.sram_address;
 			Integer shift_len = (parameters.bitwidth ? valueOf(if_shift) : valueOf(of_shift));
 			
-			let shift_op = (pack(parameters.z_size) << shift_len) >> burst_len_shift;
+			Bit#(shift_width) shift_op = (pack(parameters.z_size) << shift_len) >> burst_len_shift;
 			
       rg_burst_len <= shift_op >= fromInteger(val_data_bytes)  ? truncate((shift_op - 1)) : 0;
 
