@@ -38,6 +38,7 @@ package fetch_decode;
     interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_compute_params;
     interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_alu_params;
     method Bool is_complete;
+    method Bool send_interrupt;
   endinterface
  
  (*synthesize*)
@@ -66,6 +67,8 @@ package fetch_decode;
     Wire#(Params) wr_store <- mkWire();
     Wire#(Params) wr_compute <- mkWire();
     Wire#(Params) wr_alu <- mkWire();
+
+    Reg#(Bool) rg_interrupt <- mkReg(0);
 
 		//Instantiating the master and slave interfaces  
     AXI4_Master_Xactor_IFC#(addr_width, data_width, 0) m_xactor <- mkAXI4_Master_Xactor;  
@@ -119,14 +122,21 @@ package fetch_decode;
     rule rl_recv_data;
       let resp <- pop_o(m_xactor.o_rd_data);
       let inst = resp.rdata;
-  
-      if(resp.rlast && rg_num_ins==0)begin
+ 
+      if(resp.rresp==AXI4_SLVERR)
+      begin
+        rg_complete <= True;
+	rg_interrupt <= True;
+      end
+      else if(resp.rlast && rg_num_ins==0)begin
         rg_complete <= True;
       end
 
 			$display($time, "Received data: %x", inst);
-  
-      ff_fetch_data.enq(inst);
+      if(resp.rresp==AXI4_OKAY) //Enqueue only if the data is received with an Okay response
+      begin
+       ff_fetch_data.enq(inst);
+      end
     endrule
 
 		//The fetched data is enqueued into the fetch pipeline FIFO, which is dequeued by 
@@ -193,6 +203,8 @@ package fetch_decode;
     method Bool is_complete if(rg_complete);
        return True;
     endmethod
+
+    method Bool send_interrupt = rg_interrupt;
   
   endmodule
 
