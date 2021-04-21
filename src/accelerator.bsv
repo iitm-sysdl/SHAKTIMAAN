@@ -489,15 +489,17 @@ package accelerator;
 		rule rl_update_status_register;
 			if(fetch_decode.send_interrupt) begin 
 				rg_frontend_error <= 1; 
+			end
 			else if(ld_module.send_interrupt) begin
 				rg_load_error <= 1;
+			end
 			else if(st_module.send_interrupt) begin
 				rg_store_error <= 1;
+			end
 		endrule
 
 		method Bool send_interrupt_to_proc = st_module.send_interrupt || ld_module.send_interrupt || fetch_decode.send_interrupt;
 			
-		endmethod
 
     interface ifc_load_master = ld_module.master;
     interface ifc_store_master = st_module.master;
