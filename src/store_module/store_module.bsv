@@ -35,6 +35,7 @@ package store_module;
       Mul#(of_values, of_data, data_width),
 			Log#(obuf_bytes, ofsz),
 			Log#(TDiv#(data_width,8), awsz),
+      Mul#(data_bytes,8,data_width),
       Add#(addr_width, 0, `DRAM_ADDR_WIDTH),
       Add#(sram_width, 0, `SRAM_ADDR_WIDTH),
       Add#(a__, of_data, data_width),
@@ -89,6 +90,7 @@ package store_module;
 		Reg#(Bool) rg_interrupt <- mkReg(False);
 
     FIFOF#(Tuple3#(Bool, DRAM_address, Bool)) ff_beat_len <- mkFIFOF();
+    //FIFOF#(Tuple3#(Bool, DRAM_address, Bool, Bit#(data_bytes))) ff_beat_len <- mkFIFOF();
 
     Reg#(DRAM_address) rg_dram_address <- mkReg(0);
     Reg#(SRAM_address) rg_sram_address <- mkReg(0);
@@ -112,6 +114,7 @@ package store_module;
 
       Bool first = (rg_z_cntr == truncate(params.z_size));
       Bool last = (rg_z_cntr <= fromInteger(oValues));
+      //Bit#(data_bytes) data_strobe = (rg_z_cntr < fromInteger(oValues)) ? ((1 << rg_z_cntr*fromInteger(oBytes))-1 : -1;
  
 			Bit#(of_index) o_index;
       Bit#(of_banks) o_banks;
@@ -159,10 +162,14 @@ package store_module;
 
       if(first) begin
         //send address packet
+        Integer shift_len = params.bitwidth ? iShift : oShift;
+        Bit#(TAdd#(TAdd#(ofsz,1),`DIM_WIDTH1)) lv_shift = zeroExtend(params.z_size) << shift_len;
+        Bit#(8) shift_op = truncate(lv_shift >> valueOf(awsz));
+        Bit#(8) burst_len = shift_op >= fromInteger(valueOf(data_bytes))  ? (shift_op - 1) : 0;
         AXI4_Wr_Addr#(addr_width, 0) write_addr = 
 																			AXI4_Wr_Addr {awaddr: dram_addr,
 																										awuser: 0,
-																										awlen: (params.z_size << (params.bitwidth ? iShift : oShift)) >> valueOf(awsz) - 1,
+																										awlen: burst_len,
 																										awsize: fromInteger(burst_size),
 																										awburst: 'b01,
 																										awid: `Buffer_wreq_id,
