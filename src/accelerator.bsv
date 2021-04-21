@@ -116,7 +116,7 @@ package accelerator;
                    of_index, of_bank, out_width,
                    max_index, max_bank, max_width, max_words, mem_pad) ld_module <- mk_load_Module;
     Ifc_col2im#(dram_addr_width, data_width, sram_addr_width,
-                   of_index, of_bank, out_width,
+                   in_width,of_index, of_bank, out_width,
                    out_words, mem_pad) st_module <- mkcol2im;
     Ifc_onchip_buffers#(sram_addr_width, 
                   if_index, if_nbanks, if_entries,
