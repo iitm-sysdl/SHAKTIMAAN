@@ -17,7 +17,7 @@ package store_module;
   `include "systolic.defines"
 
   interface Ifc_col2im#(numeric type addr_width, numeric type data_width, 
-                        numeric type sram_width, numeric type of_index,
+                        numeric type sram_width, numeric type if_data, numeric type of_index,
                         numeric type of_banks, numeric type of_data,
                         numeric type of_values, numeric type st_pad);
     
@@ -29,7 +29,7 @@ package store_module;
 		method Bool send_interrupt;
   endinterface
 
-  module mkcol2im(Ifc_col2im#(addr_width, data_width, sram_width, of_index, of_banks, of_data, of_values, st_pad))
+  module mkcol2im(Ifc_col2im#(addr_width, data_width, sram_width,if_data, of_index, of_banks, of_data, of_values, st_pad))
     provisos(
       Mul#(obuf_bytes, 8, of_data),
       Mul#(of_values, of_data, data_width),
@@ -38,18 +38,34 @@ package store_module;
       Add#(addr_width, 0, `DRAM_ADDR_WIDTH),
       Add#(sram_width, 0, `SRAM_ADDR_WIDTH),
       Add#(a__, of_data, data_width),
-			Add#(b__, of_index, 26)
+			Add#(b__, of_index, 26),
+      Mul#(ibuf_bytes, 8, if_data),
+      Mul#(if_values, if_data, data_width),
+      Log#(ibuf_bytes, ifsz),
+      Div#(of_data, if_data, io_ratio),
+      Mul#(of_values,io_ratio,if_values),
+      Mul#(of_values,if_data,if_length),
+      Mul#(if_length,io_ratio,data_width),
+      Add#(c__,if_data,of_data),
+      Add#(d__,if_data,if_length),
+      Add#(e__,if_data,data_width),
+      Add#(f__,if_length,data_width)
     );
 
     
     let obuf_index = valueOf(of_index);
     let obuf_bankbits = valueOf(of_banks);
-    let oBits = valueOf(of_data);
     let oBytes = valueOf(obuf_bytes);
 		let oShift = valueOf(ofsz);
     let oValues = valueOf(of_values);
     let burst_size = valueOf(awsz);
+    let io_ratio_val = valueOf(io_ratio);
+    let iValues = valueOf(if_values);
+    let iShift = valueOf(ifsz);
 
+    Vector#(io_ratio,Reg#(Bit#(if_length))) rg_truncated_ifmap <- replicateM(mkReg(0));
+    Reg#(Bit#(TAdd#(TLog#(io_ratio),1))) rg_truncate_count <- mkReg(0);
+ 
     function Tuple2#(Bit#(of_index),Bit#(of_banks)) split_address_OBUF(Bit#(sram_width) addr);
 		  Bit#(of_banks) gbank = addr[obuf_bankbits-1:0];
 		  Bit#(of_index) gindex = addr[obuf_index+obuf_bankbits-1:obuf_bankbits];
@@ -70,7 +86,7 @@ package store_module;
     Reg#(Dim1) rg_y_cntr <- mkReg(0);
 		
 		Wire#(Bool) wr_last <- mkWire();
-		Reg#(Bool) rg_interrupt <- mkReg();
+		Reg#(Bool) rg_interrupt <- mkReg(False);
 
     FIFOF#(Tuple3#(Bool, DRAM_address, Bool)) ff_beat_len <- mkFIFOF();
 
@@ -114,18 +130,18 @@ package store_module;
         else if (rg_y_cntr == 1) begin
           rg_x_cntr <= rg_x_cntr - 1;
           rg_y_cntr <= params.y_size;
-          rg_dram_address <= rg_dram_address + zeroExtend(unpack(params.y_stride) << oShift);
+          rg_dram_address <= rg_dram_address + zeroExtend(unpack(params.y_stride) << (params.bitwidth ? iShift : oShift));
         end
         else begin
           rg_y_cntr <= rg_y_cntr - 1;
-          rg_dram_address <= rg_dram_address + zeroExtend(unpack(params.z_stride) << oShift);
+          rg_dram_address <= rg_dram_address + zeroExtend(unpack(params.z_stride) << (params.bitwidth ? iShift : oShift));
         end
 				//Increment index, set bank index to 0
 				rg_sram_address <= ((unpack(rg_sram_address) >> (obuf_index + obuf_bankbits)) << (obuf_index + obuf_bankbits)) | zeroExtend((o_index+1) << obuf_bankbits);
       end
       else begin
         rg_z_cntr <= rg_z_cntr - fromInteger(oValues);
-        rg_dram_address <= rg_dram_address + fromInteger(oValues) << oShift;
+        rg_dram_address <= rg_dram_address + fromInteger(oValues) << (params.bitwidth ? iShift : oShift);
 				rg_sram_address <= rg_sram_address + fromInteger(oValues);
       end
 
@@ -136,10 +152,6 @@ package store_module;
     method Action recv_sram_resp(Vector#(of_values, Bit#(of_data)) response)
       if(rg_params matches tagged Valid .params);
 
-      Bit#(data_width) lv_data = 'b0;
-      for(Integer i=0; i<oValues; i=i+1)begin
-        lv_data[(i+1)*oBits-1:i*oBits] = response[i];
-      end
 
       let {first, dram_addr, last} = ff_beat_len.first;
 			wr_last <= last;
@@ -150,16 +162,42 @@ package store_module;
         AXI4_Wr_Addr#(addr_width, 0) write_addr = 
 																			AXI4_Wr_Addr {awaddr: dram_addr,
 																										awuser: 0,
-																										awlen: (params.z_size << oShift) >> valueOf(awsz) - 1,
+																										awlen: (params.z_size << (params.bitwidth ? iShift : oShift)) >> valueOf(awsz) - 1,
 																										awsize: fromInteger(burst_size),
 																										awburst: 'b01,
 																										awid: `Buffer_wreq_id,
 																										awprot: ?};
         memory_xactor.i_wr_addr.enq(write_addr);
       end
+      Bit#(data_width) lv_data = 'b0;
+      if(params.bitwidth) begin
+        for(Integer i=0; i<oValues; i=i+1)begin
+          Bit#(if_data) lv_truncate_data = truncate(response[i]);
+          lv_truncate_data[valueOf(if_data)-1] = lv_truncate_data[valueOf(if_data)-1] | response[i][valueOf(of_data)-1];
+          lv_data[(i+1)*valueOf(if_data)-1:i*valueOf(if_data)] = lv_truncate_data;
+        end
+        if(rg_truncate_count < fromInteger(io_ratio_val) || !last) begin
+          rg_truncated_ifmap[rg_truncate_count] <= truncate(lv_data);
+        end
+        else begin
+          rg_truncate_count <= 0;
+          Vector#(io_ratio,Bit#(if_length)) lv_resp;
+          for(Integer i=0; i<io_ratio_val; i=i+1) begin
+            lv_resp[i] = rg_truncated_ifmap[i];
+            rg_truncated_ifmap[i] <= 0;
+          end
+          lv_resp[rg_truncate_count] = truncate(lv_data);
+          lv_data = pack(lv_resp);
+          AXI4_Wr_Data#(data_width) write_data = AXI4_Wr_Data {wdata: lv_data, wstrb: -1, wlast: last, wid: `Buffer_wreq_id};
+          memory_xactor.i_wr_data.enq(write_data);    
+        end
+      end
+      else begin
+        lv_data = pack(response);
+        AXI4_Wr_Data#(data_width) write_data = AXI4_Wr_Data {wdata: lv_data, wstrb: -1, wlast: last, wid: `Buffer_wreq_id};
+        memory_xactor.i_wr_data.enq(write_data);  
+      end
 
-      AXI4_Wr_Data#(data_width) write_data = AXI4_Wr_Data {wdata: lv_data, wstrb: -1, wlast: last, wid: `Buffer_wreq_id};
-      memory_xactor.i_wr_data.enq(write_data);
     endmethod
 
 		method Bool send_interrupt = rg_interrupt;
@@ -188,4 +226,12 @@ package store_module;
     
     interface master = memory_xactor.axi_side;
   endmodule
+
+  //(*synthesize*)
+  //module mkinst_col2im(Ifc_col2im#(32, 64, 26, 8, 15, 6, 16, 4, 20));
+  //  let ifc();
+  //  mkcol2im _temp(ifc);
+  //  return ifc;
+  //endmodule
+
 endpackage
