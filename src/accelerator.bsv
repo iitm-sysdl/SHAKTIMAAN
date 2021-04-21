@@ -232,6 +232,9 @@ package accelerator;
 				if(fromInteger(i) < active_rows)begin
 					buffers.ibuf[i].portB.request.put(makeRequest(False, index, ?));
 				end
+				else begin
+					gemm_module.put_inp_resp[i].put(0); //This should fix partial row input problem if top half of systolic is properly used
+				end
 			end
 		endrule
 
