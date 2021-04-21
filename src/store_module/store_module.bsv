@@ -118,7 +118,7 @@ package store_module;
       {o_index, o_banks} = split_address_OBUF(rg_sram_address);
 
 			Bool which_buf = is_address_within_range(`OBUF1_START, `OBUF1_END, rg_sram_address);
-			Dim2 num_valid = truncate(min(fromInteger(oValues), rg_z_cntr));
+			Sram_valid num_valid = truncate(min(fromInteger(oValues), rg_z_cntr));
     
       if(last)begin
         rg_z_cntr <= params.z_size;
@@ -228,7 +228,7 @@ package store_module;
   endmodule
 
   //(*synthesize*)
-  //module mkinst_col2im(Ifc_col2im#(32, 64, 26, 8, 15, 6, 16, 4, 20));
+  //module mkinst_col2im(Ifc_col2im#(32, 128, 26, 8, 6, 4, 32, 4, 20));
   //  let ifc();
   //  mkcol2im _temp(ifc);
   //  return ifc;

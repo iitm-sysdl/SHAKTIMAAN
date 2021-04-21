@@ -416,7 +416,7 @@ package accelerator;
 		endrule
 
 		FIFOF#(SRAMRdReq#(of_index, of_bank)) ff_req_from_store <- mkFIFOF();
-		FIFOF#(Dim2) ff_num_valid_values <- mkFIFOF();
+		FIFOF#(Sram_valid) ff_num_valid_values <- mkFIFOF();
 
 		rule rl_get_request_from_store;
 			let req <- st_module.send_sram_req();
@@ -454,7 +454,7 @@ package accelerator;
 		for(Integer i=0; i<valueOf(of_nfolds); i=i+1)begin
 			rule rl_send_resp_to_st_module;
 				Vector#(out_words, Bit#(out_width)) values;
-				Dim2 num_valid = ff_num_valid_values.first;
+				Sram_valid num_valid = ff_num_valid_values.first;
 				for(Integer j=0; j<valueOf(out_words); j=j+1)begin
 					if(fromInteger(j) < num_valid)begin
 						values[j] <- buffers.obuf1[i*oWords+j].portB.response.get();
@@ -471,7 +471,7 @@ package accelerator;
 		for(Integer i=0; i<valueOf(of_nfolds); i=i+1)begin
 			rule rl_send_resp_to_st_module2;
 				Vector#(out_words, Bit#(out_width)) values;
-				Dim2 num_valid = ff_num_valid_values.first;
+				Sram_valid num_valid = ff_num_valid_values.first;
 				for(Integer j=0; j<valueOf(out_words); j=j+1)begin
 					if(fromInteger(j) < num_valid)begin
 						values[j] <- buffers.obuf2[i*oWords+j].portB.response.get();
