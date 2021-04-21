@@ -244,21 +244,21 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			Bit#(if_index) inp_index;
       Bit#(if_bank) inp_bufferbank;
       {inp_index, inp_bufferbank} = split_address_IBUF(lv_sram_addr);
-			Dim2 num_valid = truncate(min(rg_z_cntr, fromInteger(iWords)));
+			Sram_valid num_valid = truncate(min(rg_z_cntr, fromInteger(iWords)));
 			wr_buffer_req <= SRAMReq{buffer: InputBuffer, index: zeroExtend(inp_index), bank: zeroExtend(inp_bufferbank), data: lv_data, num_valid: num_valid};
 		end
 		else if(is_address_within_range(`WBUF_START, `WBUF_END, lv_sram_addr))begin //loading weights
 			Bit#(wt_index) wgt_index;
       Bit#(wt_bank) wgt_bufferbank;
       {wgt_index, wgt_bufferbank} = split_address_WBUF(lv_sram_addr);
-			Dim2 num_valid = truncate(min(rg_z_cntr, fromInteger(iWords)));
+			Sram_valid num_valid = truncate(min(rg_z_cntr, fromInteger(iWords)));
 			wr_buffer_req <= SRAMReq{buffer: WeightBuffer, index: zeroExtend(wgt_index), bank: zeroExtend(wgt_bufferbank), data: lv_data, num_valid: num_valid};
 		end
 		else if(is_address_within_range(`OBUF_START, `OBUF_END, lv_sram_addr))begin //loading outputs
 			Bit#(of_index) out_index;
       Bit#(of_bank) out_bufferbank;
       {out_index, out_bufferbank} = split_address_OBUF(lv_sram_addr);
-			Dim2 num_valid = truncate(min(rg_z_cntr, fromInteger(oWords)));
+			Sram_valid num_valid = truncate(min(rg_z_cntr, fromInteger(oWords)));
 			wr_buffer_req <= SRAMReq{buffer: (is_address_within_range(`OBUF1_START, `OBUF1_END, lv_sram_addr) ? OutputBuffer1 : OutputBuffer2), 
 																	index: zeroExtend(out_index), bank: zeroExtend(out_bufferbank), data: lv_data, num_valid: num_valid};
 		end
