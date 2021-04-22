@@ -126,7 +126,7 @@ package fetch_decode;
     endrule
 
 		rule rl_raise_interrupt(m_xactor.o_rd_data.first.rid == `AXI_FETCH_MASTER &&
-														m_xactor.o_rd_data.first.rrsep == AXI4_SLVERR); 
+														m_xactor.o_rd_data.first.rresp == AXI4_SLVERR); 
 			let resp <- pop_o(m_xactor.o_rd_data);
 			wr_interrupt <= True;
 		endrule

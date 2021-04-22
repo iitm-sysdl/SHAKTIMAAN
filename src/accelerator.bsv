@@ -94,7 +94,12 @@ package accelerator;
 						 Mul#(xm__, 8, in_width), Mul#(xn__, 8, out_width),
 						 Add#(mem_pad, 0, 20),
 						 Add#(if_index, TAdd#(of_index, TAdd#(wt_index, gemm_pad)), 63),
-						 Add#(of_index, TAdd#(of_index, alu_pad), 53)
+						 Add#(of_index, TAdd#(of_index, alu_pad), 53),
+						 Mul#(out_words, TDiv#(out_width, in_width), in_words),
+						 Mul#(TMul#(out_words, in_width), TDiv#(out_width, in_width), data_width),
+						 Add#(a__, in_width, TMul#(out_words, in_width)),
+						 Add#(b__, in_width, data_width),
+						 Add#(c__, TMul#(out_words, in_width), data_width)
              );
 
 		// Having a status register to keep track 
@@ -104,7 +109,7 @@ package accelerator;
 		Reg#(Bit#(1)) rg_load_error <- mkReg(0); 
 		Reg#(Bit#(1)) rg_store_error <- mkReg(0);
 
-		Reg#(Bit#(8)) statusReg = concatReg8(0,0,0,0,rg_store_error, rg_frontend_error, rg_load_error, rg_idle);
+		//Reg#(Bit#(8)) statusReg = concatReg8(1'b0,1'b0,1'b0,1'b0,rg_store_error, rg_frontend_error, rg_load_error, rg_idle);
 
 
     Ifc_fetch_decode#(dram_addr_width, data_width) fetch_decode <- mkfetch_decode;
