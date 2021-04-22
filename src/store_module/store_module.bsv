@@ -50,7 +50,11 @@ package store_module;
       Add#(c__,if_data,of_data),
       Add#(d__,if_data,if_length),
       Add#(e__,if_data,data_width),
-      Add#(f__,if_length,data_width)
+      Add#(f__,if_length,data_width),
+      Mul#(ibuf_bytes,of_values,if_data_bytes),
+      Add#(g__, ibuf_bytes, if_data_bytes),
+      Mul#(io_ratio, if_data_bytes, TDiv#(data_width, 8)),
+      Mul#(of_values, obuf_bytes, TDiv#(data_width, 8))
     );
 
     
@@ -63,6 +67,7 @@ package store_module;
     let io_ratio_val = valueOf(io_ratio);
     let iValues = valueOf(if_values);
     let iShift = valueOf(ifsz);
+    let iBytes = valueOf(ibuf_bytes);
 
     Vector#(io_ratio,Reg#(Bit#(if_length))) rg_truncated_ifmap <- replicateM(mkReg(0));
     Reg#(Bit#(TAdd#(TLog#(io_ratio),1))) rg_truncate_count <- mkReg(0);
@@ -89,8 +94,8 @@ package store_module;
 		Wire#(Bool) wr_last <- mkWire();
 		Reg#(Bool) rg_interrupt <- mkReg(False);
 
-    FIFOF#(Tuple3#(Bool, DRAM_address, Bool)) ff_beat_len <- mkFIFOF();
-    //FIFOF#(Tuple3#(Bool, DRAM_address, Bool, Bit#(data_bytes))) ff_beat_len <- mkFIFOF();
+    FIFOF#(Tuple4#(Bool, DRAM_address, Bool,Vector#(of_values, Bit#(obuf_bytes)))) ff_beat_len <- mkFIFOF();
+    Vector#(io_ratio,Reg#(Bit#(if_data_bytes))) rg_wr_data_strb <- replicateM(mkReg(0));
 
     Reg#(DRAM_address) rg_dram_address <- mkReg(0);
     Reg#(SRAM_address) rg_sram_address <- mkReg(0);
@@ -114,7 +119,13 @@ package store_module;
 
       Bool first = (rg_z_cntr == truncate(params.z_size));
       Bool last = (rg_z_cntr <= fromInteger(oValues));
-      //Bit#(data_bytes) data_strobe = (rg_z_cntr < fromInteger(oValues)) ? ((1 << rg_z_cntr*fromInteger(oBytes))-1 : -1;
+      Vector#(of_values,Bit#(obuf_bytes)) data_strobe = unpack(0);
+      for(Integer i=0; i<oValues; i=i+1) begin
+        if(rg_z_cntr > fromInteger(i))
+          data_strobe[i] = -1;
+        else
+          data_strobe[i] = 0;
+      end
  
 			Bit#(of_index) o_index;
       Bit#(of_banks) o_banks;
@@ -148,7 +159,7 @@ package store_module;
 				rg_sram_address <= rg_sram_address + fromInteger(oValues);
       end
 
-      ff_beat_len.enq(tuple3(first, rg_dram_address, last));
+      ff_beat_len.enq(tuple4(first, rg_dram_address, last, data_strobe));
       return SRAMRdReq{index: o_index, bank: o_banks, buffer: which_buf ? OutputBuffer1 : OutputBuffer2, num_valid: num_valid};
     endmethod
 
@@ -156,7 +167,7 @@ package store_module;
       if(rg_params matches tagged Valid .params);
 
 
-      let {first, dram_addr, last} = ff_beat_len.first;
+      let {first, dram_addr, last, data_strobe} = ff_beat_len.first;
 			wr_last <= last;
       ff_beat_len.deq();
 
@@ -178,30 +189,38 @@ package store_module;
       end
       Bit#(data_width) lv_data = 'b0;
       if(params.bitwidth) begin
+        Bit#(if_data_bytes) lv_data_strobe = 'b0;
         for(Integer i=0; i<oValues; i=i+1)begin
           Bit#(if_data) lv_truncate_data = truncate(response[i]);
           lv_truncate_data[valueOf(if_data)-1] = lv_truncate_data[valueOf(if_data)-1] | response[i][valueOf(of_data)-1];
           lv_data[(i+1)*valueOf(if_data)-1:i*valueOf(if_data)] = lv_truncate_data;
+          Bit#(ibuf_bytes) lv_temp = (data_strobe[i] == 0) ? 0 : -1;
+          lv_data_strobe[(i+1)*valueOf(ibuf_bytes)-1:i*valueOf(ibuf_bytes)] = lv_temp;
         end
         if(rg_truncate_count < fromInteger(io_ratio_val) || !last) begin
           rg_truncated_ifmap[rg_truncate_count] <= truncate(lv_data);
+          rg_wr_data_strb[rg_truncate_count] <= lv_data_strobe;
         end
         else begin
           rg_truncate_count <= 0;
           Vector#(io_ratio,Bit#(if_length)) lv_resp;
+          Vector#(io_ratio,Bit#(if_data_bytes)) lv_wr_strb;
           for(Integer i=0; i<io_ratio_val; i=i+1) begin
             lv_resp[i] = rg_truncated_ifmap[i];
+            lv_wr_strb[i] = rg_wr_data_strb[i];
             rg_truncated_ifmap[i] <= 0;
+            rg_wr_data_strb[i] <= 0;
           end
           lv_resp[rg_truncate_count] = truncate(lv_data);
           lv_data = pack(lv_resp);
-          AXI4_Wr_Data#(data_width) write_data = AXI4_Wr_Data {wdata: lv_data, wstrb: -1, wlast: last, wid: `Buffer_wreq_id};
+          lv_wr_strb[rg_truncate_count] = lv_data_strobe;
+          AXI4_Wr_Data#(data_width) write_data = AXI4_Wr_Data {wdata: lv_data, wstrb: pack(lv_wr_strb), wlast: last, wid: `Buffer_wreq_id};
           memory_xactor.i_wr_data.enq(write_data);    
         end
       end
       else begin
         lv_data = pack(response);
-        AXI4_Wr_Data#(data_width) write_data = AXI4_Wr_Data {wdata: lv_data, wstrb: -1, wlast: last, wid: `Buffer_wreq_id};
+        AXI4_Wr_Data#(data_width) write_data = AXI4_Wr_Data {wdata: lv_data, wstrb: pack(data_strobe), wlast: last, wid: `Buffer_wreq_id};
         memory_xactor.i_wr_data.enq(write_data);  
       end
 
