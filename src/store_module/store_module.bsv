@@ -176,7 +176,7 @@ package store_module;
         Integer shift_len = params.bitwidth ? iShift : oShift;
         Bit#(TAdd#(TAdd#(ofsz,1),`DIM_WIDTH1)) lv_shift = zeroExtend(params.z_size) << shift_len;
         Bit#(8) shift_op = truncate(lv_shift >> valueOf(awsz));
-        Bit#(8) burst_len = shift_op >= fromInteger(valueOf(data_bytes))  ? (shift_op - 1) : 0;
+        Bit#(8) burst_len = lv_shift >= fromInteger(valueOf(data_bytes))  ? (shift_op - 1) : 0;
         AXI4_Wr_Addr#(addr_width, 0) write_addr = 
 																			AXI4_Wr_Addr {awaddr: dram_addr,
 																										awuser: 0,

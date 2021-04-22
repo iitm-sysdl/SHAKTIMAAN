@@ -290,7 +290,7 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			Bit#(TAdd#(TAdd#(of_shift,1),`DIM_WIDTH1)) lv_shift = zeroExtend(parameters.z_size) << shift_len;
 			Bit#(8) shift_op = truncate(lv_shift >> burst_len_shift);
 			
-      		rg_burst_len <= shift_op >= fromInteger(val_data_bytes)  ? (shift_op - 1) : 0;
+      		rg_burst_len <= lv_shift >= fromInteger(val_data_bytes)  ? (shift_op - 1) : 0;
 
 			rg_y_cntr <= parameters.y_size - 1;
 			rg_x_cntr <= parameters.x_size - 1;
@@ -315,11 +315,11 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 	endinterface
 endmodule
 
-//(*synthesize*)
-//module mkload_Tb(Ifc_load_Module#(32,128,26,6,4,8,6,4,8,6,4,32,6,4,32,16,20));
-//    let ifc();
-//    mk_load_Module inst1(ifc);
-//    return (ifc);
-//endmodule
+(*synthesize*)
+module mkload_Tb(Ifc_load_Module#(32,128,26,6,4,8,6,4,8,6,4,32,6,4,32,16,20));
+    let ifc();
+    mk_load_Module inst1(ifc);
+    return (ifc);
+endmodule
 
 endpackage
