@@ -84,7 +84,6 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
       		Log#(data_bytes, d_shift),
       		Log#(wt_bytes, wt_shift),
       		Log#(of_bytes, of_shift),
-			Add#(a__,8,shift_width),
       		//Compiler generated
       		//Add#(b__, max_data, addr_width),
       		Add#(c__, of_index, max_index),
