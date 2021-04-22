@@ -212,8 +212,9 @@ package compute_top;
         endinterface
       );
     end
-
-		Vector#(nRow, Get#(SRAMKRdReq#(if_index))) ifc_get_inp_addr;
+		
+		//TODO - This interface is not properly instantiated in the top. Fix!
+		Vector#(nRow, Get#(Tuple2#(SRAMKRdReq#(if_index), Dim1))) ifc_get_inp_addr;
 		for(Integer i=0; i<rows; i=i+1)begin
 			ifc_get_inp_addr[i] = (
 				interface Get;
@@ -221,7 +222,7 @@ package compute_top;
 						if(wr_inp_addr[i].pad_zero)begin
 							systolic.subifc_rows[i].subifc_put_inp.put(0);
 						end
-						return wr_inp_addr[i];
+						return tuple2(wr_inp_addr[i], fromMaybe(rg_params).active_rows);
 					endmethod
 				endinterface
 			);
