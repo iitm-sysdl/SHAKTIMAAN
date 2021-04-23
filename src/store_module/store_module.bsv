@@ -134,9 +134,7 @@ package store_module;
 			Bool which_buf = is_address_within_range(`OBUF1_START, `OBUF1_END, rg_sram_address);
 			Sram_valid num_valid = truncate(min(fromInteger(oValues), rg_z_cntr));
     
-      if(last)begin
-        rg_z_cntr <= params.z_size;
-        
+      if(last)begin        
         if(rg_y_cntr == 1 && rg_x_cntr == 1)begin
           //end of sending SRAM requests
 					rg_send_req <= False;
@@ -144,10 +142,12 @@ package store_module;
         else if (rg_y_cntr == 1) begin
           rg_x_cntr <= rg_x_cntr - 1;
           rg_y_cntr <= params.y_size;
+          rg_z_cntr <= params.z_size;
           rg_dram_address <= rg_dram_address + zeroExtend(unpack(params.y_stride) << (params.bitwidth ? iShift : oShift));
         end
         else begin
           rg_y_cntr <= rg_y_cntr - 1;
+          rg_z_cntr <= params.z_size;
           rg_dram_address <= rg_dram_address + zeroExtend(unpack(params.z_stride) << (params.bitwidth ? iShift : oShift));
         end
 				//Increment index, set bank index to 0
@@ -155,7 +155,7 @@ package store_module;
       end
       else begin
         rg_z_cntr <= rg_z_cntr - fromInteger(oValues);
-        rg_dram_address <= rg_dram_address + fromInteger(oValues) << (params.bitwidth ? iShift : oShift);
+        //rg_dram_address <= rg_dram_address + fromInteger(oValues) << (params.bitwidth ? iShift : oShift);
 				rg_sram_address <= rg_sram_address + fromInteger(oValues);
       end
 
@@ -168,7 +168,7 @@ package store_module;
 
 
       let {first, dram_addr, last, data_strobe} = ff_beat_len.first;
-			wr_last <= last;
+			wr_last <= last && rg_z_cntr == 0;
       ff_beat_len.deq();
 
       if(first) begin
@@ -183,7 +183,7 @@ package store_module;
 																										awlen: burst_len,
 																										awsize: fromInteger(burst_size),
 																										awburst: 'b01,
-																										awid: `Buffer_wreq_id,
+																										awid: `Store_master,
 																										awprot: ?};
         memory_xactor.i_wr_addr.enq(write_addr);
       end
@@ -214,16 +214,18 @@ package store_module;
           lv_resp[rg_truncate_count] = truncate(lv_data);
           lv_data = pack(lv_resp);
           lv_wr_strb[rg_truncate_count] = lv_data_strobe;
-          AXI4_Wr_Data#(data_width) write_data = AXI4_Wr_Data {wdata: lv_data, wstrb: pack(lv_wr_strb), wlast: last, wid: `Buffer_wreq_id};
+          AXI4_Wr_Data#(data_width) write_data = AXI4_Wr_Data {wdata: lv_data, wstrb: pack(lv_wr_strb), wlast: last, wid: `Store_master};
           memory_xactor.i_wr_data.enq(write_data);    
         end
       end
       else begin
         lv_data = pack(response);
-        AXI4_Wr_Data#(data_width) write_data = AXI4_Wr_Data {wdata: lv_data, wstrb: pack(data_strobe), wlast: last, wid: `Buffer_wreq_id};
+        AXI4_Wr_Data#(data_width) write_data = AXI4_Wr_Data {wdata: lv_data, wstrb: pack(data_strobe), wlast: last, wid: `Store_master};
         memory_xactor.i_wr_data.enq(write_data);  
       end
-
+      if(!rg_send_req)begin
+        rg_z_cntr <= 0;
+      end
     endmethod
 
 		method Bool send_interrupt = rg_interrupt;
@@ -244,7 +246,7 @@ package store_module;
     interface Get subifc_send_store_finish;
       method ActionValue#(Bool) get if(rg_params matches tagged Valid .params &&&
 																			 rg_x_cntr == 1 &&& rg_y_cntr == 1 &&&
-																			 wr_last);
+																			 rg_z_cntr == 0);
         rg_params <= tagged Invalid;
         return True;
       endmethod
@@ -253,11 +255,11 @@ package store_module;
     interface master = memory_xactor.axi_side;
   endmodule
 
-  //(*synthesize*)
-  //module mkinst_col2im(Ifc_col2im#(32, 128, 26, 8, 6, 4, 32, 4, 20));
-  //  let ifc();
-  //  mkcol2im _temp(ifc);
-  //  return ifc;
-  //endmodule
+  (*synthesize*)
+  module mkinst_col2im(Ifc_col2im#(32, 128, 26, 8, 6, 4, 32, 4, 20));
+    let ifc();
+    mkcol2im _temp(ifc);
+    return ifc;
+  endmodule
 
 endpackage
