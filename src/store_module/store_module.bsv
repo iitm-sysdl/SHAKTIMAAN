@@ -143,15 +143,15 @@ package store_module;
           rg_x_cntr <= rg_x_cntr - 1;
           rg_y_cntr <= params.y_size;
           rg_z_cntr <= params.z_size;
-          rg_dram_address <= rg_dram_address + zeroExtend(unpack(params.y_stride) << (params.bitwidth ? iShift : oShift));
+          rg_dram_address <= rg_dram_address + (zeroExtend(unpack(params.y_stride)) << (params.bitwidth ? iShift : oShift));
         end
         else begin
           rg_y_cntr <= rg_y_cntr - 1;
           rg_z_cntr <= params.z_size;
-          rg_dram_address <= rg_dram_address + zeroExtend(unpack(params.z_stride) << (params.bitwidth ? iShift : oShift));
+          rg_dram_address <= rg_dram_address + (zeroExtend(unpack(params.z_stride)) << (params.bitwidth ? iShift : oShift));
         end
 				//Increment index, set bank index to 0
-				rg_sram_address <= ((unpack(rg_sram_address) >> (obuf_index + obuf_bankbits)) << (obuf_index + obuf_bankbits)) | zeroExtend((o_index+1) << obuf_bankbits);
+				rg_sram_address <= ((rg_sram_address >> obuf_bankbits) << obuf_bankbits) + (1 << obuf_bankbits);
       end
       else begin
         rg_z_cntr <= rg_z_cntr - fromInteger(oValues);
@@ -197,9 +197,10 @@ package store_module;
           Bit#(ibuf_bytes) lv_temp = (data_strobe[i] == 0) ? 0 : -1;
           lv_data_strobe[(i+1)*valueOf(ibuf_bytes)-1:i*valueOf(ibuf_bytes)] = lv_temp;
         end
-        if(rg_truncate_count < fromInteger(io_ratio_val) || !last) begin
+        if(rg_truncate_count < fromInteger(io_ratio_val) && !last) begin
           rg_truncated_ifmap[rg_truncate_count] <= truncate(lv_data);
           rg_wr_data_strb[rg_truncate_count] <= lv_data_strobe;
+          rg_truncate_count <= rg_truncate_count + 1;
         end
         else begin
           rg_truncate_count <= 0;
