@@ -14,6 +14,8 @@ typedef Bit#(`SRAM_ADDR_WIDTH) SRAM_address;
 typedef Bit#(`DIM_WIDTH1) Dim1;
 typedef Bit#(`DIM_WIDTH2) Dim2;
 
+typedef Bit#(TLog#(TAdd#(TMax#(`OBUF_BANKS,TMax#(`IBUF_BANKS,`WBUF_BANKS)),1))) Sram_valid;
+
 typedef Bit#(120) Params;
 typedef enum
 {
@@ -35,7 +37,7 @@ typedef struct
 	Bit#(a) index;
 	Bit#(b) bank;
 	Bit#(c) data;
-	Dim2 num_valid;
+	Sram_valid num_valid;
 } SRAMReq#(numeric type a, numeric type b, numeric type c) deriving(Bits, Eq, FShow);
 
 typedef struct
@@ -43,7 +45,7 @@ typedef struct
   Buffer buffer;
   Bit#(a) index;
   Bit#(b) bank;
-	Dim2 num_valid;
+	Sram_valid num_valid;
 }SRAMRdReq#(numeric type a, numeric type b) deriving(Bits, Eq, FShow);
 
 typedef struct

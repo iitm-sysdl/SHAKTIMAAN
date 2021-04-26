@@ -94,7 +94,12 @@ package accelerator;
 						 Mul#(xm__, 8, in_width), Mul#(xn__, 8, out_width),
 						 Add#(mem_pad, 0, 20),
 						 Add#(if_index, TAdd#(of_index, TAdd#(wt_index, gemm_pad)), 63),
-						 Add#(of_index, TAdd#(of_index, alu_pad), 53)
+						 Add#(of_index, TAdd#(of_index, alu_pad), 53),
+						 Mul#(out_words, TDiv#(out_width, in_width), in_words),
+						 Mul#(TMul#(out_words, in_width), TDiv#(out_width, in_width), data_width),
+						 Add#(a__, in_width, TMul#(out_words, in_width)),
+						 Add#(b__, in_width, data_width),
+						 Add#(c__, TMul#(out_words, in_width), data_width)
              );
 
 		// Having a status register to keep track 
@@ -104,7 +109,7 @@ package accelerator;
 		Reg#(Bit#(1)) rg_load_error <- mkReg(0); 
 		Reg#(Bit#(1)) rg_store_error <- mkReg(0);
 
-		Reg#(Bit#(8)) statusReg = concatReg8(0,0,0,0,rg_store_error, rg_frontend_error, rg_load_error, rg_idle);
+		//Reg#(Bit#(8)) statusReg = concatReg8(1'b0,1'b0,1'b0,1'b0,rg_store_error, rg_frontend_error, rg_load_error, rg_idle);
 
 		Vector#(nCol, Reg#(Bool)) rg_inp_req_valid <- replicateM(mkDReg(False));
 
@@ -117,7 +122,7 @@ package accelerator;
                    of_index, of_bank, out_width,
                    max_index, max_bank, max_width, max_words, mem_pad) ld_module <- mk_load_Module;
     Ifc_col2im#(dram_addr_width, data_width, sram_addr_width,
-                   of_index, of_bank, out_width,
+                   in_width,of_index, of_bank, out_width,
                    out_words, mem_pad) st_module <- mkcol2im;
     Ifc_onchip_buffers#(sram_addr_width, 
                   if_index, if_nbanks, if_entries,
@@ -245,8 +250,11 @@ package accelerator;
 				else if(req.valid)begin
 					buffers.ibuf[i].portB.request.put(makeRequest(False, index, ?));
 				end
-			endrule
-		end
+				else begin
+					gemm_module.put_inp_resp[i].put(0); //This should fix partial row input problem if top half of systolic is properly used
+				end
+			end
+		endrule
 
 		for(Integer i=0; i<vnRow; i=i+1)begin
 			rule rl_send_read_resp_zero_to_gemm(rg_inp_req_valid[i]);
@@ -430,7 +438,7 @@ package accelerator;
 		endrule
 
 		FIFOF#(SRAMRdReq#(of_index, of_bank)) ff_req_from_store <- mkFIFOF();
-		FIFOF#(Dim2) ff_num_valid_values <- mkFIFOF();
+		FIFOF#(Sram_valid) ff_num_valid_values <- mkFIFOF();
 
 		rule rl_get_request_from_store;
 			let req <- st_module.send_sram_req();
@@ -468,7 +476,7 @@ package accelerator;
 		for(Integer i=0; i<valueOf(of_nfolds); i=i+1)begin
 			rule rl_send_resp_to_st_module;
 				Vector#(out_words, Bit#(out_width)) values;
-				Dim2 num_valid = ff_num_valid_values.first;
+				Sram_valid num_valid = ff_num_valid_values.first;
 				for(Integer j=0; j<valueOf(out_words); j=j+1)begin
 					if(fromInteger(j) < num_valid)begin
 						values[j] <- buffers.obuf1[i*oWords+j].portB.response.get();
@@ -485,7 +493,7 @@ package accelerator;
 		for(Integer i=0; i<valueOf(of_nfolds); i=i+1)begin
 			rule rl_send_resp_to_st_module2;
 				Vector#(out_words, Bit#(out_width)) values;
-				Dim2 num_valid = ff_num_valid_values.first;
+				Sram_valid num_valid = ff_num_valid_values.first;
 				for(Integer j=0; j<valueOf(out_words); j=j+1)begin
 					if(fromInteger(j) < num_valid)begin
 						values[j] <- buffers.obuf2[i*oWords+j].portB.response.get();
@@ -503,15 +511,17 @@ package accelerator;
 		rule rl_update_status_register;
 			if(fetch_decode.send_interrupt) begin 
 				rg_frontend_error <= 1; 
+			end
 			else if(ld_module.send_interrupt) begin
 				rg_load_error <= 1;
+			end
 			else if(st_module.send_interrupt) begin
 				rg_store_error <= 1;
+			end
 		endrule
 
 		method Bool send_interrupt_to_proc = st_module.send_interrupt || ld_module.send_interrupt || fetch_decode.send_interrupt;
 			
-		endmethod
 
     interface ifc_load_master = ld_module.master;
     interface ifc_store_master = st_module.master;

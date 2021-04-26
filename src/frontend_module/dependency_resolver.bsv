@@ -92,7 +92,7 @@ package dependency_resolver;
  
 		function Action fn_pop_prev(FIFOF#(Dep_flags) flag_queue, FIFOF#(Bool) dep_queue);
 			action
-				if(flag_queue.first().pop_prev_dep)begin
+				if(flag_queue.first.pop_prev_dep)begin 
 					dep_queue.deq();
 				end
 			endaction
@@ -100,7 +100,7 @@ package dependency_resolver;
 	
 		function Action fn_pop_next(FIFOF#(Dep_flags) flag_queue, FIFOF#(Bool) dep_queue);
 			action
-				if(flag_queue.first().pop_next_dep)begin
+				if(flag_queue.first.pop_next_dep)begin
 					dep_queue.deq();
 				end
 			endaction
