@@ -106,6 +106,7 @@ package accelerator;
 
 		Reg#(Bit#(8)) statusReg = concatReg8(0,0,0,0,rg_store_error, rg_frontend_error, rg_load_error, rg_idle);
 
+		Vector#(nCol, Reg#(Bool)) rg_inp_req_valid <- replicateM(mkDReg(False));
 
     Ifc_fetch_decode#(dram_addr_width, data_width) fetch_decode <- mkfetch_decode;
     Ifc_dependency_resolver#(if_index, of_index, wt_index, mem_pad, mem_pad, gemm_pad, alu_pad)
@@ -223,20 +224,36 @@ package accelerator;
 
 		//(*mutually_exclusive = "rl_recv_read_req_ibuf_from_compute, rl_recv_read_req_wbuf_from_compute"*)
 		
-		rule rl_recv_read_req_ibuf_from_gemm;
-			let {index, active_rows} <- gemm_module.get_inp_addr.get();
-			//let inp_addr = gemm_module.get_inp_addr();
-			//let index = tpl_1(inp_addr);
-			//let active_rows = tpl_2(inp_addr);
-			for(Integer i=0; i<vnRow; i=i+1)begin
-				if(fromInteger(i) < active_rows)begin
-					buffers.ibuf[i].portB.request.put(makeRequest(False, index, ?));
-				end
-			end
-		endrule
+		//rule rl_recv_read_req_ibuf_from_gemm;
+		//	let {index, active_rows} <- gemm_module.get_inp_addr.get();
+		//	//let inp_addr = gemm_module.get_inp_addr();
+		//	//let index = tpl_1(inp_addr);
+		//	//let active_rows = tpl_2(inp_addr);
+		//	for(Integer i=0; i<vnRow; i=i+1)begin
+		//		if(fromInteger(i) < active_rows)begin
+		//			buffers.ibuf[i].portB.request.put(makeRequest(False, index, ?));
+		//		end
+		//	end
+		//endrule
 
 		for(Integer i=0; i<vnRow; i=i+1)begin
-			rule rl_send_read_resp_ibuf_to_gemm;
+			rule rl_recv_read_req_ibuf_from_gemm;
+				let req <- gemm_module.get_inp_addr[i].get();
+				if(req.pad_zero)begin
+					rg_inp_req_valid[i] <= True;
+				end
+				else if(req.valid)begin
+					buffers.ibuf[i].portB.request.put(makeRequest(False, index, ?));
+				end
+			endrule
+		end
+
+		for(Integer i=0; i<vnRow; i=i+1)begin
+			rule rl_send_read_resp_zero_to_gemm(rg_inp_req_valid[i]);
+				gemm_module.put_inp_resp[i].put(0);
+			endrule
+		
+			rule rl_send_read_resp_ibuf_to_gemm(!rg_inp_req_valid[i]);
 				let value <- buffers.ibuf[i].portB.response.get();
 				gemm_module.put_inp_resp[i].put(value);
 			endrule

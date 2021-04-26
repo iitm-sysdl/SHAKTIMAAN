@@ -91,11 +91,4 @@ package onchip_buffers;
 
   endmodule
 
-  // (*synthesize*)
-  // module mkTb(Ifc_onchip_buffers);
-  //   let ifc();
-  //   mkbuffers buffer(ifc);
-  //   return (ifc);
-  // endmodule
-
 endpackage

@@ -55,14 +55,7 @@ package dependency_resolver;
     interface Put#(Bool) ifc_put_alu_complete;
   endinterface 
  
- (*synthesize*)
-  module mkdep_Tb(Ifc_dependency_resolver#(15,15,15,20,20,18,23));
-    let ifc();
-    mkdependency_resolver inst1(ifc);
-    return (ifc);
-  endmodule
-
-  module mkdependency_resolver(Ifc_dependency_resolver#(if_index, of_index, wt_index, ld_pad, st_pad, cp_pad, alu_pad))
+	module mkdependency_resolver(Ifc_dependency_resolver#(if_index, of_index, wt_index, ld_pad, st_pad, cp_pad, alu_pad))
 		provisos(Add#(if_index, TAdd#(of_index, TAdd#(wt_index, cp_pad)), 63),
 						 Add#(of_index, TAdd#(of_index, alu_pad), 53),
 						 Add#(ld_pad, 0, 20),
@@ -99,7 +92,7 @@ package dependency_resolver;
  
 		function Action fn_pop_prev(FIFOF#(Dep_flags) flag_queue, FIFOF#(Bool) dep_queue);
 			action
-				if(flag_queue.pop_prev_dep)begin
+				if(flag_queue.first().pop_prev_dep)begin
 					dep_queue.deq();
 				end
 			endaction
@@ -107,7 +100,7 @@ package dependency_resolver;
 	
 		function Action fn_pop_next(FIFOF#(Dep_flags) flag_queue, FIFOF#(Bool) dep_queue);
 			action
-				if(flag_queue.pop_next_dep)begin
+				if(flag_queue.first().pop_next_dep)begin
 					dep_queue.deq();
 				end
 			endaction
@@ -188,7 +181,7 @@ package dependency_resolver;
   
     interface Get ifc_get_store_instruction;
       method ActionValue#(Store_params#(st_pad)) get if(fn_resolve_prev_pop(ff_store_queue, ff_alu_to_store));
-				ff_pop_prev(ff_store_queue, ff_alu_to_store);
+				fn_pop_prev(ff_store_queue, ff_alu_to_store);
         ff_store_params.deq();
         return ff_store_params.first;
       endmethod
@@ -205,8 +198,8 @@ package dependency_resolver;
       method ActionValue#(Compute_params#(if_index, of_index, wt_index, cp_pad)) get
         if(fn_resolve_prev_pop(ff_gemm_queue, ff_load_to_gemm) &&
            fn_resolve_next_pop(ff_gemm_queue, ff_alu_to_gemm));
-				ff_pop_prev(ff_gemm_queue, ff_load_to_gemm);
-				ff_pop_next(ff_gemm_queue, ff_alu_to_gemm);
+				fn_pop_prev(ff_gemm_queue, ff_load_to_gemm);
+				fn_pop_next(ff_gemm_queue, ff_alu_to_gemm);
         ff_gemm_params.deq();
         return ff_gemm_params.first;
       endmethod
@@ -224,8 +217,8 @@ package dependency_resolver;
       method ActionValue#(ALU_params#(of_index, alu_pad)) get
         if(fn_resolve_prev_pop(ff_alu_queue, ff_gemm_to_alu) &&
            fn_resolve_next_pop(ff_alu_queue, ff_store_to_alu));
-				ff_pop_prev(ff_alu_queue, ff_gemm_to_alu);
-				ff_pop_next(ff_alu_queue, ff_store_to_alu);
+				fn_pop_prev(ff_alu_queue, ff_gemm_to_alu);
+				fn_pop_next(ff_alu_queue, ff_store_to_alu);
         ff_alu_params.deq();
         return ff_alu_params.first;
       endmethod

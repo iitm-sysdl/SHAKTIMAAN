@@ -76,7 +76,7 @@ package intMul_WS;
 	endfunction 
 
 (*synthesize*)
-  module mkmac_tb(Ifc_intMul_WS#(8, 32));
+  module mkmac_tb_old(Ifc_intMul_WS#(8, 32));
     Ifc_intMul_WS#(8, 32) inst1 <- mkintMulWS(0, 0, 1);
     return (inst1);
   endmodule
