@@ -130,7 +130,7 @@ package compute_top;
                           || (params.ofmap_height - rg_h_cntr < zeroExtend(params.pad_bottom))
                           || (params.ofmap_width - rg_w_cntr < zeroExtend(params.pad_right));
 
-      Bool is_triangle = (pack(rg_inp_traingle_cntr) == fromInteger(rows));
+      Bool is_triangle = (pack(rg_inp_traingle_cntr) == fromInteger(params.active_rows));
       
       if(rg_h_cntr == params.ofmap_height-1 && rg_w_cntr == params.ofmap_width-1)begin
         rg_inp_traingle_cntr <= rg_inp_traingle_cntr - 1;
@@ -155,7 +155,7 @@ package compute_top;
         let temp = rg_inp_addr[i-1];
         let index = temp.index;
         let req = SRAMKRdReq{index: index, valid: temp.valid && (fromInteger(i) < params.active_rows), 
-										pad_zero: temp.pad_zero};
+										pad_zero: temp.pad_zero || (temp.valid && fromInteger(i) >= params.active_rows)};
 				rg_inp_addr[i] <= req;
 				wr_inp_addr[i] <= req;
       end
@@ -191,7 +191,7 @@ package compute_top;
           method ActionValue#(SRAMKWrReq#(of_index, out_width)) get if(rg_valid_col[i] && rg_new_out_cntr > 0);
             let value <- systolic.subifc_cols[i].subifc_get_acc.get();
 						rg_new_out_addr[i] <= rg_new_out_addr[i] + 1;
-						if(i==cols-1)begin
+						if(i==validValue(rg_params).active_cols-1)begin
 							rg_new_out_cntr <= rg_new_out_cntr - 1;
 						end
             return SRAMKWrReq{index: rg_new_out_addr[i], data: value, valid: rg_which_buffer};
@@ -204,7 +204,7 @@ package compute_top;
     for(Integer i=0; i<cols; i=i+1)begin
       ifc_get_old_out_addr[i] = (
         interface Get;
-          method ActionValue#(SRAMKRdReq#(of_index)) get if(rg_valid_col[i] && rg_old_out_cntr[i] > 0);
+          method ActionValue#(SRAMKRdReq#(of_index)) get if(rg_params matches tagged Valid .params &&& params.preload_output &&& rg_valid_col[i] &&& rg_old_out_cntr[i] > 0);
 						rg_old_out_addr[i] <= rg_old_out_addr[i] + 1; //Adding this to fix a bug! ~Vin
             rg_old_out_cntr[i] <= rg_old_out_cntr[i] - 1; //What is this doing here? ~~ Not required right? OPTIMIZE
             return SRAMKRdReq{index: rg_old_out_addr[i], valid: rg_which_buffer, pad_zero: False};
@@ -212,15 +212,16 @@ package compute_top;
         endinterface
       );
     end
-
-		Vector#(nRow, Get#(SRAMKRdReq#(if_index))) ifc_get_inp_addr;
+		
+		//TODO - This interface is not properly instantiated in the top. Fix!
+		Vector#(nRow, Get#(Tuple2#(SRAMKRdReq#(if_index), Dim1))) ifc_get_inp_addr;
 		for(Integer i=0; i<rows; i=i+1)begin
 			ifc_get_inp_addr[i] = (
 				interface Get;
 					method ActionValue#(SRAMKRdReq#(if_index)) get;
-						if(wr_inp_addr[i].pad_zero)begin
-							systolic.subifc_rows[i].subifc_put_inp.put(0);
-						end
+						//if(wr_inp_addr[i].pad_zero)begin
+						//	systolic.subifc_rows[i].subifc_put_inp.put(0);
+						//end
 						return wr_inp_addr[i];
 					endmethod
 				endinterface
@@ -278,7 +279,7 @@ package compute_top;
         rg_weightload <= True;
         rg_weightload_req <= True;
 				rg_wt_addr <= params.weight_address + zeroExtend(params.active_rows) - 1;
-        rg_wt_cntr <= 0;
+        rg_wt_cntr <= nRow - params.active_rows;
 
         rg_h_cntr <= 0;
         rg_w_cntr <= 0;

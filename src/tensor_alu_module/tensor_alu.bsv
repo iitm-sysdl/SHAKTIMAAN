@@ -1,5 +1,5 @@
 /*
-Author: Vinod Ganesan, Gokulan Ravi, Sadhana S
+Author: Sadhana S, Vinod Ganesan, Gokulan Ravi
 Email ID: g.vinod1993@gmail.com, gokulan97@gmail.com
 Details: Top Module of Vector ALU
 */
@@ -19,13 +19,6 @@ package tensor_alu;
 		method ActionValue#(TALUOutReq#(of_index, alu_width, num_col)) mav_put_result;
 		interface Get#(Bool) subifc_get_alu_complete;
 	endinterface
-	
-	(*synthesize*)
-	module mktalu_Tb(Ifc_tensor_alu#(16, 4, 8, 23));
-	  let ifc();
-	  mk_tensor_alu inst1(ifc);
-	  return (ifc);
-	endmodule
 	
 	module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
 		provisos(

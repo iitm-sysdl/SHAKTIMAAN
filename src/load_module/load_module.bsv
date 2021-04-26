@@ -58,6 +58,7 @@ interface Ifc_load_Module#(numeric type dram_addr_width, numeric type data_width
 	interface Put#(Load_params#(ld_pad)) subifc_put_loadparams;  //to get parameters from the dependency module
 	interface Get#(Bool) subifc_send_loadfinish;	//send the finish signal once the load is completed
 	method ActionValue#(SRAMReq#(max_index, max_bank, data_width)) write_data;
+	method Bool send_interrupt;
 endinterface
 
 module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
@@ -74,24 +75,24 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			Add#(wt_data, 0, if_data),
 			Mul#(iwords, wt_data, data_width),
 			Mul#(owords, of_data, data_width),
-      Max#(iwords, owords, max_words),
+      		Max#(iwords, owords, max_words),
 			Mul#(data_bytes, 8, data_width),
 			Mul#(if_bytes, 8, if_data),
 			Mul#(wt_bytes, 8, wt_data),
 			Mul#(of_bytes, 8, of_data),
-      Log#(if_bytes, if_shift),
-      Log#(data_bytes, d_shift),
-      Log#(wt_bytes, wt_shift),
-      Log#(of_bytes, of_shift),
-      //Compiler generated
-      //Add#(b__, max_data, addr_width),
-      Add#(c__, of_index, max_index),
-      Add#(d__, of_bank, max_bank),
-      Add#(e__, if_index, max_index),
-      Add#(f__, if_bank, max_bank),
-      Add#(g__, wt_index, max_index),
-      Add#(h__, wt_bank, max_bank)
-      //Add#(c__, of_data, addr_width)
+      		Log#(if_bytes, if_shift),
+      		Log#(data_bytes, d_shift),
+      		Log#(wt_bytes, wt_shift),
+      		Log#(of_bytes, of_shift),
+      		//Compiler generated
+      		//Add#(b__, max_data, addr_width),
+      		Add#(c__, of_index, max_index),
+      		Add#(d__, of_bank, max_bank),
+      		Add#(e__, if_index, max_index),
+      		Add#(f__, if_bank, max_bank),
+      		Add#(g__, wt_index, max_index),
+      		Add#(h__, wt_bank, max_bank)
+      		//Add#(c__, of_data, addr_width)
 		);
 
   let burst_len_shift = valueOf(d_shift); //used to calculate burst length
@@ -167,6 +168,9 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 	Reg#(Bool) rg_finish_load <- mkReg(True);
 
 	Wire#(SRAMReq#(max_index, max_bank, data_width)) wr_buffer_req <- mkWire();
+	Reg#(Bool) rg_interrupt <- mkReg(False);
+
+
 
 	function Bool is_address_within_range(SRAM_address start_addr, SRAM_address end_addr, SRAM_address query);
 		return (start_addr <= query && query <= end_addr);
@@ -231,6 +235,7 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			rg_burst_addr <= tagged Invalid;
       rg_z_cntr <= params.z_size;
 		end
+
 		/*----code for writing into buffer----*/
 
 		//$display($time, "Received response for %x, values: %x", lv_sram_addr, lv_data);
@@ -238,24 +243,30 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			Bit#(if_index) inp_index;
       Bit#(if_bank) inp_bufferbank;
       {inp_index, inp_bufferbank} = split_address_IBUF(lv_sram_addr);
-			Dim2 num_valid = truncate(min(rg_z_cntr, fromInteger(iWords)));
+			Sram_valid num_valid = truncate(min(rg_z_cntr, fromInteger(iWords)));
 			wr_buffer_req <= SRAMReq{buffer: InputBuffer, index: zeroExtend(inp_index), bank: zeroExtend(inp_bufferbank), data: lv_data, num_valid: num_valid};
 		end
 		else if(is_address_within_range(`WBUF_START, `WBUF_END, lv_sram_addr))begin //loading weights
 			Bit#(wt_index) wgt_index;
       Bit#(wt_bank) wgt_bufferbank;
       {wgt_index, wgt_bufferbank} = split_address_WBUF(lv_sram_addr);
-			Dim2 num_valid = truncate(min(rg_z_cntr, fromInteger(iWords)));
+			Sram_valid num_valid = truncate(min(rg_z_cntr, fromInteger(iWords)));
 			wr_buffer_req <= SRAMReq{buffer: WeightBuffer, index: zeroExtend(wgt_index), bank: zeroExtend(wgt_bufferbank), data: lv_data, num_valid: num_valid};
 		end
 		else if(is_address_within_range(`OBUF_START, `OBUF_END, lv_sram_addr))begin //loading outputs
 			Bit#(of_index) out_index;
       Bit#(of_bank) out_bufferbank;
       {out_index, out_bufferbank} = split_address_OBUF(lv_sram_addr);
-			Dim2 num_valid = truncate(min(rg_z_cntr, fromInteger(oWords)));
+			Sram_valid num_valid = truncate(min(rg_z_cntr, fromInteger(oWords)));
 			wr_buffer_req <= SRAMReq{buffer: (is_address_within_range(`OBUF1_START, `OBUF1_END, lv_sram_addr) ? OutputBuffer1 : OutputBuffer2), 
 																	index: zeroExtend(out_index), bank: zeroExtend(out_bufferbank), data: lv_data, num_valid: num_valid};
 		end
+	endrule
+
+	rule rl_raise_interrupt(m_xactor.o_rd_data.first.rid == `Load_master && 
+		m_xactor.o_rd_data.first.rresp==AXI4_SLVERR);
+		let lv_resp <- pop_o(m_xactor.o_rd_data);
+		rg_interrupt <= True;
 	endrule
 
 	rule rl_send_finish(rg_params matches tagged Valid .params &&& !ff_dest_addr.notEmpty() &&& !rg_load_requests &&& !rg_finish_load);
@@ -275,14 +286,15 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			rg_dram_addr <= parameters.dram_address;
 			rg_sram_addr <= parameters.sram_address;
 			Integer shift_len = (parameters.bitwidth ? valueOf(if_shift) : valueOf(of_shift));
+			//of_shift will be max(if_shift,of_shift) and `DIM_WIDTH is the length of z_size
+			Bit#(TAdd#(TAdd#(of_shift,1),`DIM_WIDTH1)) lv_shift = zeroExtend(parameters.z_size) << shift_len;
+			Bit#(8) shift_op = truncate(lv_shift >> burst_len_shift);
 			
-			let shift_op = (pack(parameters.z_size) << shift_len) >> burst_len_shift;
-			
-      rg_burst_len <= shift_op >= fromInteger(val_data_bytes)  ? truncate((shift_op - 1)) : 0;
+      		rg_burst_len <= lv_shift >= fromInteger(val_data_bytes)  ? (shift_op - 1) : 0;
 
 			rg_y_cntr <= parameters.y_size - 1;
 			rg_x_cntr <= parameters.x_size - 1;
-      rg_z_cntr <= parameters.z_size;
+      		rg_z_cntr <= parameters.z_size;
 			rg_load_requests <= True;
 			rg_burst_addr <= tagged Invalid;
 		endmethod
@@ -292,6 +304,8 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
     return wr_buffer_req;
   endmethod
 
+	method Bool send_interrupt = rg_interrupt;
+
 	interface Get subifc_send_loadfinish;
 		method ActionValue#(Bool) get if(isValid(rg_params) && rg_finish_load);
 			rg_params <= tagged Invalid;
@@ -300,5 +314,12 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 		endmethod
 	endinterface
 endmodule
+
+//(*synthesize*)
+//module mkload_Tb(Ifc_load_Module#(32,128,26,6,4,8,6,4,8,6,4,32,6,4,32,16,20));
+//    let ifc();
+//    mk_load_Module inst1(ifc);
+//    return (ifc);
+//endmodule
 
 endpackage

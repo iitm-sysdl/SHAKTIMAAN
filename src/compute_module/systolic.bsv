@@ -57,7 +57,7 @@ package systolic;
   endinterface
 
   (*synthesize*)
-  module mksystolic2(Ifc_systolic#(4,4,8, 32));
+  module mksystolic2(Ifc_systolic#(2,2,8,16));
       let ifc();
       mksystolic inst(ifc);
       return (ifc);
