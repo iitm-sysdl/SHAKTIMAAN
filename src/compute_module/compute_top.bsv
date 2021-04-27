@@ -29,12 +29,12 @@ package compute_top;
     interface Vector#(nCol, Get#(SRAMKWrReq#(of_index, out_width))) get_new_output_data;
   endinterface
 
-//  (*synthesize*)
-//  module mkgemm_Tb(Ifc_compute_module#(32,26,8,16,4,4,5,6,7,18));
-//    let ifc();
-//    mkgemm inst1(ifc);
-//    return (ifc);
-//  endmodule
+  (*synthesize*)
+  module mkgemm_Tb(Ifc_compute_module#(32,26,8,16,4,4,15,15,15,18));
+    let ifc();
+    mkgemm inst1(ifc);
+    return (ifc);
+  endmodule
   
   module mkgemm(Ifc_compute_module#(dram_addr_width, sram_addr_width,
                                    in_width, out_width,
@@ -140,8 +140,8 @@ package compute_top;
                           || (params.ofmap_height - rg_h_cntr < zeroExtend(params.pad_bottom))
                           || (params.ofmap_width - rg_w_cntr < zeroExtend(params.pad_right));
 
-      Bool is_triangle = (pack(rg_inp_traingle_cntr) == fromInteger(params.active_rows));
-      Bool is_old_output_triangle = (pack(rg_inp_traingle_cntr) == fromInteger(params.active_cols));
+      Bool is_triangle = (pack(rg_inp_traingle_cntr) == params.active_rows);
+      Bool is_old_output_triangle = (pack(rg_inp_traingle_cntr) == params.active_cols);
       
       if(rg_h_cntr == params.ofmap_height-1 && rg_w_cntr == params.ofmap_width-1)begin
         rg_inp_traingle_cntr <= rg_inp_traingle_cntr - 1;
@@ -216,7 +216,7 @@ package compute_top;
           method ActionValue#(SRAMKWrReq#(of_index, out_width)) get if(rg_valid_col[i] && rg_new_out_cntr > 0);
             let value <- systolic.subifc_cols[i].subifc_get_acc.get();
 						rg_new_out_addr[i] <= rg_new_out_addr[i] + 1;
-						if(i==validValue(rg_params).active_cols-1)begin
+						if(fromInteger(i)==validValue(rg_params).active_cols-1)begin
 							rg_new_out_cntr <= rg_new_out_cntr - 1;
 						end
             return SRAMKWrReq{index: rg_new_out_addr[i], data: value, valid: rg_which_buffer};
@@ -237,7 +237,7 @@ package compute_top;
     end
 		
 		//TODO - This interface is not properly instantiated in the top. Fix!
-		Vector#(nRow, Get#(Tuple2#(SRAMKRdReq#(if_index), Dim1))) ifc_get_inp_addr;
+		Vector#(nRow, Get#(SRAMKRdReq#(if_index))) ifc_get_inp_addr;
 		for(Integer i=0; i<rows; i=i+1)begin
 			ifc_get_inp_addr[i] = (
 				interface Get;
@@ -302,7 +302,7 @@ package compute_top;
         rg_weightload <= True;
         rg_weightload_req <= True;
 				rg_wt_addr <= params.weight_address + zeroExtend(params.active_rows) - 1;
-        rg_wt_cntr <= nRow - params.active_rows;
+        rg_wt_cntr <= fromInteger(rows) - params.active_rows;
 
         rg_h_cntr <= 0;
         rg_w_cntr <= 0;
@@ -310,7 +310,7 @@ package compute_top;
         rg_inp_row_addr <= params.input_address;
         rg_inp_col_addr <= params.input_address;
 
-        rg_inp_traingle_cntr <= fromInteger(params.active_rows);
+        rg_inp_traingle_cntr <= params.active_rows;
         
         for(Integer i=0; i<rows; i=i+1)begin
           rg_valid_row[i] <= fromInteger(i) < params.active_rows;
@@ -333,12 +333,12 @@ package compute_top;
         let time_values = params.ofmap_width * params.ofmap_height;
 
 				$display($time, "Received GEMM params", params.ofmap_width, params.ofmap_height, time_values);
-        if(params.preload_output)begin
-          for(Integer i=0; i<cols; i=i+1)begin
-            rg_old_out_cntr[i] <= time_values;
-          end
-        end
-        else begin
+        if(!params.preload_output)begin
+        //  for(Integer i=0; i<cols; i=i+1)begin
+        //    rg_old_out_cntr[i] <= time_values;
+        //  end
+        //end
+        //else begin
           rg_zero_cntr <= time_values;
         end
 				
