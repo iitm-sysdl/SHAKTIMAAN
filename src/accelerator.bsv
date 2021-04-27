@@ -291,74 +291,61 @@ package accelerator;
 			ff_wt_valid_cols.deq();
 		endrule
 
-		FIFOF#(Tuple2#(Bit#(of_index), Dim1)) ff_old_out_reqs			<- mkFIFOF();
-		FIFOF#(Bool)						ff_out_which_buffer <- mkFIFOF();
+		//FIFOF#(SRAMKRdReq#(of_index)) ff_old_out_reqs			<- mkFIFOF();
+		Vector#(nCols,FIFOF#(Bool))					ff_out_which_buffer <- replicateM(mkFIFOF());
 
-		rule rl_get_read_req_from_gemm;
-			let req <- gemm_module.get_old_out_addr.get();
-			ff_old_out_reqs.enq(req);
-		endrule
+		//rule rl_get_read_req_from_gemm;
+		//	let req <- gemm_module.get_old_out_addr.get();
+		//	ff_old_out_reqs.enq(req);
+		//endrule
 
-		rule rl_send_gemm_read_req_to_obuf;
-			let {index, active_cols} = ff_old_out_reqs.first;
-			//let index = tpl_1(out_addr);
-			//let active_cols = tpl_2(out_addr);
-			Bool which_buffer = index >> (valueOf(of_index)-1) == 'b1;
-			for(Integer i=0; i<vnCol; i=i+1)begin
-				if(fromInteger(i) < active_cols)begin
-					if(which_buffer) begin
-						buffers.obuf2[i].portA.request.put(makeRequest(False, index, ?));
-					end
-					else begin
-						buffers.obuf1[i].portA.request.put(makeRequest(False, index, ?));
-					end
-				end
-			end
-			ff_out_which_buffer.enq(which_buffer);
-		endrule
+         		
 
 		for(Integer i=0; i<valueOf(nCol); i=i+1)begin
 			//(*mutually_exclusive = "rl_forward_old_output_from_obuf1_to_gemm, rl_forward_old_output_from_obuf2_to_gemm"*)
 			//(*mutually_exclusive = "rl_forward_old_output_from_obuf1_to_gemm, gemm_module.rl_send_init_acc_zero"*)
 			//(*mutually_exclusive = "rl_forward_old_output_from_obuf2_to_gemm, gemm_module.rl_send_init_acc_zero"*)
 
-			rule rl_forward_old_output_from_obuf1_to_gemm(ff_out_which_buffer.first);
+			rule rl_send_gemm_read_req_to_obuf;
+         			//let {index, active_cols} = ff_old_out_reqs.first;
+         			let req <- gemm_module.get_old_out_addr[i].get();
+         			//let index = tpl_1(out_addr);
+         			//let active_cols = tpl_2(out_addr);
+         			Bool which_buffer = req.index >> (valueOf(of_index)-1) == 'b1;
+         			if(which_buffer) begin
+         				buffers.obuf2[i].portA.request.put(makeRequest(False, index, ?));
+         			end
+         			else begin
+         				buffers.obuf1[i].portA.request.put(makeRequest(False, index, ?));
+         			end
+         			ff_out_which_buffer[i].enq(which_buffer);
+         		endrule
+
+			rule rl_forward_old_output_from_obuf1_to_gemm(ff_out_which_buffer[i].first);
 				let value <- buffers.obuf1[i].portA.response.get();
 				gemm_module.put_old_out_resp[i].put(value);
-				if(i==0)begin
-					ff_out_which_buffer.deq();
-				end
+				ff_out_which_buffer[i].deq();
 			endrule
 
-			rule rl_forward_old_output_from_obuf2_to_gemm(!ff_out_which_buffer.first);
+			rule rl_forward_old_output_from_obuf2_to_gemm(!ff_out_which_buffer[i].first);
 				let value <- buffers.obuf2[i].portA.response.get();
 				gemm_module.put_old_out_resp[i].put(value);
-				if(i==0)begin
-					ff_out_which_buffer.deq();
-				end
+				ff_out_which_buffer[i].deq();
 			endrule
-		end
 
-		rule rl_get_write_req_from_gemm;
-			let write_req <- gemm_module.get_new_output_data.get();
-			let values = tpl_1(write_req);
-			let index = tpl_2(write_req);
-			let active_cols = tpl_3(write_req);
-			if(index >> (valueOf(of_index)-1) == 'b0)begin
-				for(Integer i=0; i<vnCol; i=i+1)begin
-					if(fromInteger(i) < active_cols)begin
-						buffers.obuf1[i].portB.request.put(makeRequest(True, index, values[i]));
-					end
-				end
-			end
-			else begin
-				for(Integer i=0; i<vnCol; i=i+1)begin
-					if(fromInteger(i) < active_cols)begin
-						buffers.obuf2[i].portB.request.put(makeRequest(True, index, values[i]));
-					end
-				end
-			end
-		endrule
+         		rule rl_get_write_req_from_gemm;
+         			let write_req <- gemm_module.get_new_output_data[i].get();
+         			//let values = tpl_1(write_req);
+         			//let index = tpl_2(write_req);
+         			//let active_cols = tpl_3(write_req);
+         			if(write_req.valid == 'b0)begin
+         				buffers.obuf1[i].portB.request.put(makeRequest(True, write_req.index, write_req.data));
+         			end
+         			else begin
+         				buffers.obuf2[i].portB.request.put(makeRequest(True, write_req.index, write_req.data));
+         			end
+         		endrule
+	        end
 
 		FIFOF#(TALUOpReq#(of_index)) ff_req_in_tensor_alu <- mkFIFOF();
 		FIFOF#(Tuple2#(Dim1, Bool)) ff_num_active_talu <- mkFIFOF();
@@ -371,9 +358,9 @@ package accelerator;
 		rule rl_send_in_req_talu(ff_req_in_tensor_alu.first.buffer);
 			let req = ff_req_in_tensor_alu.first;
 			for(Integer i=0; i<valueOf(nCol); i=i+1)begin
-				if(fromInteger(i) < req.num_valid)begin
+				//if(fromInteger(i) < req.num_valid)begin
 					buffers.obuf1[i].portA.request.put(makeRequest(False, req.index, ?));
-				end
+				//end
 			end
 			ff_req_in_tensor_alu.deq();
 			ff_num_active_talu.enq(tuple2(req.num_valid, True));
@@ -382,9 +369,9 @@ package accelerator;
 		rule rl_send_in_req_talu2(!ff_req_in_tensor_alu.first.buffer);
 			let req = ff_req_in_tensor_alu.first;
 			for(Integer i=0; i<valueOf(nCol); i=i+1)begin
-				if(fromInteger(i) < req.num_valid)begin
+				//if(fromInteger(i) < req.num_valid)begin
 					buffers.obuf2[i].portA.request.put(makeRequest(False, req.index, ?));
-				end
+				//end
 			end
 			ff_req_in_tensor_alu.deq();
 			ff_num_active_talu.enq(tuple2(req.num_valid, False));
