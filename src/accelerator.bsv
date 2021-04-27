@@ -312,12 +312,14 @@ package accelerator;
          			//let index = tpl_1(out_addr);
          			//let active_cols = tpl_2(out_addr);
          			Bool which_buffer = req.index >> (valueOf(of_index)-1) == 'b1;
-         			if(which_buffer) begin
-         				buffers.obuf2[i].portA.request.put(makeRequest(False, index, ?));
-         			end
-         			else begin
+				if(req.valid) begin
+         			 if(which_buffer) begin
+         			 	buffers.obuf2[i].portA.request.put(makeRequest(False, index, ?));
+         			 end
+         			 else begin
          				buffers.obuf1[i].portA.request.put(makeRequest(False, index, ?));
-         			end
+         			 end
+				end
          			ff_out_which_buffer[i].enq(which_buffer);
          		endrule
 
