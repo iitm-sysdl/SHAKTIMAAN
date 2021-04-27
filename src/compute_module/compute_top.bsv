@@ -30,7 +30,7 @@ package compute_top;
   endinterface
 
   (*synthesize*)
-  module mkgemm_Tb(Ifc_compute_module#(32,26,8,16,4,4,15,15,15,18));
+  module mkgemm_Tb(Ifc_compute_module#(32,26,8,16,2,2,15,15,15,18));
     let ifc();
     mkgemm inst1(ifc);
     return (ifc);
@@ -69,13 +69,17 @@ package compute_top;
     Reg#(Maybe#(Compute_params#(if_index, of_index, wt_index, cp_pad))) rg_params <- mkReg(tagged Invalid);
     Reg#(Bool) rg_weightload <- mkReg(False);
 		Reg#(Bool) rg_weightload_req <- mkReg(False);
+		Reg#(Bool) rg_inp_triangle <- mkReg(False);
+		Reg#(Bool) rg_op_triangle <- mkReg(False);
 
     Reg#(SRAM_index#(wt_index)) rg_wt_addr <- mkReg(?);
     
     Reg#(SRAM_index#(if_index)) rg_inp_row_addr <- mkReg(?);
     Reg#(SRAM_index#(if_index)) rg_inp_col_addr <- mkReg(?);
 
-    Reg#(Dim1) rg_inp_traingle_cntr <- mkReg(0);
+    //Reg#(Dim1) rg_inp_traingle_cntr <- mkReg(0);
+    Reg#(Dim1) rg_op_traingle_cntr <- mkReg(0);
+    Reg#(Dim1) rg_row_cntr <- mkReg(0);
     Reg#(Dim1) rg_h_cntr <- mkReg(0);
     Reg#(Dim1) rg_w_cntr <- mkReg(0);
     Reg#(Dim1) rg_zero_cntr <- mkReg(0);
@@ -123,10 +127,7 @@ package compute_top;
       endrule
     end
 
-    rule rl_init_acc_zero_counter(rg_params matches tagged Valid .params &&&
-                                 !rg_weightload &&&
-                                 rg_zero_cntr > 0 &&&
-                                 !params.preload_output &&& init_acc_count_fire);
+    rule rl_init_acc_zero_counter(init_acc_count_fire);
 			rg_zero_cntr <= rg_zero_cntr - 1;
     endrule
 
@@ -134,17 +135,23 @@ package compute_top;
 															!rg_weightload &&& // compute phase
 															((rg_h_cntr == params.ofmap_height-1 && 
 															rg_w_cntr == params.ofmap_width-1) || // Input feeding phase
-															rg_inp_traingle_cntr > 1)); //Final triangle while feeding inputs
+															//rg_inp_traingle_cntr > 1 || //Final triangle while feeding inputs
+															//rg_op_traingle_cntr > 1 || //Final triangle while feeding outputs, uncomment this when aspect ratio of systolic could be different
+															rg_row_cntr > 1)); //Letting the bottom half of systolic to get enough input zeros/values for the output to get down
 
       Bool lv_pad_zero = (rg_h_cntr < zeroExtend(params.pad_top)) || (rg_w_cntr < zeroExtend(params.pad_left)) 
                           || (params.ofmap_height - rg_h_cntr < zeroExtend(params.pad_bottom))
                           || (params.ofmap_width - rg_w_cntr < zeroExtend(params.pad_right));
 
-      Bool is_triangle = (pack(rg_inp_traingle_cntr) == params.active_rows);
-      Bool is_old_output_triangle = (pack(rg_inp_traingle_cntr) == params.active_cols);
+      //Bool is_triangle = (pack(rg_inp_traingle_cntr) == params.active_rows);
+      //Bool is_old_output_triangle = (pack(rg_op_traingle_cntr) == params.active_cols);
       
       if(rg_h_cntr == params.ofmap_height-1 && rg_w_cntr == params.ofmap_width-1)begin
-        rg_inp_traingle_cntr <= rg_inp_traingle_cntr - 1;
+        //rg_inp_traingle_cntr <= (rg_inp_traingle_cntr == 1)?1:rg_inp_traingle_cntr - 1;
+	rg_inp_triangle <= False;
+	rg_op_triangle <= False;
+        //rg_op_traingle_cntr <= (rg_op_traingle_cntr == 1)?1:rg_op_traingle_cntr - 1;
+        rg_row_cntr <= (rg_row_cntr == 1)?1:rg_row_cntr - 1;
       end
       else if(rg_w_cntr == params.ofmap_width-1)begin
         rg_w_cntr <= 0;
@@ -158,19 +165,19 @@ package compute_top;
         rg_inp_col_addr <= rg_inp_col_addr + zeroExtend(params.stride_w);
       end
 
-      let req0 = SRAMKRdReq{index: rg_inp_col_addr, valid: is_triangle && !lv_pad_zero, pad_zero: lv_pad_zero};
+      let req0 = SRAMKRdReq{index: rg_inp_col_addr, valid: rg_inp_triangle /*is_triangle && !lv_pad_zero*/, pad_zero: lv_pad_zero};
 			rg_inp_addr[0] <= req0;
 			wr_inp_addr[0] <= req0;
 		
 			rg_old_out_addr <= rg_old_out_addr + 1;
-			let oreq0 = SRAMKRdReq{index: rg_old_out_addr, valid: is_old_output_triangle, pad_zero: ?};
+			let oreq0 = SRAMKRdReq{index: rg_old_out_addr, valid: rg_op_triangle, pad_zero: ?};
 			rg_old_out_req[0] <= oreq0;
 			wr_old_out_req[0] <= oreq0;
 
       for(Integer i=1; i<rows; i=i+1)begin
         let temp = rg_inp_addr[i-1];
         let index = temp.index;
-        let req = SRAMKRdReq{index: index, valid: temp.valid && (fromInteger(i) < params.active_rows), 
+        let req = SRAMKRdReq{index: index, valid: temp.valid /*&& (fromInteger(i) < params.active_rows)*/, 
 										pad_zero: temp.pad_zero || (temp.valid && fromInteger(i) >= params.active_rows)};
 				rg_inp_addr[i] <= req;
 				wr_inp_addr[i] <= req;
@@ -310,7 +317,11 @@ package compute_top;
         rg_inp_row_addr <= params.input_address;
         rg_inp_col_addr <= params.input_address;
 
-        rg_inp_traingle_cntr <= params.active_rows;
+        //rg_inp_traingle_cntr <= params.active_rows;
+        //rg_op_traingle_cntr <= params.active_cols;
+        rg_row_cntr <= fromInteger(rows);
+	rg_inp_triangle <= True;
+	rg_op_triangle <= True;
         
         for(Integer i=0; i<rows; i=i+1)begin
           rg_valid_row[i] <= fromInteger(i) < params.active_rows;

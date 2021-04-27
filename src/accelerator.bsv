@@ -244,15 +244,15 @@ package accelerator;
 		for(Integer i=0; i<vnRow; i=i+1)begin
 			rule rl_recv_read_req_ibuf_from_gemm;
 				let req <- gemm_module.get_inp_addr[i].get();
-				if(req.pad_zero)begin
+				if(req.pad_zero && req.valid)begin
 					rg_inp_req_valid[i] <= True;
 				end
 				else if(req.valid)begin
 					buffers.ibuf[i].portB.request.put(makeRequest(False, index, ?));
 				end
-				else begin
-					gemm_module.put_inp_resp[i].put(0); //This should fix partial row input problem if top half of systolic is properly used
-				end
+				//else begin
+				//	gemm_module.put_inp_resp[i].put(0); //This should fix partial row input problem if top half of systolic is properly used
+				//end
 			end
 		endrule
 
