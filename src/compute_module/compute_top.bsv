@@ -88,8 +88,9 @@ package compute_top;
     Vector#(nRow, Wire#(SRAMKRdReq#(if_index))) wr_inp_addr <- replicateM(mkWire());
 		Vector#(nRow, Reg#(Bool)) rg_valid_row <- replicateM(mkReg(False));
 
-    Vector#(nCol, Reg#(Bit#(of_index))) rg_old_out_addr <- replicateM(mkReg(?));
-    Vector#(nCol, Reg#(Dim1)) rg_old_out_cntr <- replicateM(mkReg(0));
+		Reg#(Bit#(of_index)) rg_old_out_addr <- mkReg(?);
+    Vector#(nCol, Reg#(SRAMKRdReq#(of_index))) rg_old_out_req <- replicateM(mkReg(?));
+		Vector#(nCol, Wire#(SRAMKRdReq#(of_index))) wr_old_out_req <- replicateM(mkWire());
 
 		Reg#(Dim1) rg_new_out_cntr <- mkReg(0);
 
@@ -150,6 +151,11 @@ package compute_top;
       let req0 = SRAMKRdReq{index: rg_inp_col_addr, valid: is_triangle && !lv_pad_zero, pad_zero: lv_pad_zero};
 			rg_inp_addr[0] <= req0;
 			wr_inp_addr[0] <= req0;
+		
+			rg_old_out_addr <= rg_old_out_addr + 1;
+			let oreq0 = SRAMKRdReq{index: rg_old_out_addr, valid: is_triangle, pad_zero: ?};
+			rg_old_out_req[i] <= oreq0;
+			wr_old_out_req[i] <= oreq0;
 
       for(Integer i=1; i<rows; i=i+1)begin
         let temp = rg_inp_addr[i-1];
@@ -159,6 +165,13 @@ package compute_top;
 				rg_inp_addr[i] <= req;
 				wr_inp_addr[i] <= req;
       end
+
+			for(Integer i=1; i<cols; i=i+1)begin
+				let oreq = rg_old_out_req[i-1];
+				rg_old_out_req[i] <= rg_old_out_req[i];
+				wr_old_out_req[i] <= rg_old_out_req[i];
+			end
+
     endrule
  
     Vector#(nRow, Put#(Bit#(in_width))) ifc_put_input;
@@ -204,10 +217,8 @@ package compute_top;
     for(Integer i=0; i<cols; i=i+1)begin
       ifc_get_old_out_addr[i] = (
         interface Get;
-          method ActionValue#(SRAMKRdReq#(of_index)) get if(rg_params matches tagged Valid .params &&& params.preload_output &&& rg_valid_col[i] &&& rg_old_out_cntr[i] > 0);
-						rg_old_out_addr[i] <= rg_old_out_addr[i] + 1; //Adding this to fix a bug! ~Vin
-            rg_old_out_cntr[i] <= rg_old_out_cntr[i] - 1; //What is this doing here? ~~ Not required right? OPTIMIZE
-            return SRAMKRdReq{index: rg_old_out_addr[i], valid: rg_which_buffer, pad_zero: False};
+          method ActionValue#(SRAMKRdReq#(of_index)) get if(rg_params matches tagged Valid .params &&& params.preload_output &&& rg_valid_col[i]);
+						return wr_old_out_req[i];
           endmethod
         endinterface
       );
@@ -287,7 +298,7 @@ package compute_top;
         rg_inp_row_addr <= params.input_address;
         rg_inp_col_addr <= params.input_address;
 
-        rg_inp_traingle_cntr <= fromInteger(rows);
+        rg_inp_traingle_cntr <= fromInteger(params.active_rows);
         
         for(Integer i=0; i<rows; i=i+1)begin
           rg_valid_row[i] <= fromInteger(i) < params.active_rows;
@@ -297,9 +308,7 @@ package compute_top;
           rg_inp_addr[i] <= SRAMKRdReq{index: ?, valid: False, pad_zero: False};
         end
         
-        for(Integer i=0; i<cols; i=i+1)begin
-          rg_old_out_addr[i] <= params.output_address;
-        end
+        rg_old_out_addr <= params.output_address;
         
         for(Integer i=0; i<cols; i=i+1)begin
           rg_valid_col[i] <= fromInteger(i) < params.active_cols;
