@@ -133,11 +133,9 @@ package compute_top;
 
 		rule rl_generate_inp_addr(rg_params matches tagged Valid .params &&& 
 															!rg_weightload &&& // compute phase
-															((rg_h_cntr == params.ofmap_height-1 && 
-															rg_w_cntr == params.ofmap_width-1) || // Input feeding phase
-															//rg_inp_traingle_cntr > 1 || //Final triangle while feeding inputs
+															(//rg_inp_traingle_cntr > 1 || //Final triangle while feeding inputs
 															//rg_op_traingle_cntr > 1 || //Final triangle while feeding outputs, uncomment this when aspect ratio of systolic could be different
-															rg_row_cntr > 1)); //Letting the bottom half of systolic to get enough input zeros/values for the output to get down
+															rg_row_cntr > 0)); //Letting the bottom half of systolic to get enough input zeros/values for the output to get down
 
       Bool lv_pad_zero = (rg_h_cntr < zeroExtend(params.pad_top)) || (rg_w_cntr < zeroExtend(params.pad_left)) 
                           || (params.ofmap_height - rg_h_cntr < zeroExtend(params.pad_bottom))
@@ -151,7 +149,7 @@ package compute_top;
 	rg_inp_triangle <= False;
 	rg_op_triangle <= False;
         //rg_op_traingle_cntr <= (rg_op_traingle_cntr == 1)?1:rg_op_traingle_cntr - 1;
-        rg_row_cntr <= (rg_row_cntr == 1)?1:rg_row_cntr - 1;
+        rg_row_cntr <= (rg_row_cntr == 0)?0:rg_row_cntr - 1;
       end
       else if(rg_w_cntr == params.ofmap_width-1)begin
         rg_w_cntr <= 0;
