@@ -457,7 +457,7 @@ package accelerator;
 						buffers.obuf2[i*oWords+j].portB.request.put(makeRequest(False, index, ?));
 					end
 				end
-				ff_ld_module_requests.deq();
+				ff_req_from_store.deq();
 				ff_num_valid_values.enq(req.num_valid);
 			endrule
 		end
