@@ -75,13 +75,13 @@ package intMul_WS;
 				endinterface);
 	endfunction 
 
-(*synthesize*)
-  module mkmac_tb_old(Ifc_intMul_WS#(8, 32));
-    Ifc_intMul_WS#(8, 32) inst1 <- mkintMulWS(0, 0, 1);
-    return (inst1);
-  endmodule
+//(*synthesize*)
+//  module mkmac_tb_old(Ifc_intMul_WS#(8, 32));
+//    Ifc_intMul_WS#(8, 32) inst1 <- mkintMulWS(1);
+//    return (inst1);
+//  endmodule
  
-  module mkintMulWS#(Int#(8) row, Int#(8) col, parameter Integer coord)(Ifc_intMul_WS#(in_width, out_width))
+  module mkintMulWS#(parameter Bit#(8) coord)(Ifc_intMul_WS#(in_width, out_width))
     provisos(
              Add#(a__, in_width, out_width)
             );
@@ -99,18 +99,17 @@ package intMul_WS;
 	/*doc:wire: this wire is used to send computed result to next PE*/
   Wire#(Bit#(out_width))         acc_output       <- mkWire();
 	/*doc:reg: register to store the coordinate of the PE*/
-  Reg#(Bit#(8))                  rg_coord         <- mkReg(fromInteger(coord));
+  Reg#(Bit#(8))                  rg_coord         <- mkReg(coord);
 	/*doc:reg: register to hold the coord till which the weight has to flow*/
 	Reg#(Bit#(8))                  rg_counter       <- mkReg(0);
   Bool check = (rg_counter >= rg_coord);
 
 	/*doc:rule: rule which performs MAC operation*/
   rule rl_mult_add_phase;
-		let north = rg_north;
-		let west  = ff_west.first;
-    let input_acc = ff_input_acc.first;
-    Bit#(out_width) output_mul = extend(north)*extend(west);
-		output_mul = output_mul + unpack(input_acc);
+		Int#(out_width) north = unpack(signExtend(rg_north));
+		Int#(out_width) west  = unpack(signExtend(ff_west.first));
+    Int#(out_width) input_acc = unpack(ff_input_acc.first);
+    Int#(out_width) output_mul = input_acc + north*west;
     acc_output <= pack(output_mul);
   endrule
 	
