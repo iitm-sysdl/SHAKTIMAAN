@@ -17,8 +17,8 @@ package compute_top;
                                numeric type nRow, numeric type nCol,
                                numeric type if_index,
                                numeric type wt_index,
-                               numeric type of_index, numeric type cp_pad);
-    interface Put#(Compute_params#(if_index, of_index, wt_index, cp_pad)) subifc_put_compute_params;
+                               numeric type of_index);
+    interface Put#(Compute_params) subifc_put_compute_params;
     interface Get#(Bool) subifc_get_compute_finish;
 		interface Vector#(nRow, Get#(SRAMKRdReq#(if_index))) get_inp_addr;
     interface Vector#(nRow, Put#(Bit#(in_width))) put_inp_resp;
@@ -30,25 +30,32 @@ package compute_top;
   endinterface
 
   (*synthesize*)
-  module mkgemm_Tb(Ifc_compute_module#(32,26,8,16,2,2,15,15,15,18));
+  module mkgemm_Tb(Ifc_compute_module#(`DRAM_ADDR_WIDTH,`SRAM_ADDR_WIDTH,`INWIDTH,`OUTWIDTH,`NUMROWS,`NUMCOLS,TLog#(`IBUF_ENTRIES),TLog#(`WBUF_ENTRIES),TLog#(`OBUF_ENTRIES)));
     let ifc();
     mkgemm inst1(ifc);
+    return (ifc);
+  endmodule
+
+  (*synthesize*)
+  module mksystolic_ws(Ifc_systolic#(`NUMROWS,`NUMCOLS,`INWIDTH,`OUTWIDTH));
+    let ifc();
+    mksystolic inst(ifc);
     return (ifc);
   endmodule
   
   module mkgemm(Ifc_compute_module#(dram_addr_width, sram_addr_width,
                                    in_width, out_width,
-                                   nRow, nCol, if_index, wt_index, of_index, cp_pad))
-    provisos(//Add#(dram_addr_width, 0, `DRAM_ADDR_WIDTH),
-             //Add#(sram_addr_width, 0, `SRAM_ADDR_WIDTH),
-             Mul#(ibytes, 8, in_width),
+                                   nRow, nCol, if_index, wt_index, of_index))
+    provisos(Mul#(ibytes, 8, in_width),
              Mul#(wbytes, 8, in_width),
              Mul#(obytes, 8, out_width),
-             //Add#(a__, in_width, TMul#(in_width, 2),
 						 Add#(b__, in_width, out_width),
-						 //provisos for compiler
-						 Add#(4, a__, if_index),
-						 Add#(8, c__, wt_index)
+						 Add#(`DIM_WIDTH2, a__, if_index), //TODO: Review this proviso, this requires the input buffer index to be greater than or equal to `DIM_WIDTH2
+             Add#(in_width,0,`INWIDTH),
+             Add#(out_width,0,`OUTWIDTH),
+             Add#(d__,wt_index,`DIM_WIDTH3),
+             Add#(e__,if_index,`DIM_WIDTH3),
+             Add#(f__,of_index,`DIM_WIDTH3)
              );
 
     let ibuf_index = valueOf(if_index);
@@ -66,7 +73,7 @@ package compute_top;
     
 		Reg#(Bool) rg_which_buffer <- mkReg(False);
 
-    Reg#(Maybe#(Compute_params#(if_index, of_index, wt_index, cp_pad))) rg_params <- mkReg(tagged Invalid);
+    Reg#(Maybe#(Compute_params)) rg_params <- mkReg(tagged Invalid);
     Reg#(Bool) rg_weightload <- mkReg(False);
 		Reg#(Bool) rg_weightload_req <- mkReg(False);
 		Reg#(Bool) rg_inp_triangle <- mkReg(False);
@@ -106,7 +113,7 @@ package compute_top;
     FIFOF#(Dim1) ff_wt_coord <- mkFIFOF();
     FIFOF#(Dim1) ff_inp_count <- mkFIFOF();
 
-    Ifc_systolic#(nRow, nCol, in_width, out_width) systolic <- mksystolic; 
+    let systolic <- mksystolic_ws; 
 
     rule rl_send_wt_req(rg_params matches tagged Valid .params &&&
                         rg_weightload_req);
@@ -299,21 +306,22 @@ package compute_top;
     endmethod
 
     interface Put subifc_put_compute_params;
-      method Action put(Compute_params#(if_index, of_index, wt_index, cp_pad) params) if(rg_params matches tagged Invalid);
+      method Action put(Compute_params params) if(rg_params matches tagged Invalid);
         
         rg_params <= tagged Valid params;
 				rg_which_buffer <= unpack(params.output_address[valueOf(of_index)-1]);//MSB of of_index
 
         rg_weightload <= True;
         rg_weightload_req <= True;
-				rg_wt_addr <= params.weight_address + zeroExtend(params.active_rows) - 1;
+        Dim3 lv_wt_addr = params.weight_address + zeroExtend(params.active_rows) - 1;
+				rg_wt_addr <= truncate(lv_wt_addr);
         rg_wt_cntr <= fromInteger(rows) - params.active_rows;
 
         rg_h_cntr <= 0;
         rg_w_cntr <= 0;
 
-        rg_inp_row_addr <= params.input_address;
-        rg_inp_col_addr <= params.input_address;
+        rg_inp_row_addr <= truncate(params.input_address);
+        rg_inp_col_addr <= truncate(params.input_address);
 
         //rg_inp_traingle_cntr <= params.active_rows;
         //rg_op_traingle_cntr <= params.active_cols;
@@ -333,7 +341,7 @@ package compute_top;
           rg_old_out_req[i] <= SRAMKRdReq{index: ?, valid: False, pad_zero: False};
         end
         
-        rg_old_out_addr <= params.output_address;
+        rg_old_out_addr <= truncate(params.output_address);
         
         for(Integer i=0; i<cols; i=i+1)begin
           rg_valid_col[i] <= fromInteger(i) < params.active_cols;
@@ -354,7 +362,7 @@ package compute_top;
 				rg_new_out_cntr <= time_values;
 
         for(Integer i=0; i<cols; i=i+1)begin
-          rg_new_out_addr[i] <= params.output_address;
+          rg_new_out_addr[i] <= truncate(params.output_address);
         end
       endmethod
     endinterface
