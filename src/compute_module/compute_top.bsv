@@ -29,12 +29,12 @@ package compute_top;
     interface Vector#(nCol, Get#(SRAMKWrReq#(of_index, out_width))) get_new_output_data;
   endinterface
 
-  (*synthesize*)
-  module mkgemm_Tb(Ifc_compute_module#(`DRAM_ADDR_WIDTH,`SRAM_ADDR_WIDTH,`INWIDTH,`OUTWIDTH,`NUMROWS,`NUMCOLS,TLog#(`IBUF_ENTRIES),TLog#(`WBUF_ENTRIES),TLog#(`OBUF_ENTRIES)));
-    let ifc();
-    mkgemm inst1(ifc);
-    return (ifc);
-  endmodule
+  //(*synthesize*)
+  //module mkgemm_Tb(Ifc_compute_module#(`DRAM_ADDR_WIDTH,`SRAM_ADDR_WIDTH,`INWIDTH,`OUTWIDTH,`NUMROWS,`NUMCOLS,TLog#(`IBUF_ENTRIES),TLog#(`WBUF_ENTRIES),TLog#(`OBUF_ENTRIES)));
+  //  let ifc();
+  //  mkgemm inst1(ifc);
+  //  return (ifc);
+  //endmodule
 
   (*synthesize*)
   module mksystolic_ws(Ifc_systolic#(`NUMROWS,`NUMCOLS,`INWIDTH,`OUTWIDTH));
