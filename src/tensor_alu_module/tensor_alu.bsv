@@ -19,12 +19,12 @@ package tensor_alu;
 		interface Get#(Bool) subifc_get_alu_complete;
 	endinterface
 
-	(*synthesize*)
-	module mktensoralu(Ifc_tensor_alu#(`OUTWIDTH, `NUMCOLS, TLog#(`OBUF_ENTRIES)));
-		let ifc();
-		mk_tensor_alu _temp(ifc);
-		return ifc;
-	endmodule
+	//(*synthesize*)
+	//module mktensoralu(Ifc_tensor_alu#(`OUTWIDTH, `NUMCOLS, TLog#(`OBUF_ENTRIES)));
+	//	let ifc();
+	//	mk_tensor_alu _temp(ifc);
+	//	return ifc;
+	//endmodule
 	
 	module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index))
 		provisos(
