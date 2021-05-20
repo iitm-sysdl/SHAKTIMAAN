@@ -109,7 +109,7 @@ package fetch_decode;
       rg_pc <= next_pc;
       rg_num_ins <= rg_num_ins - zeroExtend(burst_len + 1);
         
-      let read_request = AXI4_Rd_Addr{ araddr: rg_pc, arid: `AXI_FETCH_MASTER, arlen: burst_len, arprot: ?, //TODO: fix arprot
+      let read_request = AXI4_Rd_Addr{ araddr: rg_pc, arid: `Fetch_master, arlen: burst_len, arprot: ?, //TODO: fix arprot
                                        arsize: 3'b100, arburst: 2'b01, aruser: 0};
       m_xactor.i_rd_addr.enq(read_request);
 			$display($time, "Sending request for addr: %x, pending: %x", rg_pc, rg_num_ins-zeroExtend(burst_len-1));
@@ -118,7 +118,7 @@ package fetch_decode;
 
 		//This rule receives the burst fashion and keeps enqueueing it into the fetch queue, until
 		//all instructions in the program are fetched!
-    rule rl_recv_data(m_xactor.o_rd_data.first.rid == `AXI_FETCH_MASTER &&
+    rule rl_recv_data(m_xactor.o_rd_data.first.rid == `Fetch_master &&
 											m_xactor.o_rd_data.first.rresp==AXI4_OKAY);
       let resp <- pop_o(m_xactor.o_rd_data);
       let inst = resp.rdata;
@@ -132,7 +132,7 @@ package fetch_decode;
       ff_fetch_data.enq(inst);
     endrule
 
-		rule rl_raise_interrupt(m_xactor.o_rd_data.first.rid == `AXI_FETCH_MASTER &&
+		rule rl_raise_interrupt(m_xactor.o_rd_data.first.rid == `Fetch_master &&
 														m_xactor.o_rd_data.first.rresp == AXI4_SLVERR); 
 			let resp <- pop_o(m_xactor.o_rd_data);
 			wr_interrupt <= True;
