@@ -19,17 +19,24 @@ package store_module;
   interface Ifc_col2im#(numeric type addr_width, numeric type data_width, 
                         numeric type sram_width, numeric type if_data, numeric type of_index,
                         numeric type of_banks, numeric type of_data,
-                        numeric type of_values, numeric type st_pad);
+                        numeric type of_values);
     
     method ActionValue#(SRAMRdReq#(of_index, of_banks)) send_sram_req;
 		method Action recv_sram_resp(Vector#(of_values, Bit#(of_data)) response);
-    interface Put#(Store_params#(st_pad)) subifc_put_storeparams;
+    interface Put#(Store_params) subifc_put_storeparams;
     interface Get#(Bool) subifc_send_store_finish;
     interface AXI4_Master_IFC#(addr_width, data_width, 0) master;
 		method Bool send_interrupt;
   endinterface
 
-  module mkcol2im(Ifc_col2im#(addr_width, data_width, sram_width,if_data, of_index, of_banks, of_data, of_values, st_pad))
+  //(*synthesize*)
+  //module mkcol2im_Tb(Ifc_col2im#(`DRAM_ADDR_WIDTH, `AXI_DATAWIDTH, `SRAM_ADDR_WIDTH, `INWIDTH, TLog#(`OBUF_ENTRIES), TLog#(`OBUF_BANKS), `OUTWIDTH, TDiv#(`AXI_DATAWIDTH,`OUTWIDTH)));
+  //  let ifc();
+  //  mkcol2im _temp(ifc);
+  //  return ifc;
+  //endmodule
+
+  module mkcol2im(Ifc_col2im#(addr_width, data_width, sram_width,if_data, of_index, of_banks, of_data, of_values))
     provisos(
       Mul#(obuf_bytes, 8, of_data),
       Mul#(of_values, of_data, data_width),
@@ -82,7 +89,7 @@ package store_module;
 			return (start_addr <= query && query <= end_addr);
 		endfunction
 
-    Reg#(Maybe#(Store_params#(st_pad))) rg_params <- mkReg(tagged Invalid);
+    Reg#(Maybe#(Store_params)) rg_params <- mkReg(tagged Invalid);
     Reg#(Bool) rg_finish_store <- mkReg(False);
 
 		Reg#(Bool) rg_send_req <- mkReg(False);
@@ -232,7 +239,7 @@ package store_module;
 		method Bool send_interrupt = rg_interrupt;
 
     interface Put subifc_put_storeparams;
-      method Action put(Store_params#(st_pad) params) if(rg_params matches tagged Invalid);
+      method Action put(Store_params params) if(rg_params matches tagged Invalid);
         rg_params <= tagged Valid params;
         rg_finish_store <= False;
         rg_send_req <= True;
@@ -254,13 +261,6 @@ package store_module;
     endinterface
     
     interface master = memory_xactor.axi_side;
-  endmodule
-
-  (*synthesize*)
-  module mkinst_col2im(Ifc_col2im#(32, 128, 26, 8, 6, 4, 32, 4, 20));
-    let ifc();
-    mkcol2im _temp(ifc);
-    return ifc;
   endmodule
 
 endpackage
