@@ -22,6 +22,9 @@
 `define GBufStart     'hB0030000
 `define GBufEnd       'hB003ffff
 
+`define NUMROWS 16
+`define NUMCOLS 16
+
 `define DRAM_ADDR_WIDTH 32
 `define SRAM_ADDR_WIDTH 26
 `define DIM_WIDTH1 8
@@ -45,6 +48,28 @@
 
 `define OBUF_START `OBUF1_START
 `define OBUF_END `OBUF2_END
+
+`define IBUF_BANKS `NUMROWS
+`define WBUF_BANKS `NUMCOLS
+`define OBUF_BANKS `NUMCOLS
+
+`define INWIDTH 8
+`define OUTWIDTH 32
+
+`define INBYTES	1
+`define OUTBYTES 4
+
+`define IBUF_ENTRIES 64
+`define WBUF_ENTRIES 64
+`define OBUF_ENTRIES 64
+
+`define IBUF_INDEX 6
+`define WBUF_INDEX 6
+`define OBUF_INDEX 6
+
+`define IBUF_Bankbits 4
+`define WBUF_Bankbits 4
+`define OBUF_Bankbits 4
 
 //-----------Configuration for frontend structures--------
 `define FETCH_QUEUE_SIZE 8

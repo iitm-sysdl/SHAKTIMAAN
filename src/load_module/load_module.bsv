@@ -161,7 +161,7 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 	Reg#(Dim1) rg_y_cntr <- mkReg(0);
 	Reg#(Dim1) rg_z_cntr <- mkReg(0);
 
-	Reg#(Bit#(9)) rg_burst_len <- mkReg(0); // (total no.of bytes per request) / (axidatawidth) - 1
+	Reg#(Bit#(8)) rg_burst_len <- mkReg(0); // (total no.of bytes per request) / (axidatawidth) - 1
 	Reg#(Bool) rg_load_requests <- mkReg(False);
 
 	Reg#(Bool) rg_burst <- mkReg(False);
