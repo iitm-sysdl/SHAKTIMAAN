@@ -82,7 +82,7 @@ package compute_top;
     Reg#(Dim1) rg_row_cntr <- mkReg(0);
     Reg#(Dim1) rg_h_cntr <- mkReg(0);
     Reg#(Dim1) rg_w_cntr <- mkReg(0);
-    Reg#(Dim1) rg_zero_cntr <- mkReg(0);
+    Vector#(nCol,Reg#(Dim1)) rg_zero_cntr <- replicateM(mkReg(0));
 
     Reg#(Dim1) rg_wt_cntr <- mkReg(0);
 
@@ -117,19 +117,20 @@ package compute_top;
     for(Integer i=0; i<cols; i=i+1)begin
       rule rl_send_init_acc_zero(rg_params matches tagged Valid .params &&&
                                    !rg_weightload &&&
-                                   rg_zero_cntr > 0 &&&
+                                   rg_zero_cntr[i] > 0 &&&
                                    !params.preload_output &&& rg_valid_col[i]);
             systolic.subifc_cols[i].subifc_put_acc.put(0);
-	    if(fromInteger(i) == 0)
-	    begin
-	      init_acc_count_fire <= True;
-	    end
+	    rg_zero_cntr[i] <= rg_zero_cntr[i] - 1;
+	    //if(fromInteger(i) == 0)
+	    //begin
+	    //  init_acc_count_fire <= True;
+	    //end
       endrule
     end
 
-    rule rl_init_acc_zero_counter(init_acc_count_fire);
-			rg_zero_cntr <= rg_zero_cntr - 1;
-    endrule
+//    rule rl_init_acc_zero_counter(init_acc_count_fire);
+//			rg_zero_cntr <= rg_zero_cntr - 1;
+//    endrule
 
 		rule rl_generate_inp_addr(rg_params matches tagged Valid .params &&& 
 															!rg_weightload &&& // compute phase
@@ -348,7 +349,9 @@ package compute_top;
         //  end
         //end
         //else begin
-          rg_zero_cntr <= time_values;
+	 for(Integer i=0; i<cols; i=i+1) begin
+          rg_zero_cntr[i] <= time_values;
+	 end
         end
 				
 				rg_new_out_cntr <= time_values;
