@@ -11,24 +11,31 @@ package tensor_alu;
 	`include "Logger.bsv"
 	`include "systolic.defines"
 	
-	interface Ifc_tensor_alu#(numeric type alu_width, numeric type num_col, numeric type of_index,
-							  numeric type alu_pad);
-		interface Put#(ALU_params#(of_index, alu_pad)) subifc_put_alu_params;
+	interface Ifc_tensor_alu#(numeric type alu_width, numeric type num_col, numeric type of_index);
+		interface Put#(ALU_params) subifc_put_alu_params;
 		method ActionValue#(TALUOpReq#(of_index)) mv_send_req_op;
 		interface Vector#(num_col, Put#(Bit#(alu_width))) subifc_recv_op;
 		method ActionValue#(TALUOutReq#(of_index, alu_width, num_col)) mav_put_result;
 		interface Get#(Bool) subifc_get_alu_complete;
 	endinterface
+
+	(*synthesize*)
+	module mktensoralu(Ifc_tensor_alu#(`OUTWIDTH, `NUMCOLS, TLog#(`OBUF_ENTRIES)));
+		let ifc();
+		mk_tensor_alu _temp(ifc);
+		return ifc;
+	endmodule
 	
-	module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
+	module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index))
 		provisos(
-					Add#(8, a__, of_index),
-					Add#(8, b__, alu_width)
+					Add#(a__,`DIM_WIDTH1,of_index),
+					Add#(8, b__, alu_width),
+					Add#(c__, of_index, `DIM_WIDTH3)
 				);
 	
 		Integer vnum_col = valueOf(num_col);
 	
-		Reg#(Maybe#(ALU_params#(of_index, alu_pad))) rg_alu_packet <- mkReg(tagged Invalid);
+		Reg#(Maybe#(ALU_params)) rg_alu_packet <- mkReg(tagged Invalid);
 		Reg#(SRAM_index#(of_index)) rg_irow_addr <- mkReg(0);
 		Reg#(SRAM_index#(of_index)) rg_icol_addr <- mkReg(0);
 		Reg#(SRAM_index#(of_index)) rg_srow_addr <- mkReg(0);
@@ -122,18 +129,18 @@ package tensor_alu;
 
 
 		interface Put subifc_put_alu_params;
-		  method Action put(ALU_params#(of_index, alu_pad) params) if(rg_alu_packet matches tagged Invalid);
+		  method Action put(ALU_params params) if(rg_alu_packet matches tagged Invalid);
 			rg_alu_packet <= tagged Valid params;
 			let lv_in_base_addr = params.input_address;
-			rg_irow_addr <= lv_in_base_addr;
-			rg_icol_addr <= lv_in_base_addr;
-			rg_scol_addr <= lv_in_base_addr;
-			rg_srow_addr <= lv_in_base_addr;
+			rg_irow_addr <= truncate(lv_in_base_addr);
+			rg_icol_addr <= truncate(lv_in_base_addr);
+			rg_scol_addr <= truncate(lv_in_base_addr);
+			rg_srow_addr <= truncate(lv_in_base_addr);
 			rg_i_var <= 1;
 			rg_j_var <= 1;
 			rg_k_var <= 1;
 			rg_l_var <= 1;
-			rg_output_addr <= params.output_address;
+			rg_output_addr <= truncate(params.output_address);
 			rg_req_complete <= False;
 			rg_alu_complete <= False;
 			rg_which_buffer <= unpack(params.output_address[valueOf(of_index)-1]);//MSB of index
