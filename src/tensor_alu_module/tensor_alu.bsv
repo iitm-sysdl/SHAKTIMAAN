@@ -29,7 +29,7 @@ package tensor_alu;
 	module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index))
 		provisos(
 					Add#(a__,`DIM_WIDTH1,of_index),
-					Add#(8, b__, alu_width),
+					Add#(`DIM_WIDTH1, b__, alu_width),
 					Add#(c__, of_index, `DIM_WIDTH3)
 				);
 	

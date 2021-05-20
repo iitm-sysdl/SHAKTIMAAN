@@ -47,7 +47,7 @@ import FIFOF::*;
 import Vector::*;
 `include "systolic.defines"
 
-interface Ifc_load_Module#(numeric type dram_addr_width, numeric type data_width, numeric type sram_addr_width,
+interface Ifc_load_Module#(numeric type dram_addr_width, numeric type data_width,
 						   numeric type wt_index, numeric type wt_bank, numeric type wt_data,
 						   numeric type if_index, numeric type if_bank, numeric type if_data,
 						   numeric type of_index, numeric type of_bank, numeric type of_data,
@@ -67,16 +67,14 @@ endinterface
 //    return (ifc);
 //endmodule
 
-module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
+module mk_load_Module(Ifc_load_Module#(addr_width, data_width,
 									   wt_index, wt_bank, wt_data,
 									   if_index, if_bank, if_data,
 									   of_index, of_bank, of_data,
 									   max_index, max_bank))
 		provisos(
 			IsModule#(_m__, _c__),
-			Add#(a__, 32, addr_width),
-			Add#(addr_width, 0, `DRAM_ADDR_WIDTH),
-			Add#(sram_addr_width, 0, `SRAM_ADDR_WIDTH),
+			Add#(addr_width,0,`DRAM_ADDR_WIDTH),
 			Add#(wt_data, 0, if_data),
 			Mul#(iwords, wt_data, data_width),
 			Mul#(owords, of_data, data_width),
@@ -95,39 +93,25 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
       		Add#(f__, if_bank, max_bank),
       		Add#(g__, wt_index, max_index),
       		Add#(h__, wt_bank, max_bank)
-      		//Add#(c__, of_data, addr_width)
 		);
 
   let burst_len_shift = valueOf(d_shift); //used to calculate burst length
 	let val_data_bytes  = valueOf(data_bytes);
-	let sram_width = valueOf(sram_addr_width);
-	let dram_width = valueOf(addr_width);
   let axi_width = valueOf(data_width);
-
-	let maxlenindex = valueOf(max_index);
-	let maxlenbank = valueOf(max_bank);
 
 	let iWords = valueOf(iwords);
 	let oWords = valueOf(owords);
 
 	let ibuf_index = valueOf(if_index);
 	let ibuf_bankbits = valueOf(if_bank);
-	let ibuf_width = valueOf(if_data);
   let ibuf_shift = valueOf(if_shift);
 
 	let wbuf_index = valueOf(wt_index);
 	let wbuf_bankbits = valueOf(wt_bank);
-	let wbuf_width = valueOf(wt_data);
-  let wbuf_shift = valueOf(wt_shift);
 
 	let obuf_index = valueOf(of_index);
 	let obuf_bankbits = valueOf(of_bank);
-	let obuf_width = valueOf(of_data);
   let obuf_shift = valueOf(of_shift);
-
-	let iBytes = valueOf(if_bytes);
-	let wBytes = valueOf(wt_bytes);
-	let oBytes = valueOf(of_bytes);
 
   function Tuple2#(Bit#(if_index),Bit#(if_bank)) split_address_IBUF(SRAM_address addr);
     Bit#(if_bank) gbank = addr[ibuf_bankbits-1:0];

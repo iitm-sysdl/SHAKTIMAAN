@@ -46,7 +46,6 @@ package store_module;
       Add#(addr_width, 0, `DRAM_ADDR_WIDTH),
       Add#(sram_width, 0, `SRAM_ADDR_WIDTH),
       Add#(a__, of_data, data_width),
-			Add#(b__, of_index, 26),
       Mul#(ibuf_bytes, 8, if_data),
       Mul#(if_values, if_data, data_width),
       Log#(ibuf_bytes, ifsz),
@@ -67,14 +66,11 @@ package store_module;
     
     let obuf_index = valueOf(of_index);
     let obuf_bankbits = valueOf(of_banks);
-    let oBytes = valueOf(obuf_bytes);
 		let oShift = valueOf(ofsz);
     let oValues = valueOf(of_values);
     let burst_size = valueOf(awsz);
     let io_ratio_val = valueOf(io_ratio);
-    let iValues = valueOf(if_values);
     let iShift = valueOf(ifsz);
-    let iBytes = valueOf(ibuf_bytes);
 
     Vector#(io_ratio,Reg#(Bit#(if_length))) rg_truncated_ifmap <- replicateM(mkReg(0));
     Reg#(Bit#(TAdd#(TLog#(io_ratio),1))) rg_truncate_count <- mkReg(0);

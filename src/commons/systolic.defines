@@ -1,3 +1,9 @@
+// `DIMWIDTH1 <= Log#(OBUF_ENTRIES) <= `DIM_WIDTH3   - From tensor_alu
+// `DIMWIDTH2 <= Log#(IBUF_ENTRIES) <= `DIM_WIDTH3   - From compute_top
+// Log#(WBUF_ENTRIES) <= `DIM_WIDTH3
+// `OUTWIDTH >= `DIM_WIDTH1                         - From tensor_alu
+// `DRAM_ADDR_WIDTH >= 12                           - From Fetch Decode
+
 //---------------------Array Parameters---------------------//
 `define NUMROWS 16
 `define NUMCOLS 16

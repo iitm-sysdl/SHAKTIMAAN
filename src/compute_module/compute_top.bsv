@@ -50,7 +50,7 @@ package compute_top;
              Mul#(wbytes, 8, in_width),
              Mul#(obytes, 8, out_width),
 						 Add#(b__, in_width, out_width),
-						 Add#(`DIM_WIDTH2, a__, if_index), //TODO: Review this proviso, this requires the input buffer index to be greater than or equal to `DIM_WIDTH2
+						 Add#(`DIM_WIDTH2, a__, if_index),
              Add#(in_width,0,`INWIDTH),
              Add#(out_width,0,`OUTWIDTH),
              Add#(d__,wt_index,`DIM_WIDTH3),
