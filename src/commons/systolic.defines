@@ -1,4 +1,54 @@
-// slave_bound: ??
+//---------------------Array Parameters---------------------//
+`define NUMROWS 16
+`define NUMCOLS 16
+
+`define INWIDTH 8
+`define OUTWIDTH 32
+
+//---------------------Configuration of onchip buffers---------------------//
+
+`define SRAM_ADDR_WIDTH 26
+
+`define IBUF_ENTRIES 256
+`define WBUF_ENTRIES 256
+`define OBUF_ENTRIES 256
+
+`define IBUF_BANKS `NUMROWS
+`define WBUF_BANKS `NUMCOLS
+`define OBUF_BANKS `NUMCOLS
+
+`define IBUF_START 'h01000000
+`define IBUF_END   'h01ffffff
+
+`define WBUF_START 'h02000000
+`define WBUF_END   'h02ffffff
+
+`define OBUF1_START 'h03000000
+`define OBUF1_END	'h037fffff
+
+`define OBUF2_START 'h03800000
+`define OBUF2_END	'h03ffffff
+
+`define OBUF_START  `OBUF1_START
+`define OBUF_END    `OBUF2_END
+
+//---------------------Instruction Parameters---------------------//
+`define INSTRUCTION_LEN 120
+
+`define DIM_WIDTH1 8
+`define DIM_WIDTH2 4
+`define DIM_WIDTH3 15
+
+`define GEMM_PAD 18
+`define MEM_PAD 20
+`define ALU_PAD 23
+
+
+//---------------------AXI Parameters---------------------//
+
+`define DRAM_ADDR_WIDTH 32
+`define AXI_DATAWIDTH 128
+
 `define MemoryBase  'h0080_0000
 `define MemoryEnd   'h008F_FFFF
 `define SysBase     'h0090_0000
@@ -14,7 +64,17 @@
 `define Systolic_slave 1
 `define Num_slaves 2
 
-`define CONFIG_ADDR   'h00900000
+
+//---------------------Configuration for frontend structures---------------------//
+`define FETCH_QUEUE_SIZE 8
+`define INS_QUEUE_SIZE 8
+`define PARAMS_QUEUE_SIZE 8
+`define DEP_QUEUE_SIZE 4
+
+`define CONFIG_ADDR   'h0090_0000
+
+
+//---------------------Unused defines---------------------//
 `define WeightStart   'hB0010000      
 `define WeightEnd     'hB001ffff
 `define AccumBufStart 'hB0200000
@@ -22,59 +82,5 @@
 `define GBufStart     'hB0030000
 `define GBufEnd       'hB003ffff
 
-`define NUMROWS 16
-`define NUMCOLS 16
-
-`define DRAM_ADDR_WIDTH 32
-`define SRAM_ADDR_WIDTH 26
-`define DIM_WIDTH1 8
-`define DIM_WIDTH2 4
-//------------Configuration of buffers---------------------
-
 `define Buffer_wreq_id 4
 `define rd_req_id 5
-
-`define IBUF_START 'h01000000
-`define IBUF_END	 'h01ffffff
-
-`define WBUF_START 'h02000000
-`define WBUF_END	 'h02ffffff
-
-`define OBUF1_START 'h03000000
-`define OBUF1_END		'h037fffff
-
-`define OBUF2_START 'h03800000
-`define OBUF2_END		'h03ffffff
-
-`define OBUF_START `OBUF1_START
-`define OBUF_END `OBUF2_END
-
-`define IBUF_BANKS `NUMROWS
-`define WBUF_BANKS `NUMCOLS
-`define OBUF_BANKS `NUMCOLS
-
-`define INWIDTH 8
-`define OUTWIDTH 32
-
-`define INBYTES	1
-`define OUTBYTES 4
-
-`define IBUF_ENTRIES 64
-`define WBUF_ENTRIES 64
-`define OBUF_ENTRIES 64
-
-`define IBUF_INDEX 6
-`define WBUF_INDEX 6
-`define OBUF_INDEX 6
-
-`define IBUF_Bankbits 4
-`define WBUF_Bankbits 4
-`define OBUF_Bankbits 4
-
-//-----------Configuration for frontend structures--------
-`define FETCH_QUEUE_SIZE 8
-`define INS_QUEUE_SIZE 8
-`define PARAMS_QUEUE_SIZE 8
-`define DEP_QUEUE_SIZE 4
-
-`define AXI_FETCH_MASTER 'b0101

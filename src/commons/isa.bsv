@@ -13,8 +13,12 @@ typedef Bit#(`DRAM_ADDR_WIDTH) DRAM_address;
 typedef Bit#(`SRAM_ADDR_WIDTH) SRAM_address;
 typedef Bit#(`DIM_WIDTH1) Dim1;
 typedef Bit#(`DIM_WIDTH2) Dim2;
+typedef Bit#(`DIM_WIDTH3) Dim3;
 
 typedef Bit#(TLog#(TAdd#(TMax#(`OBUF_BANKS,TMax#(`IBUF_BANKS,`WBUF_BANKS)),1))) Sram_valid;
+typedef Bit#(`GEMM_PAD) Compute_pad;
+typedef Bit#(`MEM_PAD) Mem_pad;
+typedef Bit#(`ALU_PAD) ALU_pad;
 
 typedef Bit#(120) Params;
 typedef enum
@@ -107,28 +111,28 @@ typedef struct {                            //120 Total
   Dim1 x_size; Dim1 y_size; Dim1 z_size;    // 24
   Dim1 z_stride; Dim1 y_stride;             // 16
   Bool is_reset; Bool bitwidth;             //  2
-  Pad_bits#(a) padding;                     // 20
-} Mem_params#(numeric type a) deriving(Bits, Eq, FShow);
+  Mem_pad padding;                     // 20
+} Mem_params deriving(Bits, Eq, FShow);
 
-typedef Mem_params#(a) Load_params#(numeric type a);
-typedef Mem_params#(a) Store_params#(numeric type a);
+typedef Mem_params Load_params;
+typedef Mem_params Store_params;
                 
 typedef struct {                                                  //120 Total
-  SRAM_index#(a) input_address;                                   // 15
-  SRAM_index#(b) output_address;                                  // 15
-  SRAM_index#(c) weight_address;                                  // 15
+  Dim3 input_address;                                             // 15
+  Dim3 output_address;                                            // 15
+  Dim3 weight_address;                                            // 15
   Dim1 ofmap_height; Dim1 ofmap_width;                            // 16
   Dim1 active_rows; Dim1 active_cols;                             // 16
   Dim2 stride_h; Dim2 stride_w;                                   //  8
   Dim2 pad_left; Dim2 pad_right; Dim2 pad_top; Dim2 pad_bottom;   // 16
   Bool preload_output;                                            //  1
-  Pad_bits#(d) padding;                                           // 18
-} Compute_params#(numeric type a, numeric type b, numeric type c, numeric type d) deriving(Bits, Eq, FShow);
+  Compute_pad padding;                                            // 18
+} Compute_params deriving(Bits, Eq, FShow);
 
 typedef struct {                                      // 120 Total
   ALU_Opcode alu_opcode;                              //   2
-  SRAM_index#(a) input_address;                       //  15
-  SRAM_index#(a) output_address;                      //  15
+  Dim3 input_address;                                 //  15
+  Dim3 output_address;                                //  15
   Dim1 output_height; // OH'                          //   8
   Dim1 output_width; // OW'                           //   8
   Dim2 window_height; // R                            //   4
@@ -139,7 +143,7 @@ typedef struct {                                      // 120 Total
   Dim1 num_active;     //Number of filters(M)         //   8
   Bool use_immediate;                                 //   1
   Dim1 immediate_value;                               //   8
-  Pad_bits#(b) padding;                               //  23
-} ALU_params#(numeric type a, numeric type b) deriving(Bits, Eq, FShow);
+  ALU_pad padding;                                    //  23
+} ALU_params deriving(Bits, Eq, FShow);
 
 endpackage
