@@ -51,22 +51,27 @@ interface Ifc_load_Module#(numeric type dram_addr_width, numeric type data_width
 						   numeric type wt_index, numeric type wt_bank, numeric type wt_data,
 						   numeric type if_index, numeric type if_bank, numeric type if_data,
 						   numeric type of_index, numeric type of_bank, numeric type of_data,
-						   numeric type max_index, numeric type max_bank, numeric type max_data,
-						   numeric type max_words, numeric type ld_pad);
+						   numeric type max_index, numeric type max_bank);
 
 	interface AXI4_Master_IFC#(dram_addr_width, data_width, 0) master;
-	interface Put#(Load_params#(ld_pad)) subifc_put_loadparams;  //to get parameters from the dependency module
+	interface Put#(Load_params) subifc_put_loadparams;  //to get parameters from the dependency module
 	interface Get#(Bool) subifc_send_loadfinish;	//send the finish signal once the load is completed
 	method ActionValue#(SRAMReq#(max_index, max_bank, data_width)) write_data;
 	method Bool send_interrupt;
 endinterface
 
+//(*synthesize*)
+//module mkload_Tb(Ifc_load_Module#(`DRAM_ADDR_WIDTH,`AXI_DATAWIDTH,`SRAM_ADDR_WIDTH,TLog#(`WBUF_ENTRIES),TLog#(`WBUF_BANKS),`INWIDTH,TLog#(`IBUF_ENTRIES),TLog#(`IBUF_BANKS),`INWIDTH,TLog#(`OBUF_ENTRIES),TLog#(`OBUF_BANKS),`OUTWIDTH,TLog#(`OBUF_ENTRIES),TLog#(`OBUF_BANKS)));
+//    let ifc();
+//    mk_load_Module inst1(ifc);
+//    return (ifc);
+//endmodule
+
 module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 									   wt_index, wt_bank, wt_data,
 									   if_index, if_bank, if_data,
 									   of_index, of_bank, of_data,
-									   max_index, max_bank, max_data,
-									   max_words, ld_pad))
+									   max_index, max_bank))
 		provisos(
 			IsModule#(_m__, _c__),
 			Add#(a__, 32, addr_width),
@@ -75,7 +80,6 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 			Add#(wt_data, 0, if_data),
 			Mul#(iwords, wt_data, data_width),
 			Mul#(owords, of_data, data_width),
-      		Max#(iwords, owords, max_words),
 			Mul#(data_bytes, 8, data_width),
 			Mul#(if_bytes, 8, if_data),
 			Mul#(wt_bytes, 8, wt_data),
@@ -85,7 +89,6 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
       		Log#(wt_bytes, wt_shift),
       		Log#(of_bytes, of_shift),
       		//Compiler generated
-      		//Add#(b__, max_data, addr_width),
       		Add#(c__, of_index, max_index),
       		Add#(d__, of_bank, max_bank),
       		Add#(e__, if_index, max_index),
@@ -103,8 +106,6 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 
 	let maxlenindex = valueOf(max_index);
 	let maxlenbank = valueOf(max_bank);
-	let maxlendata = valueOf(max_data);
-	let maxnumwords = valueOf(max_words);
 
 	let iWords = valueOf(iwords);
 	let oWords = valueOf(owords);
@@ -149,7 +150,7 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 	AXI4_Master_Xactor_IFC#(addr_width, data_width, 0) m_xactor <- mkAXI4_Master_Xactor;
 
 	FIFOF#(SRAM_address) ff_dest_addr <- mkSizedFIFOF(3) ;
-	Reg#(Maybe#(Load_params#(ld_pad))) rg_params <- mkReg(tagged Invalid);
+	Reg#(Maybe#(Load_params)) rg_params <- mkReg(tagged Invalid);
 
 	Reg#(SRAM_address) rg_zy_size <- mkReg(0); //zsize * ysize
 	Reg#(SRAM_address) rg_xyz_size <- mkReg(0); 
@@ -277,7 +278,7 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
   interface master = m_xactor.axi_side;
 
 	interface Put subifc_put_loadparams;
-		method Action put(Load_params#(ld_pad) parameters) if(rg_params matches tagged Invalid &&& rg_finish_load);
+		method Action put(Load_params parameters) if(rg_params matches tagged Invalid &&& rg_finish_load);
 			//$display($time, "Received LOAD ,dram: %x, sram: %x, [%d, %d, %d], [%d, %d]", parameters.dram_address,
 			//	parameters.sram_address, parameters.x_size, parameters.y_size, parameters.z_size,
 			//	parameters.z_stride, parameters.y_stride);
@@ -314,12 +315,5 @@ module mk_load_Module(Ifc_load_Module#(addr_width, data_width, sram_addr_width,
 		endmethod
 	endinterface
 endmodule
-
-//(*synthesize*)
-//module mkload_Tb(Ifc_load_Module#(32,128,26,6,4,8,6,4,8,6,4,32,6,4,32,16,20));
-//    let ifc();
-//    mk_load_Module inst1(ifc);
-//    return (ifc);
-//endmodule
 
 endpackage
