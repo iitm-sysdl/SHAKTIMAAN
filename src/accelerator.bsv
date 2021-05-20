@@ -8,7 +8,7 @@ package accelerator;
   import dependency_resolver::*;
   import load_module::*;
   import store_module::*;
-  import compute::*;
+  import compute_top::*;
   import tensor_alu::*;
   import onchip_buffers::*;
 	import isa::*;
@@ -16,6 +16,7 @@ package accelerator;
 
   `include "systolic.defines"
 
+	import DReg::*;
 	import FIFOF::*;
   import GetPut::*;
   import AXI4_Fabric::*;
@@ -47,60 +48,92 @@ package accelerator;
   endinterface
 
 	(*synthesize*)
-  module mktop_tb(Ifc_accelerator#(32, 26, 128, 32768, 16, 32768, 16, 32768, 16, 16, 32, 16, 16));
+  module mkshaktimaan(Ifc_accelerator#(`DRAM_ADDR_WIDTH, `SRAM_ADDR_WIDTH, `AXI_DATAWIDTH, `WBUF_ENTRIES, `WBUF_BANKS, `IBUF_ENTRIES, `IBUF_BANKS, `OBUF_ENTRIES, `OBUF_BANKS, `INWIDTH, `OUTWIDTH, `NUMROWS, `NUMCOLS));
     let ifc();
     mk_accelerator inst1(ifc);
     return (ifc);
   endmodule
 
-		(*mutually_exclusive="rl_forward_old_output_from_obuf1_to_gemm, rl_send_read_rsp_obuf1_to_talu"*)
-		(*mutually_exclusive="rl_forward_old_output_from_obuf2_to_gemm, rl_send_read_rsp_obuf2_to_talu"*)
+  (*synthesize*)
+  module mkfetchdecode(Ifc_fetch_decode#(`DRAM_ADDR_WIDTH,`AXI_DATAWIDTH));
+    let ifc();
+    mkfetch_decode _temp(ifc);
+    return ifc;
+  endmodule
+
+  (*synthesize*)
+  module mkdepend_resolver(Ifc_dependency_resolver);
+    let ifc();
+    mkdependency_resolver _temp(ifc);
+    return ifc;
+  endmodule
+
+  (*synthesize*)
+  module mkonchip_buffers(Ifc_onchip_buffers#(`SRAM_ADDR_WIDTH,`IBUF_ENTRIES,`IBUF_BANKS,`WBUF_ENTRIES,`WBUF_BANKS,`OBUF_ENTRIES,`OBUF_BANKS,`INWIDTH,`OUTWIDTH));
+    let ifc();
+    mkbuffers _temp(ifc);
+    return ifc;
+  endmodule
+
+  (*synthesize*)
+  module mkload(Ifc_load_Module#(`DRAM_ADDR_WIDTH,`AXI_DATAWIDTH,`SRAM_ADDR_WIDTH,TLog#(`WBUF_ENTRIES),TLog#(`WBUF_BANKS),`INWIDTH,TLog#(`IBUF_ENTRIES),TLog#(`IBUF_BANKS),`INWIDTH,TLog#(`OBUF_ENTRIES),TLog#(`OBUF_BANKS),`OUTWIDTH,TMax#(TLog#(`OBUF_ENTRIES),TMax#(TLog#(`IBUF_ENTRIES),TLog#(`WBUF_ENTRIES))),TMax#(TLog#(`OBUF_BANKS),TMax#(TLog#(`IBUF_BANKS),TLog#(`WBUF_BANKS)))));
+      let ifc();
+      mk_load_Module inst1(ifc);
+      return (ifc);
+  endmodule
+
+  (*synthesize*)
+  module mkstore(Ifc_col2im#(`DRAM_ADDR_WIDTH, `AXI_DATAWIDTH, `SRAM_ADDR_WIDTH, `INWIDTH, TLog#(`OBUF_ENTRIES), TLog#(`OBUF_BANKS), `OUTWIDTH, TDiv#(`AXI_DATAWIDTH,`OUTWIDTH)));
+    let ifc();
+    mkcol2im _temp(ifc);
+    return ifc;
+  endmodule
+
+  (*synthesize*)
+  module mkcompute(Ifc_compute_module#(`DRAM_ADDR_WIDTH,`SRAM_ADDR_WIDTH,`INWIDTH,`OUTWIDTH,`NUMROWS,`NUMCOLS,TLog#(`IBUF_ENTRIES),TLog#(`WBUF_ENTRIES),TLog#(`OBUF_ENTRIES)));
+    let ifc();
+    mkgemm inst1(ifc);
+    return (ifc);
+  endmodule
+
+  (*synthesize*)
+  module mktensoralu(Ifc_tensor_alu#(`OUTWIDTH, `NUMCOLS, TLog#(`OBUF_ENTRIES)));
+  	let ifc();
+  	mk_tensor_alu _temp(ifc);
+  	return ifc;
+  endmodule
+
+	(*mutually_exclusive="rl_forward_old_output_from_obuf1_to_gemm, rl_send_read_rsp_obuf1_to_talu"*)
+	(*mutually_exclusive="rl_forward_old_output_from_obuf2_to_gemm, rl_send_read_rsp_obuf2_to_talu"*)
   module mk_accelerator(Ifc_accelerator#(dram_addr_width, sram_addr_width, data_width,
                                          wt_entries, wt_nbanks, if_entries, if_nbanks, of_entries, of_nbanks,
                                          in_width, out_width, nRow, nCol))
-    provisos(Log#(if_entries, if_index),
-						 Log#(wt_entries, wt_index),
-						 Log#(of_entries, of_index),
+    provisos(Log#(if_entries, if_index),Log#(wt_entries, wt_index),Log#(of_entries, of_index),
 						 Log#(if_nbanks, if_bank), Log#(wt_nbanks, wt_bank), Log#(of_nbanks, of_bank),
-						 Max#(wt_index, if_index, m_index),
-             Max#(m_index, of_index, max_index),
-             Max#(wt_bank, if_bank, m_bank),
-             Max#(m_bank, of_bank, max_bank),
+						 Max#(wt_index, if_index, m_index),Max#(m_index, of_index, max_index),
+             Max#(wt_bank, if_bank, m_bank),Max#(m_bank, of_bank, max_bank),
              Max#(in_width, out_width, max_width),
-             Mul#(in_width, in_words, data_width),
-             Mul#(out_width, out_words, data_width),
-             Max#(in_words, out_words, max_words),
+             Mul#(in_width, in_words, data_width),Mul#(out_width, out_words, data_width),
 						 Mul#(if_nfolds, in_words, if_nbanks), Mul#(wt_nfolds, in_words, wt_nbanks), Mul#(of_nfolds, out_words, of_nbanks),
-             //Add#(d1, 0, 8), Add#(d2, 0, 4), Add#(boo, 0, 1),
-             //Add#(dram_addr_width, sram_addr_width, a__), Mul#(d1, 5, b__), Mul#(boo, 2, c__),
-             //Add#(a__, b__, d__), Add#(d__, c__, e__), Add#(e__, mem_pad, 120),
-             //Add#(of_index, if_index, f__), Add#(wt_index, f__, g__),
-             //Mul#(4, d1, h__), Mul#(6, d2, i__), Add#(g__, h__, j__),
-             //Add#(j__, i__, k__), Add#(k__, boo, l__), Add#(l__, gemm_pad, 120),
-             //Mul#(2, of_index, m__), Mul#(7, d1, n__), Mul#(2, d2, o__),
-             //Add#(m__, n__, p__), Add#(p__, o__, q__), Mul#(3, boo, r__),
-             //Add#(q__, r__, s__), Add#(s__, alu_pad, 120),
-						 Mul#(i__, 8, data_width), Add#(8, lm__, wt_index),
-						 Add#(sram_addr_width, 0, 26), Add#(dram_addr_width, 0, 32),
-						 Add#(8, xa__, of_index),
-						 Add#(8, xb__, out_width),
+						 //Mul#(i__, 8, data_width), Add#(8, lm__, wt_index),
+						 //Add#(sram_addr_width, 0, 26), Add#(dram_addr_width, 0, 32),
+						 //Add#(8, xa__, of_index),
+						 //Add#(8, xb__, out_width),
 						 Add#(xc__, in_width, out_width),
-						 Add#(4, xd__, if_index),
-						 Add#(xe__, out_width, data_width),
-						 Add#(xf__, of_index, 26),
-						 Add#(xg__, if_index, max_index), Add#(xh__, if_bank, max_bank),
-						 Add#(xi__, wt_index, max_index), Add#(xj__, wt_bank, max_bank),
-						 Add#(xk__, of_index, max_index), Add#(xl__, of_bank, max_bank),
-						 Mul#(xm__, 8, in_width), Mul#(xn__, 8, out_width),
-						 Add#(mem_pad, 0, 20),
-						 Add#(if_index, TAdd#(of_index, TAdd#(wt_index, gemm_pad)), 63),
-						 Add#(of_index, TAdd#(of_index, alu_pad), 53),
-						 Mul#(out_words, TDiv#(out_width, in_width), in_words),
-						 Mul#(TMul#(out_words, in_width), TDiv#(out_width, in_width), data_width),
-						 Add#(a__, in_width, TMul#(out_words, in_width)),
-						 Add#(b__, in_width, data_width),
-						 Add#(c__, TMul#(out_words, in_width), data_width)
-             );
+						 //Add#(4, xd__, if_index),
+						 //Add#(xe__, out_width, data_width),
+						 //Add#(xf__, of_index, 26),
+						 Add#(xg__, if_index, max_index), Add#(xh__, if_bank, max_bank),Add#(xi__, wt_index, max_index), 
+						 Add#(xj__, wt_bank, max_bank), Add#(xk__, of_index, max_index), Add#(xl__, of_bank, max_bank),
+						 //Mul#(xm__, 8, in_width), Mul#(xn__, 8, out_width),
+						 //Mul#(out_words, TDiv#(out_width, in_width), in_words),
+						 //Mul#(TMul#(out_words, in_width), TDiv#(out_width, in_width), data_width),
+						 //Add#(a__, in_width, TMul#(out_words, in_width)),
+						 //Add#(b__, in_width, data_width),
+						 //Add#(c__, TMul#(out_words, in_width), data_width),
+						 Add#(0,`INWIDTH,in_width),
+						 Add#(0,`OUTWIDTH,out_width)            
+						 );
 
 		// Having a status register to keep track 
 		// 0th bit -> Idle/busy, 1st bit -> Frontend error, 2nd bit -> Load error, 3rd bit -> Store error
@@ -113,28 +146,13 @@ package accelerator;
 
 		Vector#(nCol, Reg#(Bool)) rg_inp_req_valid <- replicateM(mkDReg(False));
 
-    Ifc_fetch_decode#(dram_addr_width, data_width) fetch_decode <- mkfetch_decode;
-    Ifc_dependency_resolver#(if_index, of_index, wt_index, mem_pad, mem_pad, gemm_pad, alu_pad)
-                                                  dependency_module <- mkdependency_resolver;
-    Ifc_load_Module#(dram_addr_width, data_width, sram_addr_width,
-                   wt_index, wt_bank, in_width,
-                   if_index, if_bank, in_width,
-                   of_index, of_bank, out_width,
-                   max_index, max_bank, max_width, max_words, mem_pad) ld_module <- mk_load_Module;
-    Ifc_col2im#(dram_addr_width, data_width, sram_addr_width,
-                   in_width,of_index, of_bank, out_width,
-                   out_words, mem_pad) st_module <- mkcol2im;
-    Ifc_onchip_buffers#(sram_addr_width, 
-                  if_index, if_nbanks, if_entries,
-                  wt_index, wt_nbanks, wt_entries,
-                  of_index, of_nbanks, of_entries,
-                  in_width, out_width) buffers <- mkbuffers;
-    
-		Ifc_compute_module#(dram_addr_width, sram_addr_width,
-                  in_width, out_width, nRow, nCol,
-                  if_index, wt_index, of_index, gemm_pad) gemm_module <- mkgemm;
-
-		Ifc_tensor_alu#(out_width, nCol, of_index, alu_pad) tensor_alu <- mk_tensor_alu; 
+    let fetch_decode <- mkfetchdecode;
+    let dependency_module <- mkdepend_resolver;
+    let ld_module <- mkload;
+    let st_module <- mkstore;
+    let  buffers <- mkonchip_buffers;
+	let gemm_module <- mkcompute;
+	let tensor_alu <- mktensoralu; 
 
     mkConnection(fetch_decode.ifc_get_load_params, dependency_module.ifc_put_load_params);
     mkConnection(fetch_decode.ifc_get_store_params, dependency_module.ifc_put_store_params);
@@ -248,13 +266,13 @@ package accelerator;
 					rg_inp_req_valid[i] <= True;
 				end
 				else if(req.valid)begin
-					buffers.ibuf[i].portB.request.put(makeRequest(False, index, ?));
+					buffers.ibuf[i].portB.request.put(makeRequest(False, req.index, ?)); //TOCHECK
 				end
 				//else begin
 				//	gemm_module.put_inp_resp[i].put(0); //This should fix partial row input problem if top half of systolic is properly used
 				//end
-			end
-		endrule
+			endrule
+		end
 
 		for(Integer i=0; i<vnRow; i=i+1)begin
 			rule rl_send_read_resp_zero_to_gemm(rg_inp_req_valid[i]);
@@ -270,7 +288,7 @@ package accelerator;
 		FIFOF#(Dim1) ff_wt_valid_cols <- mkFIFOF();
 
 		rule rl_recv_read_req_wbuf_from_compute;
-			let {index, num_valid} <- gemm_module.get_wt_addr.get();
+			match {.index, .num_valid} <- gemm_module.get_wt_addr.get();
 			for(Integer i = 0; i < vnCol; i=i+1) begin
 				if(fromInteger(i) < num_valid)begin
 					buffers.wbuf[i].portB.request.put(makeRequest(False, index, ?));
@@ -292,7 +310,7 @@ package accelerator;
 		endrule
 
 		//FIFOF#(SRAMKRdReq#(of_index)) ff_old_out_reqs			<- mkFIFOF();
-		Vector#(nCols,FIFOF#(Bool))					ff_out_which_buffer <- replicateM(mkFIFOF());
+		Vector#(nCol,FIFOF#(Bool))					ff_out_which_buffer <- replicateM(mkFIFOF());
 
 		//rule rl_get_read_req_from_gemm;
 		//	let req <- gemm_module.get_old_out_addr.get();
@@ -314,10 +332,10 @@ package accelerator;
          			Bool which_buffer = req.index >> (valueOf(of_index)-1) == 'b1;
 				if(req.valid) begin
          			 if(which_buffer) begin
-         			 	buffers.obuf2[i].portA.request.put(makeRequest(False, index, ?));
+         			 	buffers.obuf2[i].portA.request.put(makeRequest(False, req.index, ?)); //TOCHECK
          			 end
          			 else begin
-         				buffers.obuf1[i].portA.request.put(makeRequest(False, index, ?));
+         				buffers.obuf1[i].portA.request.put(makeRequest(False, req.index, ?)); //TOCHECK
          			 end
 				end
          			ff_out_which_buffer[i].enq(which_buffer);
@@ -340,7 +358,7 @@ package accelerator;
          			//let values = tpl_1(write_req);
          			//let index = tpl_2(write_req);
          			//let active_cols = tpl_3(write_req);
-         			if(write_req.valid == 'b0)begin
+         			if(!write_req.valid)begin //TOCHECK
          				buffers.obuf1[i].portB.request.put(makeRequest(True, write_req.index, write_req.data));
          			end
          			else begin
