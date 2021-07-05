@@ -8,7 +8,7 @@ package tensor_alu;
 	import GetPut::*;
 	import Vector::*;
 	import isa::*;
-	`include "Logger.bsv"
+	//`include "Logger.bsv"
 	`include "systolic.defines"
 	
 	interface Ifc_tensor_alu#(numeric type alu_width, numeric type num_col, numeric type of_index);
@@ -79,7 +79,7 @@ package tensor_alu;
 	      lv_outp = pack(lv_signed_output);
 	    else if(opcode == Shift)
 	      lv_outp = lv_shifted_output;
-	    `logLevel(toptensoralu, 0, $format("opcode %d; operand_1 %d; operand_2 %d; output %d; \n", opcode, op1, op2, lv_outp))
+	    //`logLevel(toptensoralu, 0, $format("opcode %d; operand_1 %d; operand_2 %d; output %d; \n", opcode, op1, op2, lv_outp))
 	    return lv_outp;
 		endfunction
 		
