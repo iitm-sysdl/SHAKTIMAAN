@@ -253,8 +253,8 @@ package accelerator;
 				//else begin
 				//	gemm_module.put_inp_resp[i].put(0); //This should fix partial row input problem if top half of systolic is properly used
 				//end
-			end
-		endrule
+			endrule
+		end
 
 		for(Integer i=0; i<vnRow; i=i+1)begin
 			rule rl_send_read_resp_zero_to_gemm(rg_inp_req_valid[i]);

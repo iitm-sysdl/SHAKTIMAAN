@@ -68,7 +68,7 @@ package fetch_decode;
     Wire#(Params) wr_compute <- mkWire();
     Wire#(Params) wr_alu <- mkWire();
 
-    Reg#(Bool) rg_interrupt <- mkReg(0);
+    Reg#(Bool) rg_interrupt <- mkReg(False);
 
 		//Instantiating the master and slave interfaces  
     AXI4_Master_Xactor_IFC#(addr_width, data_width, 0) m_xactor <- mkAXI4_Master_Xactor;  
