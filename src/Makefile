@@ -1,4 +1,4 @@
-TOP_MODULE:=mktop_tb
+TOP_MODULE:=mkshaktimaan
 TOP_FILE:=accelerator.bsv
 HOMEDIR:=./
 TOP_DIR:=./
