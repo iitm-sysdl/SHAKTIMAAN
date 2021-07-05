@@ -88,6 +88,10 @@ package tensor_alu;
 							$display($time, "writing output to buffer from talu");
 						end
 					end
+					else
+					begin
+                                           rg_operand_out[i] <= x;
+					end
 				end
 			end
 			if(rg_k_out == alu_packet.window_height && rg_l_out == alu_packet.window_width)begin
@@ -140,6 +144,12 @@ package tensor_alu;
 			if(params.use_immediate)begin
 			  for(Integer i=0; i<vnum_col; i=i+1)begin
 					rg_operand_out[i] <= extend(params.immediate_value);
+				end
+			end
+			else
+			begin
+                          for(Integer i=0; i<vnum_col; i=i+1)begin
+					rg_operand_out[i] <= 0;
 				end
 			end
 		  endmethod
