@@ -38,10 +38,17 @@ package fetch_decode;
     interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_compute_params;
     interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_alu_params;
     method Bool is_complete;
-		method Bool send_interrupt;
+    method Bool send_interrupt;
   endinterface
  
-	module mkfetch_decode(Ifc_fetch_decode#(addr_width, data_width))
+ (*synthesize*)
+  module mkfd_tb(Ifc_fetch_decode#(32,128));
+    let ifc();
+    mkfetch_decode inst1(ifc);
+    return (ifc);
+  endmodule
+ 
+  module mkfetch_decode(Ifc_fetch_decode#(addr_width, data_width))
     provisos(
 						 Add#(a__, 8, addr_width),
 						 Add#(addr_width, 0, 32));
@@ -60,7 +67,8 @@ package fetch_decode;
     Wire#(Params) wr_store <- mkWire();
     Wire#(Params) wr_compute <- mkWire();
     Wire#(Params) wr_alu <- mkWire();
-		Wire#(Bool) wr_interrupt <- mkWire();
+
+    Reg#(Bool) rg_interrupt <- mkReg(0);
 
 		//Instantiating the master and slave interfaces  
     AXI4_Master_Xactor_IFC#(addr_width, data_width, 0) m_xactor <- mkAXI4_Master_Xactor;  
@@ -111,25 +119,25 @@ package fetch_decode;
 
 		//This rule receives the burst fashion and keeps enqueueing it into the fetch queue, until
 		//all instructions in the program are fetched!
-    rule rl_recv_data(m_xactor.o_rd_data.first.rid == `AXI_FETCH_MASTER &&
-											m_xactor.o_rd_data.first.rresp==AXI4_OKAY);
+    rule rl_recv_data;
       let resp <- pop_o(m_xactor.o_rd_data);
       let inst = resp.rdata;
-  
-      if(resp.rlast && rg_num_ins==0)begin
+ 
+      if(resp.rresp==AXI4_SLVERR)
+      begin
+        rg_complete <= True;
+	rg_interrupt <= True;
+      end
+      else if(resp.rlast && rg_num_ins==0)begin
         rg_complete <= True;
       end
 
 			$display($time, "Received data: %x", inst);
-  
-      ff_fetch_data.enq(inst);
+      if(resp.rresp==AXI4_OKAY) //Enqueue only if the data is received with an Okay response
+      begin
+       ff_fetch_data.enq(inst);
+      end
     endrule
-
-		rule rl_raise_interrupt(m_xactor.o_rd_data.first.rid == `AXI_FETCH_MASTER &&
-														m_xactor.o_rd_data.first.rresp == AXI4_SLVERR); 
-			let resp <- pop_o(m_xactor.o_rd_data);
-			wr_interrupt <= True;
-		endrule
 
 		//The fetched data is enqueued into the fetch pipeline FIFO, which is dequeued by 
 		//decode stage, which will decode the instructions and decide which command queue 
@@ -190,13 +198,13 @@ package fetch_decode;
       endmethod
     endinterface
 
-		method Bool send_interrupt = wr_interrupt;
-
 		//Exposing a complete signal to the top -- this can be sent as an interrupt to the host
 		//processor signalling completion 
     method Bool is_complete if(rg_complete);
        return True;
     endmethod
+
+    method Bool send_interrupt = rg_interrupt;
   
   endmodule
 
