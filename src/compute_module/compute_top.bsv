@@ -139,8 +139,8 @@ package compute_top;
 															rg_row_cntr > 0)); //Letting the bottom half of systolic to get enough input zeros/values for the output to get down
 
       Bool lv_pad_zero = (rg_h_cntr < zeroExtend(params.pad_top)) || (rg_w_cntr < zeroExtend(params.pad_left)) 
-                          || (params.ofmap_height - rg_h_cntr < zeroExtend(params.pad_bottom))
-                          || (params.ofmap_width - rg_w_cntr < zeroExtend(params.pad_right));
+                          || (params.ofmap_height - rg_h_cntr - 1 < zeroExtend(params.pad_bottom))
+                          || (params.ofmap_width - rg_w_cntr - 1 < zeroExtend(params.pad_right));
 
       //Bool is_triangle = (pack(rg_inp_traingle_cntr) == params.active_rows);
       //Bool is_old_output_triangle = (pack(rg_op_traingle_cntr) == params.active_cols);
@@ -275,7 +275,7 @@ package compute_top;
          rg_wt_cntr < params.active_rows);
 			rg_wt_addr <= rg_wt_addr - 1;
       rg_wt_cntr <= rg_wt_cntr + 1;
-      ff_wt_coord.enq(rg_wt_cntr);
+      ff_wt_coord.enq(fromInteger(rows) - params.active_rows + rg_wt_cntr);
 			if(rg_wt_cntr == params.active_rows-1)begin
 				rg_weightload_req <= False;
 			end
@@ -294,7 +294,7 @@ package compute_top;
         end
       end
       ff_wt_coord.deq();
-      if(coord == params.active_rows-1)begin
+      if(coord == fromInteger(rows)-1)begin
         rg_weightload <= False;
       end
     endmethod
@@ -308,7 +308,7 @@ package compute_top;
         rg_weightload <= True;
         rg_weightload_req <= True;
 				rg_wt_addr <= params.weight_address + zeroExtend(params.active_rows) - 1;
-        rg_wt_cntr <= fromInteger(rows) - params.active_rows;
+        rg_wt_cntr <= 0;
 
         rg_h_cntr <= 0;
         rg_w_cntr <= 0;
