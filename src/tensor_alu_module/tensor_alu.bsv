@@ -1,5 +1,5 @@
 /*
-Author: Vinod Ganesan, Gokulan Ravi, Sadhana
+Author: Sadhana S, Vinod Ganesan, Gokulan Ravi
 Email ID: g.vinod1993@gmail.com, gokulan97@gmail.com
 Details: Top Module of Vector ALU
 */
@@ -8,34 +8,34 @@ package tensor_alu;
 	import GetPut::*;
 	import Vector::*;
 	import isa::*;
-	`include "Logger.bsv"
+	//`include "Logger.bsv"
 	`include "systolic.defines"
 	
-	interface Ifc_tensor_alu#(numeric type alu_width, numeric type num_col, numeric type of_index,
-							  numeric type alu_pad);
-		interface Put#(ALU_params#(of_index, alu_pad)) subifc_put_alu_params;
+	interface Ifc_tensor_alu#(numeric type alu_width, numeric type num_col, numeric type of_index);
+		interface Put#(ALU_params) subifc_put_alu_params;
 		method ActionValue#(TALUOpReq#(of_index)) mv_send_req_op;
-		method Action ma_recv_op(Vector#(num_col, Bit#(alu_width)) vec_data);
+		interface Vector#(num_col, Put#(Bit#(alu_width))) subifc_recv_op;
 		method ActionValue#(TALUOutReq#(of_index, alu_width, num_col)) mav_put_result;
 		interface Get#(Bool) subifc_get_alu_complete;
 	endinterface
-	
+
 	//(*synthesize*)
-	//module mktalu_Tb(Ifc_tensor_alu#(16, 4, 8, 23));
-	//  let ifc();
-	//  mk_tensor_alu inst1(ifc);
-	//  return (ifc);
+	//module mktensoralu(Ifc_tensor_alu#(`OUTWIDTH, `NUMCOLS, TLog#(`OBUF_ENTRIES)));
+	//	let ifc();
+	//	mk_tensor_alu _temp(ifc);
+	//	return ifc;
 	//endmodule
 	
-	module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index, alu_pad))
+	module mk_tensor_alu(Ifc_tensor_alu#(alu_width, num_col, of_index))
 		provisos(
-					Add#(8, a__, of_index),
-					Add#(8, b__, alu_width)
+					Add#(a__,`DIM_WIDTH1,of_index),
+					Add#(`DIM_WIDTH1, b__, alu_width),
+					Add#(c__, of_index, `DIM_WIDTH3)
 				);
 	
 		Integer vnum_col = valueOf(num_col);
 	
-		Reg#(Maybe#(ALU_params#(of_index, alu_pad))) rg_alu_packet <- mkReg(tagged Invalid);
+		Reg#(Maybe#(ALU_params)) rg_alu_packet <- mkReg(tagged Invalid);
 		Reg#(SRAM_index#(of_index)) rg_irow_addr <- mkReg(0);
 		Reg#(SRAM_index#(of_index)) rg_icol_addr <- mkReg(0);
 		Reg#(SRAM_index#(of_index)) rg_srow_addr <- mkReg(0);
@@ -45,8 +45,8 @@ package tensor_alu;
 		Wire#(SRAM_index#(of_index)) wr_send_req <- mkWire();
 		
 		Vector#(num_col, Reg#(Bit#(alu_width))) rg_operand_out <- replicateM(mkReg(0));
-		Vector#(num_col, Wire#(Bit#(alu_width))) wr_operand <- replicateM(mkWire());
-		Vector#(num_col, Wire#(Bit#(alu_width))) wr_operand_out <- replicateM(mkWire());
+		Vector#(num_col, RWire#(Bit#(alu_width))) wr_operand <- replicateM(mkRWire());
+		Vector#(num_col, RWire#(Bit#(alu_width))) wr_operand_out <- replicateM(mkRWire());
 	
 		Reg#(Dim1) rg_i_var <- mkReg(1);
 		Reg#(Dim1) rg_j_var <- mkReg(1);
@@ -79,18 +79,25 @@ package tensor_alu;
 	      lv_outp = pack(lv_signed_output);
 	    else if(opcode == Shift)
 	      lv_outp = lv_shifted_output;
-	    `logLevel(toptensoralu, 0, $format("opcode %d; operand_1 %d; operand_2 %d; output %d; \n", opcode, op1, op2, lv_outp))
+	    //`logLevel(toptensoralu, 0, $format("opcode %d; operand_1 %d; operand_2 %d; output %d; \n", opcode, op1, op2, lv_outp))
 	    return lv_outp;
 		endfunction
 		
 		// out = op(out, in)
-		rule rl_perform_computation(rg_alu_packet matches tagged Valid .alu_packet);
+		rule rl_perform_computation(rg_alu_packet matches tagged Valid .alu_packet &&& !rg_alu_complete);
 			for(Integer i = 0; i < vnum_col; i=i+1) begin
-				if(fromInteger(i) < alu_packet.num_active)begin
-					let x = fn_alu(rg_operand_out[i], wr_operand[i], alu_packet.alu_opcode);
+				if(fromInteger(i) < alu_packet.num_active &&& wr_operand[i].wget matches tagged Valid .op)begin
+					let x = fn_alu(rg_operand_out[i], op, alu_packet.alu_opcode);
 					if(rg_k_out == alu_packet.window_height && rg_l_out == alu_packet.window_width)begin
-						wr_operand_out[i] <= x;
+						wr_operand_out[i].wset(x);
 						rg_operand_out[i] <= alu_packet.use_immediate ? extend(alu_packet.immediate_value) : 0;
+						if(fromInteger(i) == 0)begin
+							$display($time, "writing output to buffer from talu");
+						end
+					end
+					else
+                                        begin
+				          rg_operand_out[i] <= x;
 					end
 				end
 			end
@@ -111,25 +118,45 @@ package tensor_alu;
 			end
 		endrule
 	
+		Vector#(num_col, Put#(Bit#(alu_width))) ifc_input;
+		for(Integer i=0; i<vnum_col; i=i+1)begin
+			ifc_input[i] = (
+			interface Put;
+				method Action put(Bit#(alu_width) value);
+					wr_operand[i].wset(extend(value));
+				endmethod
+			endinterface
+											);
+		end
+		
+		interface subifc_recv_op = ifc_input;
+
+
 		interface Put subifc_put_alu_params;
-		  method Action put(ALU_params#(of_index, alu_pad) params) if(rg_alu_packet matches tagged Invalid);
+		  method Action put(ALU_params params) if(rg_alu_packet matches tagged Invalid);
 			rg_alu_packet <= tagged Valid params;
 			let lv_in_base_addr = params.input_address;
-			rg_irow_addr <= lv_in_base_addr;
-			rg_icol_addr <= lv_in_base_addr;
-			rg_scol_addr <= lv_in_base_addr;
-			rg_srow_addr <= lv_in_base_addr;
+			rg_irow_addr <= truncate(lv_in_base_addr);
+			rg_icol_addr <= truncate(lv_in_base_addr);
+			rg_scol_addr <= truncate(lv_in_base_addr);
+			rg_srow_addr <= truncate(lv_in_base_addr);
 			rg_i_var <= 1;
 			rg_j_var <= 1;
 			rg_k_var <= 1;
 			rg_l_var <= 1;
-			rg_output_addr <= params.output_address;
+			rg_output_addr <= truncate(params.output_address);
 			rg_req_complete <= False;
 			rg_alu_complete <= False;
 			rg_which_buffer <= unpack(params.output_address[valueOf(of_index)-1]);//MSB of index
 			if(params.use_immediate)begin
 			  for(Integer i=0; i<vnum_col; i=i+1)begin
 					rg_operand_out[i] <= extend(params.immediate_value);
+				end
+			end
+			else
+			begin
+                          for(Integer i=0; i<vnum_col; i=i+1)begin
+					rg_operand_out[i] <= 0;
 				end
 			end
 		  endmethod
@@ -183,21 +210,14 @@ package tensor_alu;
 
 			return TALUOpReq{ index: rg_scol_addr, num_valid: alu_packet.num_active, buffer: rg_which_buffer};
 		endmethod
-	
-		method Action ma_recv_op(Vector#(num_col, Bit#(alu_width)) vec_data) if(rg_alu_packet matches tagged Valid .alu_packet);
-		  for(Integer i = 0; i < vnum_col; i=i+1) begin
-				if(fromInteger(i) < alu_packet.num_active)begin
-					wr_operand[i] <= extend(vec_data[i]);
-				end
-		  end
-		endmethod
-	
+
 		method ActionValue#(TALUOutReq#(of_index, alu_width, num_col)) mav_put_result
 					if(rg_alu_packet matches tagged Valid .alu_packet);
 		  Vector#(nCol, Bit#(alu_width)) lv_temp = replicate(0);
+			$display($time, "method mav_put_result firing");
 		  for(Integer i=0; i< vnum_col; i= i+1) begin
-				if(fromInteger(i) < alu_packet.num_active)begin
-					lv_temp[i] = wr_operand_out[i];
+				if(fromInteger(i) < alu_packet.num_active &&& wr_operand_out[i].wget matches tagged Valid .op)begin
+					lv_temp[i] = op;
 				end
 		  end
 			return TALUOutReq{index: rg_output_addr, values: lv_temp, num_valid: alu_packet.num_active, buffer: rg_which_buffer};

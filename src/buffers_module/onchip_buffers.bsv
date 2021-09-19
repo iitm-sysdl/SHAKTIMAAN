@@ -36,25 +36,26 @@ package onchip_buffers;
   import BRAMCore::*;
   import BUtils::*;
   import isa::*;
-
   `include "systolic.defines"
-  `define SRAM_ADDR_WIDTH 26
 
-  interface Ifc_onchip_buffers#(numeric type sram_addr_width, numeric type if_index, numeric type if_bank, numeric type if_entries,
-																numeric type wt_index, numeric type wt_bank, numeric type wt_entries,
-																numeric type of_index, numeric type of_bank, numeric type out_entries,
+  interface Ifc_onchip_buffers#(numeric type sram_addr_width, numeric type if_entries,numeric type if_bank,
+                                numeric type wt_entries, numeric type wt_bank,
+                                numeric type of_entries,numeric type of_bank,
 																numeric type in_width, numeric type out_width);
-    interface Vector#(if_bank, BRAM2Port#(Bit#(if_index), Bit#(in_width))) ibuf;
-    interface Vector#(wt_bank, BRAM2Port#(Bit#(wt_index), Bit#(in_width))) wbuf;
-    interface Vector#(of_bank, BRAM2Port#(Bit#(of_index), Bit#(out_width))) obuf1;
-    interface Vector#(of_bank, BRAM2Port#(Bit#(of_index), Bit#(out_width))) obuf2;
+    interface Vector#(if_bank, BRAM2Port#(Bit#(TLog#(if_entries)), Bit#(in_width))) ibuf;
+    interface Vector#(wt_bank, BRAM2Port#(Bit#(TLog#(wt_entries)), Bit#(in_width))) wbuf;
+    interface Vector#(of_bank, BRAM2Port#(Bit#(TLog#(of_entries)), Bit#(out_width))) obuf1;
+    interface Vector#(of_bank, BRAM2Port#(Bit#(TLog#(of_entries)), Bit#(out_width))) obuf2;
   endinterface
 
-  module mkbuffers(Ifc_onchip_buffers#(sram_addr_width, if_index, if_bank, if_entries, wt_index, wt_bank, wt_entries, of_index, of_bank, of_entries, in_width, out_width))
+  //module mkbuffers_Tb(Ifc_onchip_buffers#(`SRAM_ADDR_WIDTH,`IBUF_ENTRIES,`IBUF_BANKS,`WBUF_ENTRIES,`WBUF_BANKS,`OBUF_ENTRIES,`OBUF_BANKS,`INWIDTH,`OUTWIDTH));
+  //  let ifc();
+  //  mkbuffers _temp(ifc);
+  //  return ifc;
+  //endmodule
+
+  module mkbuffers(Ifc_onchip_buffers#(sram_addr_width, if_entries, if_bank, wt_entries, wt_bank, of_entries, of_bank, in_width, out_width))
     provisos(
-      Log#(if_bank, if_bankbits),
-      Log#(wt_bank, wt_bankbits),
-      Log#(of_bank, of_bankbits),
       Mul#(in_bytes, 8, in_width),
       Mul#(out_bytes, 8, out_width),
       Log#(if_entries, if_index),
@@ -90,12 +91,5 @@ package onchip_buffers;
     interface obuf2 = obuffer2;
 
   endmodule
-
-  // (*synthesize*)
-  // module mkTb(Ifc_onchip_buffers);
-  //   let ifc();
-  //   mkbuffers buffer(ifc);
-  //   return (ifc);
-  // endmodule
 
 endpackage

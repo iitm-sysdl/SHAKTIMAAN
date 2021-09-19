@@ -38,19 +38,20 @@ package fetch_decode;
     interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_compute_params;
     interface Get#(Tuple2#(Dep_flags, Params)) ifc_get_alu_params;
     method Bool is_complete;
+		method Bool send_interrupt;
   endinterface
+
+  //(*synthesize*)
+  //module mkfetch_decode_Tb(Ifc_fetch_decode#(`DRAM_ADDR_WIDTH,`AXI_DATAWIDTH));
+  //  let ifc();
+  //  mkfetch_decode _temp(ifc);
+  //  return ifc;
+  //endmodule
  
- (*synthesize*)
-  module mkfd_tb(Ifc_fetch_decode#(32,128));
-    let ifc();
-    mkfetch_decode inst1(ifc);
-    return (ifc);
-  endmodule
- 
-  module mkfetch_decode(Ifc_fetch_decode#(addr_width, data_width))
+	module mkfetch_decode(Ifc_fetch_decode#(addr_width, data_width))
     provisos(
-						 Add#(a__, 8, addr_width),
-						 Add#(addr_width, 0, 32));
+						 Add#(a__, addr_width, data_width),
+						 Add#(b__,12,addr_width));
   
 		/* Register and FIFO declarations */
     Reg#(Bit#(addr_width)) rg_pc <- mkReg(?);
@@ -66,6 +67,7 @@ package fetch_decode;
     Wire#(Params) wr_store <- mkWire();
     Wire#(Params) wr_compute <- mkWire();
     Wire#(Params) wr_alu <- mkWire();
+		Wire#(Bool) wr_interrupt <- mkWire();
 
 		//Instantiating the master and slave interfaces  
     AXI4_Master_Xactor_IFC#(addr_width, data_width, 0) m_xactor <- mkAXI4_Master_Xactor;  
@@ -85,7 +87,7 @@ package fetch_decode;
       Bool valid = lv_addr == `CONFIG_ADDR;
   
       if(valid)begin
-				Bit#(32) addr = lv_data[valueOf(addr_width)-1:0];
+				Bit#(addr_width) addr = truncate(lv_data);
 				rg_pc <= addr;
         Bit#(16) ins_count = lv_data[16+valueOf(addr_width)-1:valueOf(addr_width)];
 				rg_num_ins <= ins_count;
@@ -102,12 +104,12 @@ package fetch_decode;
 		//num_ins/256 is the total number of fetch requests sent to the memory
     rule rl_send_request(rg_num_ins > 0);
       Bit#(8) burst_len = min(8'd255, truncate(rg_num_ins-1)); 
-      
-      Bit#(addr_width) next_pc = rg_pc + zeroExtend(burst_len << 4);
+      Bit#(12) lv_blen_shifted = zeroExtend(burst_len) << 4; // burstleng(8)+4//TODO: Is this change correct?
+      Bit#(addr_width) next_pc = rg_pc + zeroExtend(lv_blen_shifted);
       rg_pc <= next_pc;
       rg_num_ins <= rg_num_ins - zeroExtend(burst_len + 1);
         
-      let read_request = AXI4_Rd_Addr{ araddr: rg_pc, arid: `AXI_FETCH_MASTER, arlen: burst_len, arprot: ?, //TODO: fix arprot
+      let read_request = AXI4_Rd_Addr{ araddr: rg_pc, arid: `Fetch_master, arlen: burst_len, arprot: ?, //TODO: fix arprot
                                        arsize: 3'b100, arburst: 2'b01, aruser: 0};
       m_xactor.i_rd_addr.enq(read_request);
 			$display($time, "Sending request for addr: %x, pending: %x", rg_pc, rg_num_ins-zeroExtend(burst_len-1));
@@ -116,7 +118,8 @@ package fetch_decode;
 
 		//This rule receives the burst fashion and keeps enqueueing it into the fetch queue, until
 		//all instructions in the program are fetched!
-    rule rl_recv_data;
+    rule rl_recv_data(m_xactor.o_rd_data.first.rid == `Fetch_master &&
+											m_xactor.o_rd_data.first.rresp==AXI4_OKAY);
       let resp <- pop_o(m_xactor.o_rd_data);
       let inst = resp.rdata;
   
@@ -128,6 +131,12 @@ package fetch_decode;
   
       ff_fetch_data.enq(inst);
     endrule
+
+		rule rl_raise_interrupt(m_xactor.o_rd_data.first.rid == `Fetch_master &&
+														m_xactor.o_rd_data.first.rresp == AXI4_SLVERR); 
+			let resp <- pop_o(m_xactor.o_rd_data);
+			wr_interrupt <= True;
+		endrule
 
 		//The fetched data is enqueued into the fetch pipeline FIFO, which is dequeued by 
 		//decode stage, which will decode the instructions and decide which command queue 
@@ -187,6 +196,8 @@ package fetch_decode;
         return tuple2(wr_flags, wr_alu);
       endmethod
     endinterface
+
+		method Bool send_interrupt = wr_interrupt;
 
 		//Exposing a complete signal to the top -- this can be sent as an interrupt to the host
 		//processor signalling completion 

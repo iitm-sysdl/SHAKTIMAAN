@@ -38,20 +38,21 @@ package intMul_WS;
   import GetPut::*;
   import ConfigReg::*;
   import DReg::*;
+	import FIFOF::*;
 
   interface Ifc_intMul_WS#(numeric type in_width, numeric type out_width);
 		/*doc:subifc: interface to receive weight from north*/
-    interface Put#(Tuple2#((Maybe#(Bit#(in_width))), Bit#(8))) subifc_put_wgt;
+    interface Put#(Tuple2#((Bit#(in_width)), Bit#(8))) subifc_put_wgt;
 		/*doc:subifc: interface to receive input from west*/
-    interface Put#(Maybe#(Bit#(in_width))) subifc_put_inp;
+    interface Put#(Bit#(in_width)) subifc_put_inp;
 		/*doc:subifc: interface to receive partial sum from north*/
     interface Put#(Bit#(out_width)) subifc_put_acc;
 		/*doc:subifc: interface to send partial sum to south*/
     interface Get#(Bit#(out_width)) subifc_get_acc;
 		/*doc:subifc: interface to send weight to south*/
-    interface Get#(Tuple2#(Maybe#(Bit#(in_width)), Bit#(8))) subifc_get_wgt;
+    interface Get#(Tuple2#(Bit#(in_width), Bit#(8))) subifc_get_wgt;
 		/*doc:subifc: interface to send input to east*/
-    interface Get#(Maybe#(Bit#(in_width))) subifc_get_inp;
+    interface Get#(Bit#(in_width)) subifc_get_inp;
   endinterface
 	
 
@@ -74,83 +75,81 @@ package intMul_WS;
 				endinterface);
 	endfunction 
 
-(*synthesize*)
-  module mkmac_tb(Ifc_intMul_WS#(8, 16));
-    Ifc_intMul_WS#(8, 16) inst1 <- mkintMulWS(0, 0, 0);
-    return (inst1);
-  endmodule
+//(*synthesize*)
+//  module mkmac_tb_old(Ifc_intMul_WS#(8, 32));
+//    Ifc_intMul_WS#(8, 32) inst1 <- mkintMulWS(1);
+//    return (inst1);
+//  endmodule
  
-  module mkintMulWS#(Int#(8) row, Int#(8) col, parameter Integer coord)(Ifc_intMul_WS#(in_width, out_width))
+  module mkintMulWS#(parameter Bit#(8) coord)(Ifc_intMul_WS#(in_width, out_width))
     provisos(
              Add#(a__, in_width, out_width)
             );
 
 	/*doc:reg: these registers are used to hold weight, input and output values, respectively*/
-  Reg#(Maybe#(Bit#(in_width)))   rg_n             <- mkConfigReg(tagged Invalid);
-  RegMod#(Maybe#(Bit#(in_width)))        rg_north         =  configDReg(rg_n);
-  Reg#(Maybe#(Bit#(in_width)))   rg_w             <- mkConfigReg(tagged Invalid);
-  RegMod#(Maybe#(Bit#(in_width)))        rg_west          =  configDReg(rg_w);
-  Reg#(Maybe#(Bit#(out_width)))  rg_input_acc     <- mkConfigReg(tagged Invalid);
+  Reg#(Bit#(in_width)) rg_north <- mkReg(0);
+	FIFOF#(Bit#(in_width)) ff_west  <- mkSizedFIFOF(2);
+	FIFOF#(Bit#(out_width)) ff_input_acc <- mkSizedFIFOF(2);
+	Wire#(Bit#(in_width)) wr_west <- mkWire(); 
+  //Reg#(Maybe#(Bit#(in_width)))   rg_n             <- mkConfigReg(tagged Invalid);
+  //RegMod#(Maybe#(Bit#(in_width)))        rg_north         =  configDReg(rg_n);
+  //Reg#(Maybe#(Bit#(in_width)))   rg_w             <- mkConfigReg(tagged Invalid);
+  //RegMod#(Maybe#(Bit#(in_width)))        rg_west          =  configDReg(rg_w);
+  //Reg#(Maybe#(Bit#(out_width)))  rg_input_acc     <- mkConfigReg(tagged Invalid);
 	/*doc:wire: this wire is used to send computed result to next PE*/
   Wire#(Bit#(out_width))         acc_output       <- mkWire();
 	/*doc:reg: register to store the coordinate of the PE*/
-  Reg#(Bit#(8))                  rg_coord         <- mkReg(fromInteger(coord));
+  Reg#(Bit#(8))                  rg_coord         <- mkReg(coord);
 	/*doc:reg: register to hold the coord till which the weight has to flow*/
 	Reg#(Bit#(8))                  rg_counter       <- mkReg(0);
-	/*doc:reg: registers to check flow of weights, inputs and output values, respectively*/
-  Reg#(Bool)                     rg_flow_ctrl     <- mkDReg(False);
-  Reg#(Bool)                     rg_hor_flow_ctrl <- mkDReg(False);
-  Reg#(Bool)                     rg_acc_flow_ctrl <- mkDReg(False);
   Bool check = (rg_counter >= rg_coord);
 
 	/*doc:rule: rule which performs MAC operation*/
-  rule rl_mult_add_phase(rg_n matches tagged Valid .north &&&
-												 rg_w matches tagged Valid .west &&&
-												 rg_input_acc matches tagged Valid .input_acc);
-		let north <- rg_north;
-		let west  <- rg_west;
-    Bit#(out_width) output_mul = extend(unpack(validValue(north)))*extend(unpack(validValue(west)));
-		output_mul = output_mul + unpack(input_acc);
+  rule rl_mult_add_phase;
+		Int#(out_width) north = unpack(signExtend(rg_north));
+		Int#(out_width) west  = unpack(signExtend(ff_west.first));
+    Int#(out_width) input_acc = unpack(ff_input_acc.first);
+    Int#(out_width) output_mul = input_acc + north*west;
     acc_output <= pack(output_mul);
-    rg_acc_flow_ctrl <= True;
   endrule
 	
   interface Put subifc_put_wgt;
-    method Action put(Tuple2#(Maybe#(Bit#(in_width)),Bit#(8)) inp);
-      rg_n     <= tpl_1(inp);
+    method Action put(Tuple2#(Bit#(in_width),Bit#(8)) inp);
+      rg_north <= tpl_1(inp);
       rg_counter   <= tpl_2(inp);
-      rg_flow_ctrl <= True; 
     endmethod
   endinterface
 
   interface Put subifc_put_acc;
     method Action put(Bit#(out_width) acc);
-      rg_input_acc <= tagged Valid acc;
+			ff_input_acc.enq(acc);
     endmethod
   endinterface
 
   interface Get subifc_get_acc;
     method ActionValue#(Bit#(out_width)) get;
+      wr_west <= ff_west.first;
+      ff_input_acc.deq;
+      ff_west.deq;
 			return acc_output;
     endmethod
   endinterface
 
   interface Put subifc_put_inp;
-    method Action put(Maybe#(Bit#(in_width)) rowW);
-      rg_w <= rowW;
-      rg_hor_flow_ctrl <= True;
+    method Action put(Bit#(in_width) rowW);
+			ff_west.enq(rowW);
     endmethod
   endinterface
     
   interface Get subifc_get_inp;
-    method ActionValue#(Maybe#(Bit#(in_width))) get if(rg_hor_flow_ctrl && isValid(rg_w));
-      return rg_w;
+    method ActionValue#(Bit#(in_width)) get;
+      return wr_west;
     endmethod
   endinterface
 
   interface Get subifc_get_wgt;
-    method ActionValue#(Tuple2#(Maybe#(Bit#(in_width)), Bit#(8))) get if(!check && rg_flow_ctrl);
-      let send = tuple2(rg_n, rg_counter);
+    method ActionValue#(Tuple2#(Bit#(in_width), Bit#(8))) get if(!check);
+      let send = tuple2(rg_north,rg_counter);
       return send;
     endmethod
   endinterface 

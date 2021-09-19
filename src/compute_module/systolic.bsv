@@ -40,32 +40,42 @@ package systolic;
   import  GetPut ::*;
   import  Vector ::*;
   import  FIFOF::*;
+  `include "systolic.defines"
 
 	interface Ifc_row_connections#(numeric type in_width);
-		interface Put#(Maybe#(Bit#(in_width))) subifc_put_inp;
+		interface Put#(Bit#(in_width)) subifc_put_inp;
   endinterface
 
   interface Ifc_col_connections#(numeric type in_width, numeric type out_width);
-    interface Put#(Tuple2#(Maybe#(Bit#(in_width)), Bit#(8))) subifc_put_wgt;
+    interface Put#(Tuple2#(Bit#(in_width), Bit#(8))) subifc_put_wgt;
 		interface Put#(Bit#(out_width)) subifc_put_acc;
 		interface Get#(Bit#(out_width)) subifc_get_acc;
   endinterface
 
   interface Ifc_systolic#(numeric type nRow, numeric type nCol, numeric type in_width, numeric type out_width);
     interface Vector#(nRow, Ifc_row_connections#(in_width)) subifc_rows;
-    interface Vector#(nCol, Ifc_col_connections#(in_width, out_width)) subifc_cols;
+    interface Vector#(nCol, Ifc_col_connections#(in_width,out_width)) subifc_cols;
   endinterface
 
   //(*synthesize*)
-  //module mksystolic2(Ifc_systolic#(2,2,16));
+  //module mksystolic_test(Ifc_systolic#(`NUMROWS,`NUMCOLS,`INWIDTH,`OUTWIDTH));
   //    let ifc();
   //    mksystolic inst(ifc);
   //    return (ifc);
   //endmodule
 
+  (*synthesize*)
+  module mkmac_ws#(parameter Bit#(8) coordinate)(Ifc_intMul_WS#(`INWIDTH,`OUTWIDTH));
+    let ifc();
+    mkintMulWS#(coordinate) inst(ifc);
+    return ifc;
+  endmodule
+
   module mksystolic(Ifc_systolic#(nRow,nCol,in_width,out_width))
       provisos (
-                 Add#(a__, in_width, out_width)
+                 Add#(a__, in_width, out_width),
+                 Add#(in_width,0,`INWIDTH),
+                 Add#(out_width,0,`OUTWIDTH)
                );
       let vnRow = valueOf(nRow);
       let vnCol = valueOf(nCol);
@@ -73,7 +83,7 @@ package systolic;
       Ifc_intMul_WS#(in_width, out_width) intArray[vnRow][vnCol];
       for(Integer i = 0; i < vnRow; i=i+1) begin
         for(Integer j = 0; j < vnCol; j=j+1) begin
-          intArray[i][j] <- mkintMulWS(fromInteger(i),fromInteger(j), vnRow-i);
+          intArray[i][j] <- mkmac_ws(fromInteger(vnRow-i));
         end
       end
       
@@ -91,11 +101,11 @@ package systolic;
       end
 
       Vector#(nRow, Ifc_row_connections#(in_width)) vec_row_ifc;
-      Vector#(nCol, Ifc_col_connections#(in_width, out_width)) vec_col_ifc;
+      Vector#(nCol, Ifc_col_connections#(in_width,out_width)) vec_col_ifc;
 
       for(Integer i = 0; i < vnRow; i=i+1) begin
         vec_row_ifc[i] = (
-          interface Ifc_row_connections;
+          interface Ifc_row_connections#(in_width);
 						interface Put subifc_put_inp = intArray[i][0].subifc_put_inp;
 				  endinterface
         );
@@ -103,7 +113,7 @@ package systolic;
 
       for(Integer i = 0; i < vnCol; i=i+1) begin
         vec_col_ifc[i] = (
-					interface Ifc_col_connections;
+					interface Ifc_col_connections#(in_width,out_width);
 						interface subifc_put_wgt = intArray[0][i].subifc_put_wgt;
 						interface subifc_put_acc = intArray[0][i].subifc_put_acc;
 						interface subifc_get_acc = intArray[vnRow-1][i].subifc_get_acc;

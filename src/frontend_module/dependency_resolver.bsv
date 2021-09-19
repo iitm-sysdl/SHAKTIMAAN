@@ -37,36 +37,31 @@ package dependency_resolver;
 		 3. The ifc_put_<module>_complete is used to receive the complete signals from the previously
 		    scheduled instructions which is vital for resolving the dependencies of the subsequent instructions
 	*/
-  interface Ifc_dependency_resolver#(numeric type if_index, numeric type of_index, numeric type wt_index,
-      numeric type ld_pad, numeric type st_pad, numeric type cp_pad, numeric type alu_pad);
+  interface Ifc_dependency_resolver;
     interface Put#(Tuple2#(Dep_flags, Params)) ifc_put_load_params;
     interface Put#(Tuple2#(Dep_flags, Params)) ifc_put_store_params;
     interface Put#(Tuple2#(Dep_flags, Params)) ifc_put_compute_params;
     interface Put#(Tuple2#(Dep_flags, Params)) ifc_put_alu_params;
   
-    interface Get#(Load_params#(ld_pad)) ifc_get_load_instruction;
-    interface Get#(Store_params#(st_pad)) ifc_get_store_instruction;
-    interface Get#(Compute_params#(if_index, of_index, wt_index, cp_pad)) ifc_get_gemm_instruction;
-    interface Get#(ALU_params#(of_index, alu_pad)) ifc_get_alu_instruction;
+    interface Get#(Load_params) ifc_get_load_instruction;
+    interface Get#(Store_params) ifc_get_store_instruction;
+    interface Get#(Compute_params) ifc_get_gemm_instruction;
+    interface Get#(ALU_params) ifc_get_alu_instruction;
   
     interface Put#(Bool) ifc_put_load_complete;
     interface Put#(Bool) ifc_put_store_complete;
     interface Put#(Bool) ifc_put_gemm_complete;
     interface Put#(Bool) ifc_put_alu_complete;
   endinterface 
- 
- (*synthesize*)
-  module mkdep_Tb(Ifc_dependency_resolver#(15,15,15,20,20,18,23));
-    let ifc();
-    mkdependency_resolver inst1(ifc);
-    return (ifc);
-  endmodule
 
-  module mkdependency_resolver(Ifc_dependency_resolver#(if_index, of_index, wt_index, ld_pad, st_pad, cp_pad, alu_pad))
-		provisos(Add#(if_index, TAdd#(of_index, TAdd#(wt_index, cp_pad)), 63),
-						 Add#(of_index, TAdd#(of_index, alu_pad), 53),
-						 Add#(ld_pad, 0, 20),
-						 Add#(st_pad, 0, 20));
+  //(*synthesize*)
+  //module mkdependency_resolver_Tb(Ifc_dependency_resolver);
+  //  let ifc();
+  //  mkdependency_resolver _temp(ifc);
+  //  return ifc;
+  //endmodule
+ 
+	module mkdependency_resolver(Ifc_dependency_resolver);
   
 		//Instantiating the load, store, gemm and ALU queue 
     FIFOF#(Dep_flags) ff_load_queue  <- mkSizedFIFOF(valueOf(`INS_QUEUE_SIZE));
@@ -74,11 +69,10 @@ package dependency_resolver;
     FIFOF#(Dep_flags) ff_alu_queue   <- mkSizedFIFOF(valueOf(`INS_QUEUE_SIZE));
     FIFOF#(Dep_flags) ff_store_queue <- mkSizedFIFOF(valueOf(`INS_QUEUE_SIZE));
   
-    FIFOF#(Load_params#(ld_pad))  ff_load_params  <- mkSizedFIFOF(valueOf(`PARAMS_QUEUE_SIZE));
-    FIFOF#(Store_params#(st_pad)) ff_store_params <- mkSizedFIFOF(valueOf(`PARAMS_QUEUE_SIZE));
-    FIFOF#(Compute_params#(if_index, of_index,wt_index, cp_pad)) 
-                                  ff_gemm_params  <- mkSizedFIFOF(valueOf(`PARAMS_QUEUE_SIZE));
-    FIFOF#(ALU_params#(of_index, alu_pad)) ff_alu_params   <- mkSizedFIFOF(valueOf(`PARAMS_QUEUE_SIZE));
+    FIFOF#(Load_params)    ff_load_params  <- mkSizedFIFOF(valueOf(`PARAMS_QUEUE_SIZE));
+    FIFOF#(Store_params)   ff_store_params <- mkSizedFIFOF(valueOf(`PARAMS_QUEUE_SIZE));
+    FIFOF#(Compute_params) ff_gemm_params  <- mkSizedFIFOF(valueOf(`PARAMS_QUEUE_SIZE));
+    FIFOF#(ALU_params)     ff_alu_params   <- mkSizedFIFOF(valueOf(`PARAMS_QUEUE_SIZE));
   
     FIFOF#(Bool) ff_load_to_gemm  <- mkSizedFIFOF(valueOf(`DEP_QUEUE_SIZE));
     FIFOF#(Bool) ff_gemm_to_load  <- mkSizedFIFOF(valueOf(`DEP_QUEUE_SIZE));
@@ -86,6 +80,13 @@ package dependency_resolver;
     FIFOF#(Bool) ff_alu_to_gemm   <- mkSizedFIFOF(valueOf(`DEP_QUEUE_SIZE));
     FIFOF#(Bool) ff_alu_to_store  <- mkSizedFIFOF(valueOf(`DEP_QUEUE_SIZE));
     FIFOF#(Bool) ff_store_to_alu  <- mkSizedFIFOF(valueOf(`DEP_QUEUE_SIZE));
+
+    Wire#(Bool) load_dispatch <- mkWire();
+    Wire#(Bool) gemm_load_dispatch <- mkWire();
+    Wire#(Bool) gemm_alu_dispatch <- mkWire();
+    Wire#(Bool) talu_gemm_dispatch <- mkWire();
+    Wire#(Bool) talu_store_dispatch <- mkWire();
+    Wire#(Bool) store_dispatch <- mkWire();
   
     function Bool fn_resolve_prev_pop(FIFOF#(Dep_flags) flag_queue, FIFOF#(Bool) dep_queue);
       Dep_flags flags = flag_queue.first;
@@ -115,11 +116,35 @@ package dependency_resolver;
 			endaction
     endfunction
   
+    rule ff_gemm_to_load_deq(load_dispatch == True);
+     ff_gemm_to_load.deq();
+    endrule
+  
+    rule ff_load_to_gemm_deq(gemm_load_dispatch == True);
+     ff_load_to_gemm.deq();
+    endrule
+
+    rule ff_alu_to_gemm_deq(gemm_alu_dispatch == True);
+     ff_alu_to_gemm.deq();
+    endrule
+
+    rule ff_gemm_to_alu_deq(talu_gemm_dispatch == True);
+     ff_gemm_to_alu.deq();
+    endrule
+
+    rule ff_store_to_alu_deq(talu_store_dispatch == True);
+     ff_store_to_alu.deq();
+    endrule
+
+    rule ff_alu_to_store_deq(store_dispatch == True);
+     ff_alu_to_store.deq();
+    endrule
+
     interface Put ifc_put_load_params;
       method Action put(Tuple2#(Dep_flags, Params) ins);
         Dep_flags flags = tpl_1(ins);
         Params params   = tpl_2(ins);
-        Load_params#(ld_pad) ld_params = unpack(pack(params));
+        Load_params ld_params = unpack(pack(params));
         ff_load_queue.enq(flags);
         ff_load_params.enq(ld_params);
       endmethod
@@ -129,7 +154,7 @@ package dependency_resolver;
       method Action put(Tuple2#(Dep_flags, Params) ins);
         Dep_flags flags = tpl_1(ins);
         Params params   = tpl_2(ins);
-        Store_params#(st_pad) st_params = unpack(pack(params));
+        Store_params st_params = unpack(pack(params));
         ff_store_queue.enq(flags);
         ff_store_params.enq(st_params);
       endmethod
@@ -139,7 +164,7 @@ package dependency_resolver;
       method Action put(Tuple2#(Dep_flags, Params) ins);
         Dep_flags flags = tpl_1(ins);
         Params params   = tpl_2(ins);
-        Compute_params#(if_index, of_index, wt_index, cp_pad) cp_params = unpack(pack(params));
+        Compute_params cp_params = unpack(pack(params));
         ff_gemm_queue.enq(flags);
         ff_gemm_params.enq(cp_params);
       endmethod
@@ -149,15 +174,16 @@ package dependency_resolver;
       method Action put(Tuple2#(Dep_flags, Params) ins);
         Dep_flags flags = tpl_1(ins);
         Params params   = tpl_2(ins);
-        ALU_params#(of_index, alu_pad) alu_params = unpack(pack(params));
+        ALU_params alu_params = unpack(pack(params));
         ff_alu_queue.enq(flags);
         ff_alu_params.enq(alu_params);
       endmethod
     endinterface
   
     interface Get ifc_get_load_instruction;
-      method ActionValue#(Load_params#(ld_pad)) get if(fn_resolve_next_pop(ff_load_queue, ff_gemm_to_load));
+      method ActionValue#(Load_params) get if(fn_resolve_next_pop(ff_load_queue, ff_gemm_to_load));
         ff_load_params.deq();
+	load_dispatch <= ff_load_queue.first.pop_next_dep;
         return ff_load_params.first;
       endmethod
     endinterface
@@ -170,8 +196,9 @@ package dependency_resolver;
     endinterface
   
     interface Get ifc_get_store_instruction;
-      method ActionValue#(Store_params#(st_pad)) get if(fn_resolve_prev_pop(ff_store_queue, ff_alu_to_store));
+      method ActionValue#(Store_params) get if(fn_resolve_prev_pop(ff_store_queue, ff_alu_to_store));
         ff_store_params.deq();
+	store_dispatch <= ff_store_queue.first.pop_prev_dep;
         return ff_store_params.first;
       endmethod
     endinterface
@@ -184,10 +211,12 @@ package dependency_resolver;
     endinterface
   
     interface Get ifc_get_gemm_instruction;
-      method ActionValue#(Compute_params#(if_index, of_index, wt_index, cp_pad)) get
+      method ActionValue#(Compute_params) get
         if(fn_resolve_prev_pop(ff_gemm_queue, ff_load_to_gemm) &&
            fn_resolve_next_pop(ff_gemm_queue, ff_alu_to_gemm));
         ff_gemm_params.deq();
+	gemm_load_dispatch <= ff_gemm_queue.first.pop_prev_dep;
+	gemm_alu_dispatch <= ff_gemm_queue.first.pop_next_dep;
         return ff_gemm_params.first;
       endmethod
     endinterface
@@ -201,10 +230,12 @@ package dependency_resolver;
     endinterface
   
     interface Get ifc_get_alu_instruction;
-      method ActionValue#(ALU_params#(of_index, alu_pad)) get
+      method ActionValue#(ALU_params) get
         if(fn_resolve_prev_pop(ff_alu_queue, ff_gemm_to_alu) &&
            fn_resolve_next_pop(ff_alu_queue, ff_store_to_alu));
         ff_alu_params.deq();
+	talu_gemm_dispatch <= ff_alu_queue.first.pop_prev_dep;
+	talu_store_dispatch <= ff_alu_queue.first.pop_next_dep;
         return ff_alu_params.first;
       endmethod
     endinterface
@@ -216,7 +247,7 @@ package dependency_resolver;
         ff_alu_queue.deq();
       endmethod
     endinterface
-  
+
   endmodule
 
 endpackage
