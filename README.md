@@ -3,6 +3,8 @@ SHAKTIMAAN is a synthesizable and parameterized open source DNN accelerator.
 The accelerator contains a systolic array and a SIMD engine to perform the expensive DNN computations. The entire code is written in Bluespec and is
 compatible with Shakti C-Class processor.
 
+![systolic block diagram](./files/systolic_block.png)
+
 ## Dependencies
 1. [Installing Bluespec](https://github.com/B-Lang-org/bsc)
 2. [Installing verilator](https://www.veripool.org/verilator/)
@@ -28,3 +30,7 @@ Non configurable parameters, such as ISA definitions, are defined in `src/common
 
 ## Full system simulation
 More details to follow
+
+## Additional resources
+1. [SHAKTIMAAN: An Open Source Accelerator for Deep Learning Presentation](https://slides.com/pratyushkumarpanda/shaktimaan_20200804/fullscreen?token=D6gnBhW7)
+2. [DDP presentation](https://slides.com/gokulanravi/ddp_final)
